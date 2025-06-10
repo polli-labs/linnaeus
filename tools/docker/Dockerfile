@@ -1,82 +1,89 @@
-# ───────────────────────────────────────────────────
-# Linnaeus Dev/Training Container (GPU‑optimized)
-# Base: CUDA 12.4.1 + cuDNN 9 on Ubuntu 22.04
-# ───────────────────────────────────────────────────
+# tools/docker/Dockerfile
+
+# Use the full NVIDIA NGC container for development and compilation capabilities
 FROM nvidia/cuda:12.4.1-cudnn-devel-ubuntu22.04
 
-LABEL maintainer="Caleb Sowers <caleb@polli.ai>"
-LABEL description="Linnaeus training container: PyTorch + Flash‑Attention + CUDA 12.4.1"
+# --- Environment Setup ---
+# Prevents interactive prompts during package installation
+ENV DEBIAN_FRONTEND=noninteractive
+ENV TZ=Etc/UTC
+# Set path for uv
+ENV PATH="/root/.local/bin:$PATH"
+# Set PYTHONPATH to include the app directory
+ENV PYTHONPATH="/app/linnaeus:${PYTHONPATH}"
 
-# Set environment variables
-ENV PYTHONUNBUFFERED=1 \
-    DEBIAN_FRONTEND=noninteractive \
-    TZ=Etc/UTC \
-    LANG=C.UTF-8 \
-    LC_ALL=C.UTF-8 \
-    # Set CONFIG_DIR for your application within the container
-    CONFIG_DIR=/app/linnaeus/configs \
-    # Add uv bin directory to PATH
-    PATH="/root/.local/bin:${PATH}"
-
-# Set working directory early
-WORKDIR /app
-
-# 1) System dependencies & ninja for Flash‑Attention
+# --- System Dependencies ---
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      python3 python3-pip build-essential git curl ca-certificates \
-      ninja-build htop vim openssh-client rclone \
+    build-essential \
+    git \
+    python3.11 \
+    python3.11-venv \
+    python3-pip \
+    curl \
+    libglib2.0-0 \
+    libsm6 \
+    libxext6 \
+    libfontconfig1 \
+    libxrender1 \
+    libgl1-mesa-glx \
     && rm -rf /var/lib/apt/lists/*
 
-# 2) Upgrade pip/toolchain and ensure python symlink
-RUN pip3 install --upgrade pip setuptools wheel && \
+# Link python3 to python3.11 and create python symlink
+RUN ln -sf /usr/bin/python3.11 /usr/bin/python3 && \
     ln -sf /usr/bin/python3 /usr/bin/python
 
-# 3) Install PyTorch CUDA 12.4 wheels
-RUN pip3 install torch torchvision torchaudio \
-      --index-url https://download.pytorch.org/whl/cu124
+# --- Install uv ---
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh
 
-# 4) Install Flash‑Attention with build isolation disabled and compilation optimization
-RUN MAX_JOBS=4 pip3 install flash-attn --no-build-isolation
+# --- Application Setup ---
+WORKDIR /app
 
-# 5) Install uv for dependency management
-RUN pip3 install --no-cache-dir uv
+# Define build arguments for source selection
+ARG SOURCE=github
 
-# 6) Copy & install Linnaeus & dependencies
-COPY pyproject.toml ./
-COPY linnaeus/ ./linnaeus/
-COPY configs/ ./configs/
-RUN uv pip install --system --no-cache-dir -e .[dev]
+# Setup linnaeus code based on source type
+RUN if [ "$SOURCE" = "github" ]; then \
+      echo "SOURCE is github, cloning from GitHub..."; \
+      git clone https://github.com/polli-labs/linnaeus.git linnaeus; \
+    else \
+      echo "SOURCE is local, creating directory for local copy..."; \
+      mkdir -p linnaeus; \
+    fi
 
-# 7) Copy & install ibrida
-COPY ibrida /app/ibrida
-RUN cd /app/ibrida && pip3 install --no-cache-dir -e .
+# Copy local files only if SOURCE=local
+# Docker will copy regardless, but we'll remove if not needed
+COPY . ./linnaeus-temp
+RUN if [ "$SOURCE" = "local" ]; then \
+      echo "Using local source, copying files..."; \
+      cp -r ./linnaeus-temp/* ./linnaeus/ 2>/dev/null || true; \
+      cp -r ./linnaeus-temp/.[^.]* ./linnaeus/ 2>/dev/null || true; \
+    fi && \
+    rm -rf ./linnaeus-temp
 
-ENV PYTHONPATH="/app:${PYTHONPATH:-}"
-
-# Final working directory
 WORKDIR /app/linnaeus
 
-# Expose ports for potential TensorBoard access
-EXPOSE 6006
+# --- Python Dependencies ---
+# Define build arguments for conditional Flash Attention installation
+# Set to "true" or "false" during build
+ARG FLASH_ATTENTION=true
 
-# --- SSH Configuration for Git ---
-# Create the .ssh directory
-RUN mkdir -p /root/.ssh && chmod 700 /root/.ssh
-# Add github.com to known_hosts to avoid prompts (less secure but common for CI/CD)
-# Consider adding specific host keys for better security if feasible
-RUN ssh-keyscan github.com >> /root/.ssh/known_hosts && chmod 600 /root/.ssh/known_hosts
-# Note: SSH keys themselves must be mounted at runtime
+# Install Python dependencies using uv
+# We install torch and flash-attn separately for better control, as recommended.
+RUN uv pip install --system torch==2.6.0 torchvision==0.21.0 --index-url https://download.pytorch.org/whl/cu124
 
-# 8) Environment verification
-RUN python3 - <<EOF
-import torch, flash_attn
-print("Torch:", torch.__version__, "CUDA:", torch.version.cuda)
-print("FlashAttention:", flash_attn.__version__)
-EOF
+# Conditionally install flash-attn based on the build argument
+RUN if [ "$FLASH_ATTENTION" = "true" ]; then \
+      echo "FLASH_ATTENTION is true, installing flash-attn..."; \
+      uv pip install --system flash-attn>=2.5.9.post1 --no-build-isolation; \
+    else \
+      echo "FLASH_ATTENTION is not true, skipping flash-attn installation."; \
+    fi
 
-CMD ["python", "-c", "import torch, linnaeus; print('Ready:', torch.__version__, linnaeus.__version__)"]
+# Install remaining dependencies from pyproject.toml (including linnaeus itself in editable mode)
+RUN uv pip install --system -e .[dev]
 
-# ─── TODO (public‑repo milestone) ───────────────────────────────
-# Replace COPY lines with:
-# RUN git clone --depth 1 https://github.com/polli-labs/linnaeus.git /app/linnaeus
-# RUN git clone --depth 1 https://github.com/polli-labs/ibrida.git   /app/ibrida
+# --- Final Configuration ---
+WORKDIR /app/linnaeus
+
+# Set a default command (e.g., opening a shell)
+CMD ["/bin/bash"]

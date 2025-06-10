@@ -70,6 +70,7 @@ venv.bak/
 .aider/*
 .aiderignore
 .cursorignore
+CLAUDE.md
 
 # Local artifacts
 *.local
@@ -78,6 +79,7 @@ local_settings.py
 # polliFormer/linnaeus specific (potentially remove later if not needed)
 *.log
 logs/
+work/
 wandb/
 output/
 assets/

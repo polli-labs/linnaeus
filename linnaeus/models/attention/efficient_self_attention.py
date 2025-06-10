@@ -1,13 +1,23 @@
 # linnaeus/models/attention/efficient_self_attention.py
 
 import torch.nn as nn
-from flash_attn import flash_attn_qkvpacked_func
 
 from linnaeus.utils.logging.logger import get_main_logger
 
-from ..model_factory import register_attention
-
+# Get logger first so it can be used in imports
 logger = get_main_logger()
+
+# Import flash attention if available
+FLASH_ATTENTION_AVAILABLE = False
+flash_attn_qkvpacked_func = None
+try:
+    from flash_attn import flash_attn_qkvpacked_func
+    FLASH_ATTENTION_AVAILABLE = True
+    print("flash_attn library found.")
+except Exception:
+    print("flash_attn library not found or import failed.")
+
+from ..model_factory import register_attention
 
 
 @register_attention("EfficientSelfAttention")
