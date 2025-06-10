@@ -1,0 +1,67 @@
+# mFormerV0_md.yaml - Medium variant matching MetaFG_1
+MODEL:
+  TYPE: "mFormerV0"
+  NAME: "mFormerV0_md"
+
+  DROP_RATE: 0.0
+  DROP_PATH_RATE: 0.2  # Higher drop path for larger model
+  LABEL_SMOOTHING: 0.1
+
+  ONLY_LAST_CLS: false
+  EXTRA_TOKEN_NUM: 1 
+
+  IN_CHANS: 3
+
+  # -----------------------------------------------------------
+  # Convolutional Stages:
+  #   S0 => 3-layer stem => out=64
+  #   S1 => 2 MBConv blocks => out=96  
+  #   S2 => 6 MBConv blocks => out=192  (doubled depth vs sm)
+  # -----------------------------------------------------------
+  CONV_STAGES:
+    STEM_OUT: 64          # final out-chans of the stem
+    EMBED_DIMS:   [64,  96]    # stage1 in/out: 64→96
+    OUT_CHANNELS: [96, 192]    # stage2 in/out: 96→192
+    DEPTHS:       [2,   6]     # stage1 => 2 blocks, stage2 => 6 blocks
+    #
+    # stage1 => 2 blocks => [1,1] (no further downsample)
+    # stage2 => 6 blocks => [1,1,1,1,1,1] (all maintain resolution)
+    #
+    STRIDE_SEQS:
+      - [2, 1]
+      - [1, 1, 1, 1, 1, 1]
+
+  # -----------------------------------------------------------
+  # Attention Stages:
+  #   S3 => 14 Transformer blocks => embed=384 (nearly 3x depth vs sm)
+  #   S4 => 2 Transformer blocks => embed=768  
+  # -----------------------------------------------------------
+  ATTENTION_STAGES:
+    EMBED_DIMS: [384, 768] 
+    DEPTHS: [14, 2]      # Much deeper stage3 vs sm variant
+    NUM_HEADS: [8, 8]
+    MLP_RATIO: [4.0, 4.0]
+    ATTENTION_TYPE: ["RelativeAttention", "RelativeAttention"]
+    #
+    # stage3 => 14 blocks => first block has stride=2 for downsampling
+    # stage4 => 2 blocks => first block has stride=2 for downsampling  
+    #
+    STRIDE_SEQS:
+      - [2, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]  # stage3: downsample once
+      - [2, 1]  # stage4: downsample once
+
+  AGGREGATION:
+    TYPE: "Conv1d" 
+    PARAMETERS:
+      in_channels: 768
+      out_channels: 768  
+      kernel_size: 2
+      bias: true
+
+  CLASSIFICATION:
+    HEADS: {}
+
+  NORMALIZATION:
+    CONV_NORM_LAYER: "BatchNorm2d"
+    ATTENTION_NORM_LAYER: "LayerNorm"
+    ACTIVATION_LAYER: "ReLU"

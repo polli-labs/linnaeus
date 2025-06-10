@@ -1,0 +1,262 @@
+# Generic example experiment configuration for mFormerV1
+# Demonstrates how to build a simple training recipe
+# using the small mFormerV1 architecture.
+
+BASE: []
+
+EXPERIMENT:
+  PROJECT: 'linnaeus'
+  GROUP: 'examples'
+  NAME: 'mformerV1_example'
+  TAGS: ['example', 'mFormerV1', 'sm']
+  CODE_VERSION: 'v0.0.1'
+  WANDB:
+    ENABLED: True
+  LOG_LEVEL_MAIN: INFO
+  LOG_LEVEL_H5DATA: INFO
+  LOG_LEVEL_VALIDATION: INFO
+
+MODEL:
+  TYPE: 'mFormerV1'
+  NAME: 'mFormerV1_sm'
+  BASE: ['configs/model/archs/mFormerV1/mFormerV1_sm.yaml']
+  PRETRAINED_SOURCE: 'stitched_convnext_ropevit'
+  PRETRAINED_CONVNEXT: 'convnext_tiny_22k_1k_384.pth'
+  PRETRAINED_ROPEVIT: 'rope_mixed_deit_small_patch16_LS.pth'
+  IMG_SIZE: 384
+  DROP_PATH_RATE: 0.01
+  FIND_UNUSED_PARAMETERS: True
+  EXTRA_TOKEN_NUM: 4
+  CLASSIFICATION:
+    HEADS:
+      taxa_L10:
+        TYPE: 'ConditionalClassifier'
+        ROUTING_STRATEGY: 'soft'
+        TEMPERATURE: 1.0
+        USE_BIAS: True
+      taxa_L20:
+        TYPE: 'ConditionalClassifier'
+        ROUTING_STRATEGY: 'soft'
+        TEMPERATURE: 1.0
+        USE_BIAS: True
+      taxa_L30:
+        TYPE: 'ConditionalClassifier'
+        ROUTING_STRATEGY: 'soft'
+        TEMPERATURE: 1.0
+        USE_BIAS: True
+      taxa_L40:
+        TYPE: 'ConditionalClassifier'
+        ROUTING_STRATEGY: 'soft'
+        TEMPERATURE: 1.0
+        USE_BIAS: True
+
+DATA:
+  USE_VECTORIZED_PROCESSOR: True
+  PIN_MEMORY: True
+  BATCH_SIZE: 96
+  BATCH_SIZE_VAL: 768
+  NUM_WORKERS: 2
+  IMG_SIZE: 384
+  SAMPLER:
+    TYPE: 'grouped'
+    GROUPED_MODE: 'mixed-pairs'
+  DATASET:
+    CLADE: 'example_clade'
+    VERSION: 'v0.1'
+    NAME: 'generic_dataset'
+  TASK_KEYS_H5: ['taxa_L10', 'taxa_L20', 'taxa_L30', 'taxa_L40']
+  PARTIAL:
+    LEVELS: True
+  META:
+    ACTIVE: True
+    COMPONENTS:
+      TEMPORAL: {ENABLED: True, SOURCE: 'temporal', COLUMNS: ['month_sin', 'month_cos'], DIM: 2, IDX: 0, ALLOW_MISSING: True, OOR_MASK: True}
+      SPATIAL: {ENABLED: True, SOURCE: 'spatial', COLUMNS: [], DIM: 3, IDX: 1, ALLOW_MISSING: True, OOR_MASK: True}
+      ELEVATION: {ENABLED: True, SOURCE: 'elevation', COLUMNS: [], DIM: 10, IDX: 2, ALLOW_MISSING: True, OOR_MASK: True}
+  H5:
+    LABELS_PATH: '/path/to/dataset/labels.h5'
+    TRAIN_VAL_SPLIT_RATIO: 0.9
+    TRAIN_VAL_SPLIT_SEED: 42
+  HYBRID:
+    USE_HYBRID: True
+    IMAGES_DIR: '/path/to/images'
+    FILE_EXTENSION: ''
+
+TRAIN:
+  EPOCHS: 40
+  AMP_OPT_LEVEL: 'O1'
+  ACCUMULATION_STEPS: 4
+  CLIP_GRAD: 10000.0
+  GRADIENT_CHECKPOINTING:
+    ENABLED_NORMAL_STEPS: False
+    ENABLED_GRADNORM_STEPS: True
+  AUTO_RESUME: False
+  PHASE1_MASK_NULL_LOSS: True
+
+LOSS:
+  TASK_SPECIFIC:
+    TRAIN:
+      FUNCS: ['TaxonomyAwareLabelSmoothing', 'TaxonomyAwareLabelSmoothing',
+              'TaxonomyAwareLabelSmoothing', 'TaxonomyAwareLabelSmoothing']
+    VAL:
+      FUNCS: ['CrossEntropyLoss', 'CrossEntropyLoss',
+              'CrossEntropyLoss', 'CrossEntropyLoss']
+  TAXONOMY_SMOOTHING:
+    ENABLED: [True, True, True, True]
+    ALPHA: 0.1
+    BETA: 1.0
+    UNIFORM_ROOTS: True
+    FALLBACK_TO_UNIFORM: True
+  GRAD_WEIGHTING:
+    TASK:
+      TYPE: 'static'
+      INIT_STRATEGY: 'class_complexity'
+      INIT_WEIGHTS: [0.5, 1.0, 1.5, 2.0]
+      GRADNORM_ENABLED: False
+    CLASS:
+      TRAIN: True
+      VAL: False
+      METHOD: ['capping', 'capping', 'capping', 'capping']
+      CAP: [10.0, 10.0, 10.0, 10.0]
+
+OPTIMIZER:
+  NAME: 'adamw'
+  EPS: 1.0e-08
+  BETAS: [0.9, 0.999]
+  WEIGHT_DECAY: 0.05
+  PARAMETER_GROUPS:
+    ENABLED: True
+    NO_DECAY:
+      LR_MULTIPLIER: 1.0
+      WEIGHT_DECAY: 0.0
+      FILTER:
+        TYPE: 'or'
+        FILTERS:
+          - {TYPE: 'name', MATCH_TYPE: 'endswith', PATTERNS: ['.bias']}
+          - {TYPE: 'name', MATCH_TYPE: 'contains', PATTERNS: ['.norm.', '.bn.', 'LayerNorm']}
+          - {TYPE: 'name', MATCH_TYPE: 'startswith', PATTERNS: ['cls_token']}
+          - {TYPE: 'name', MATCH_TYPE: 'contains', PATTERNS: ['attn.freqs']}
+    HEADS_AGG_META:
+      LR_MULTIPLIER: 1.0
+      WEIGHT_DECAY: 0.05
+      FILTER:
+        TYPE: 'or'
+        FILTERS:
+          - {TYPE: 'name', MATCH_TYPE: 'startswith', PATTERNS: ['head.']}
+          - {TYPE: 'name', MATCH_TYPE: 'startswith', PATTERNS: ['meta_']}
+          - {TYPE: 'name', MATCH_TYPE: 'startswith', PATTERNS: ['cl_1_fc.']}
+          - {TYPE: 'name', MATCH_TYPE: 'startswith', PATTERNS: ['aggregate.']}
+    ROPE_STAGES:
+      LR_MULTIPLIER: 0.2
+      WEIGHT_DECAY: 0.05
+      FILTER:
+        TYPE: 'or'
+        FILTERS:
+          - {TYPE: 'name', MATCH_TYPE: 'startswith', PATTERNS: ['stages.2.']}
+          - {TYPE: 'name', MATCH_TYPE: 'startswith', PATTERNS: ['stages.3.']}
+          - {TYPE: 'name', MATCH_TYPE: 'startswith', PATTERNS: ['downsample_layers.2.']}
+    CONVNEXT_STAGES:
+      LR_MULTIPLIER: 0.1
+      WEIGHT_DECAY: 0.05
+      FILTER:
+        TYPE: 'or'
+        FILTERS:
+          - {TYPE: 'name', MATCH_TYPE: 'startswith', PATTERNS: ['stem.']}
+          - {TYPE: 'name', MATCH_TYPE: 'startswith', PATTERNS: ['stages.0.']}
+          - {TYPE: 'name', MATCH_TYPE: 'startswith', PATTERNS: ['stages.1.']}
+          - {TYPE: 'name', MATCH_TYPE: 'startswith', PATTERNS: ['downsample_layers.0.']}
+          - {TYPE: 'name', MATCH_TYPE: 'startswith', PATTERNS: ['downsample_layers.1.']}
+    DEFAULT:
+      LR_MULTIPLIER: 1.0
+      WEIGHT_DECAY: 0.05
+
+LR_SCHEDULER:
+  NAME: 'cosine'
+  REFERENCE_BS: 512
+  REFERENCE_LR: 5e-5
+  BASE_LR: 5e-5
+  WARMUP_LR: 5e-7
+  MIN_LR: 1e-6
+  WARMUP_EPOCHS: 10.0
+  WARMUP_STEPS: 0
+  WARMUP_FRACTION: None
+  PARAMETER_GROUPS:
+    ENABLED: True
+
+SCHEDULE:
+  META_MASKING:
+    ENABLED: True
+    START_PROB: 1.0
+    END_PROB: 0.05
+    END_FRACTION: 0.9
+    END_STEPS: 0
+    PARTIAL:
+      ENABLED: True
+      START_FRACTION: 0.0
+      END_FRACTION: 1.0
+      START_PROB: 0.7
+      END_PROB: 0.7
+      PROB_END_FRACTION: 0.01
+      PROB_END_STEPS: 0
+      WHITELIST: [['TEMPORAL'], ['SPATIAL'], ['ELEVATION'],
+                 ['TEMPORAL', 'SPATIAL'], ['TEMPORAL', 'ELEVATION'],
+                 ['SPATIAL', 'ELEVATION']]
+      WEIGHTS: [1.0, 1.0, 1.0, 0.5, 0.5, 0.5]
+  NULL_MASKING:
+    ENABLED: False
+    START_PROB: 0.1
+    END_PROB: 0.0
+    END_FRACTION: 0.5
+    END_STEPS: 0
+  MIX:
+    GROUP_LEVELS: ['taxa_L10']
+    LEVEL_SWITCH_STEPS: []
+    LEVEL_SWITCH_EPOCHS: []
+    PROB:
+      ENABLED: True
+      START_PROB: 0.7
+      END_PROB: 0.01
+      END_FRACTION: 0.85
+      END_STEPS: 0
+    MIXUP:
+      ENABLED: True
+      ALPHA: 1.0
+    CUTMIX:
+      ENABLED: True
+      ALPHA: 1.0
+      MINMAX: [0.2, 0.8]
+    SWITCH_PROB: 0.7
+    USE_GPU: True
+    MIN_GROUP_SIZE: 2
+    EXCLUDE_NULL_SAMPLES: True
+    NULL_TASK_KEYS: ['taxa_L10']
+  VALIDATION:
+    INTERVAL_EPOCHS: 1
+    MASK_META_INTERVAL_EPOCHS: 1
+    PARTIAL_MASK_META:
+      ENABLED: True
+      INTERVAL_EPOCHS: 3
+      INTERVAL_STEPS: 0
+      INTERVAL_FRACTION: 0.0
+      WHITELIST: [['TEMPORAL'], ['SPATIAL'], ['ELEVATION'], ['ELEVATION', 'SPATIAL']]
+    FINAL_EPOCH:
+      EXHAUSTIVE_PARTIAL_META_VALIDATION: True
+      EXHAUSTIVE_META_COMPONENTS: ['TEMPORAL', 'SPATIAL', 'ELEVATION']
+  CHECKPOINT:
+    INTERVAL_EPOCHS: 1
+    KEEP_TOP_N: 5
+    KEEP_LAST_N: 2
+  METRICS:
+    WANDB_INTERVAL: 100
+    CONSOLE_INTERVAL: 50
+    LR_INTERVAL: 50
+    PIPELINE_INTERVAL: 250
+
+ENV:
+  TACC: False
+  INPUT:
+    BASE_DIR: '/path/to/data'
+  OUTPUT:
+    BASE_DIR: '/path/to/output'
+    BUCKET:
+      ENABLED: False

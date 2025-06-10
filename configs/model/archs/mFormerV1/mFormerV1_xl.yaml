@@ -1,0 +1,45 @@
+# configs/model/archs/mFormerV1/mFormerV1_xl.yaml
+MODEL:
+  TYPE: "mFormerV1"
+  NAME: "mFormerV1_xl"
+  # PRETRAINED_SOURCE: 'stitched_convnext_ropevit'
+  # PRETRAINED_CONVNEXT: "convnext_xlarge_22k_1k_384_ema.pth"
+  # PRETRAINED_ROPEVIT: "rope_mixed_deit_large_patch16_LS.pth"
+
+  DROP_RATE: 0.0
+  DROP_PATH_RATE: 0.5 # Match ConvNeXt-XL
+  ATTN_DROP_RATE: 0.0
+  LABEL_SMOOTHING: 0.1
+  ONLY_LAST_CLS: false
+  EXTRA_TOKEN_NUM: 4 # 1 CLS + 3 meta components assumed
+  IN_CHANS: 3
+  USE_FLASH_ATTN: true # Enable Flash Attention by default
+
+  CONVNEXT_STAGES:
+    DEPTHS: [3, 3, 27, 3]   # Depths from ConvNeXt-XL
+    DIMS:   [256, 512, 1024, 2048] # Dims from ConvNeXt-XL
+    LAYER_SCALE_INIT_VALUE: 1.0e-6
+
+  ROPE_STAGES:
+    DEPTHS: [22, 2]          # Use all 24 layers from DeiT-L, split biased towards stage 3
+    DIMS:   [1024, 2048]     # Matches ConvNeXt-XL DIMS[2] and DIMS[3]
+    NUM_HEADS: [16, 32]      # From DeiT-L (1024) and extrapolated (2048)
+    MLP_RATIO: [4.0, 4.0]
+    ROPE_THETA: 10000.0
+    ROPE_MIXED: True
+
+  AGGREGATION: # Adjust in_channels
+    TYPE: "Conv1d"
+    PARAMETERS:
+      in_channels: 2048 # Matches final RoPE dim
+      out_channels: 2048
+      kernel_size: 2
+      bias: true
+
+  CLASSIFICATION:
+    HEADS: {}
+
+  NORMALIZATION:
+    CONV_NORM_LAYER: "LayerNormChannelsFirst"
+    ATTENTION_NORM_LAYER: "LayerNorm"
+    ACTIVATION_LAYER: "GELU"

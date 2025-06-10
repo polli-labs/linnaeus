@@ -1,0 +1,44 @@
+# configs/model/archs/mFormerV1/mFormerV1_sm.yaml (REVISED)
+MODEL:
+  TYPE: "mFormerV1"
+  NAME: "mFormerV1_sm"
+  # PRETRAINED_SOURCE: 'stitched_convnext_ropevit'
+  # PRETRAINED_CONVNEXT: "convnext_tiny_22k_1k_384.pth"
+  # PRETRAINED_ROPEVIT: "rope_mixed_deit_small_patch16_LS.pth"
+  DROP_RATE: 0.0 # Typically lower for smaller models
+  DROP_PATH_RATE: 0.2 # Match ConvNeXt-T
+  ATTN_DROP_RATE: 0.0
+  LABEL_SMOOTHING: 0.1
+  ONLY_LAST_CLS: false
+  EXTRA_TOKEN_NUM: 4 # 1 CLS + 3 meta components assumed
+  IN_CHANS: 3
+  USE_FLASH_ATTN: true # Enable Flash Attention by default
+
+  CONVNEXT_STAGES:
+    DEPTHS: [3, 3, 9, 3]    # Depths from ConvNeXt-T
+    DIMS:   [96, 192, 384, 768] # Dims from ConvNeXt-T
+    LAYER_SCALE_INIT_VALUE: 1.0e-6
+
+  ROPE_STAGES:
+    DEPTHS: [5, 2]           # Matches mFormerV0_sm attn stages (using 7/12 RoPE layers)
+    DIMS:   [384, 768]       # Must match CONVNEXT_STAGES DIMS[2] and DIMS[3]
+    NUM_HEADS: [6, 12]       # From DeiT-S (384 dim) and DeiT-B (768 dim)
+    MLP_RATIO: [4.0, 4.0]    # Standard MLP ratio
+    ROPE_THETA: 10000.0
+    ROPE_MIXED: True
+
+  AGGREGATION: # Adjust in_channels if final RoPE dim changes
+    TYPE: "Conv1d"
+    PARAMETERS:
+      in_channels: 768 # Matches final RoPE dim
+      out_channels: 768
+      kernel_size: 2
+      bias: true
+
+  CLASSIFICATION:
+    HEADS: {} # To be filled by experiment config
+
+  NORMALIZATION:
+    CONV_NORM_LAYER: "LayerNormChannelsFirst"
+    ATTENTION_NORM_LAYER: "LayerNorm"
+    ACTIVATION_LAYER: "GELU"

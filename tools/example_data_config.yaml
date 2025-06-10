@@ -1,0 +1,58 @@
+# Example data config for dataset analysis
+# This is a minimal config that only includes the necessary DATA section
+
+DATA:
+  DATASET:
+    NAME: "Angiospermae"
+    VERSION: "v0.1"
+    CLADE: "angiospermae"
+  
+  # Task keys corresponding to taxonomic ranks in the HDF5 file
+  TASK_KEYS_H5: ['taxa_L10', 'taxa_L20', 'taxa_L30', 'taxa_L40']
+  
+  # Partial-labeled settings
+  PARTIAL:
+    LEVELS: True  # Allow samples with missing ranks (they become 'null' class)
+  
+  # Out-of-region handling
+  OUT_OF_REGION:
+    INCLUDE: True  # Include out-of-region samples
+  
+  # Upward major check
+  UPWARD_MAJOR_CHECK: False
+  
+  # HDF5 file paths
+  H5:
+    # For separate train/val files
+    TRAIN_LABELS_PATH: "/path/to/angiospermae_train_labels.h5"
+    VAL_LABELS_PATH: "/path/to/angiospermae_val_labels.h5"
+    
+    # For single file usage (comment out the above and uncomment this)
+    # LABELS_PATH: "/path/to/angiospermae_labels.h5"
+  
+  # Metadata components configuration
+  META:
+    ACTIVE: True
+    COMPONENTS:
+      SPATIAL:
+        ENABLED: True
+        ALLOW_MISSING: True
+        OOR_MASK: False
+      TEMPORAL:
+        ENABLED: True
+        ALLOW_MISSING: True
+        OOR_MASK: False
+      ELEVATION:
+        ENABLED: False
+        ALLOW_MISSING: True
+        OOR_MASK: False
+
+# Optional: Metrics configuration for subset analysis
+METRICS:
+  TAXA_SUBSETS: []  # List of tuples (subset_name, rank_key, taxon_id)
+  RARITY_PERCENTILES: [1, 5, 25, 50, 75, 90, 95, 99]
+
+# Required for mixup group levels
+SCHEDULE:
+  MIXUP:
+    GROUP_LEVELS: ['taxa_L40', 'taxa_L30', 'taxa_L20', 'taxa_L10'] 

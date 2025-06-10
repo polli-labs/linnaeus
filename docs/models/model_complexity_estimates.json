@@ -1,0 +1,38 @@
+{
+  "mFormerV1_sm": {
+    "total_params": 26791038,
+    "trainable_params": 26791038,
+    "backbone_params": 25172064,
+    "head_params": 699648,
+    "meta_head_params": 27678,
+    "flops": 11000895744,
+    "memory_mb": 102.19969940185547
+  },
+  "mFormerV1_md": {
+    "total_params": 35663358,
+    "trainable_params": 35663358,
+    "backbone_params": 34044384,
+    "head_params": 699648,
+    "meta_head_params": 27678,
+    "flops": 16778252544,
+    "memory_mb": 136.04491424560547
+  },
+  "mFormerV1_lg": {
+    "total_params": 140925918,
+    "trainable_params": 140925918,
+    "backbone_params": 135918528,
+    "head_params": 1399296,
+    "meta_head_params": 55326,
+    "flops": 64048046592,
+    "memory_mb": 537.589714050293
+  },
+  "mFormerV1_xl": {
+    "total_params": 400921886,
+    "trainable_params": 400921886,
+    "backbone_params": 392672512,
+    "head_params": 1865728,
+    "meta_head_params": 73758,
+    "flops": 204211738624,
+    "memory_mb": 1529.395622253418
+  }
+}

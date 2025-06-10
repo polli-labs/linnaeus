@@ -1,0 +1,6 @@
+# Example experiment configuration
+# This minimal file demonstrates the expected layout for training
+EXPERIMENT:
+  NAME: "example_experiment"
+TRAIN:
+  EPOCHS: 1
