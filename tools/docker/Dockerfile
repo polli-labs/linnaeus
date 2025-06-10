@@ -74,6 +74,7 @@ RUN uv pip install --system torch==2.6.0 torchvision==0.21.0 --index-url https:/
 # Conditionally install flash-attn based on the build argument
 RUN if [ "$FLASH_ATTENTION" = "true" ]; then \
       echo "FLASH_ATTENTION is true, installing flash-attn..."; \
+      uv pip install --system packaging setuptools wheel; \
       uv pip install --system flash-attn>=2.5.9.post1 --no-build-isolation; \
     else \
       echo "FLASH_ATTENTION is not true, skipping flash-attn installation."; \
