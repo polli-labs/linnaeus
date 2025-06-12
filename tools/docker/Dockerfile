@@ -41,11 +41,12 @@ WORKDIR /app
 
 # Define build arguments for source selection
 ARG SOURCE=github
+ARG LINNAEUS_BRANCH="main"
 
 # Setup linnaeus code based on source type
 RUN if [ "$SOURCE" = "github" ]; then \
-      echo "SOURCE is github, cloning from GitHub..."; \
-      git clone https://github.com/polli-labs/linnaeus.git linnaeus; \
+      echo "SOURCE is github, cloning from GitHub branch ${LINNAEUS_BRANCH}..."; \
+      git clone --branch ${LINNAEUS_BRANCH} https://github.com/polli-labs/linnaeus.git linnaeus; \
     else \
       echo "SOURCE is local, creating directory for local copy..."; \
       mkdir -p linnaeus; \
@@ -70,10 +71,12 @@ ARG FLASH_ATTENTION_VERSION="none"
 
 # Install Python dependencies using uv
 # We install torch and flash-attn separately for better control, as recommended.
-ARG PYTORCH_VERSION="2.8.0rc0"
+ARG PYTORCH_CHANNEL="nightly"
+ARG PYTORCH_VERSION_TAG="2.8.0rc0" # As used in previous successful plan for cu128
 ARG PYTORCH_CUDA_SUFFIX="cu128"
-ARG TORCHVISION_VERSION_FROM_ISSUE="0.20.0"
-RUN uv pip install --system torch==${PYTORCH_VERSION}+${PYTORCH_CUDA_SUFFIX} torchvision==${TORCHVISION_VERSION_FROM_ISSUE}+${PYTORCH_CUDA_SUFFIX} --index-url https://download.pytorch.org/whl/${PYTORCH_CUDA_SUFFIX}
+ARG TORCHVISION_VERSION_TAG="0.20.0" # As used with 2.8.0rc0 in previous plan
+ARG TORCHAUDIO_VERSION_TAG="2.2.0" # Placeholder, assuming compatible with PT 2.8.0rc0
+RUN if [ "$PYTORCH_CHANNEL" = "nightly" ]; then           echo "Installing PyTorch from NIGHTLY channel: ${PYTORCH_VERSION_TAG}+${PYTORCH_CUDA_SUFFIX}";           uv pip install --system --pre             torch==${PYTORCH_VERSION_TAG}+${PYTORCH_CUDA_SUFFIX}             torchvision==${TORCHVISION_VERSION_TAG}+${PYTORCH_CUDA_SUFFIX}             torchaudio==${TORCHAUDIO_VERSION_TAG}+${PYTORCH_CUDA_SUFFIX}             --index-url https://download.pytorch.org/whl/nightly/${PYTORCH_CUDA_SUFFIX};         else           echo "Installing PyTorch from STABLE channel: ${PYTORCH_VERSION_TAG}+${PYTORCH_CUDA_SUFFIX}";           uv pip install --system             torch==${PYTORCH_VERSION_TAG}+${PYTORCH_CUDA_SUFFIX}             torchvision==${TORCHVISION_VERSION_TAG}+${PYTORCH_CUDA_SUFFIX}             torchaudio==${TORCHAUDIO_VERSION_TAG}+${PYTORCH_CUDA_SUFFIX}             --index-url https://download.pytorch.org/whl/${PYTORCH_CUDA_SUFFIX};         fi
 
 # Conditionally install flash-attn based on the build argument
 RUN if [ "$FLASH_ATTENTION_VERSION" = "3" ]; then           echo "FLASH_ATTENTION_VERSION is 3, installing flash-attn v3...";           uv pip install --system packaging setuptools wheel;           uv pip install --system "flash-attn==3.0.0b3" --no-build-isolation;         elif [ "$FLASH_ATTENTION_VERSION" = "2" ]; then           echo "FLASH_ATTENTION_VERSION is 2, installing flash-attn v2...";           uv pip install --system packaging setuptools wheel;           uv pip install --system "flash-attn>=2.5.9.post1,<3.0.0" --no-build-isolation;         else           echo "FLASH_ATTENTION_VERSION is '$FLASH_ATTENTION_VERSION', skipping flash-attn installation.";         fi
