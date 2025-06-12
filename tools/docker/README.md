@@ -4,10 +4,10 @@ This directory contains the tools to build, validate, and run the `linnaeus` tra
 
 ## Overview
 
-The `Dockerfile` serves as a unified template supporting multiple GPU architectures (Turing, Ampere, Hopper). It facilitates different PyTorch versions (stable for Turing/Ampere, nightly for Hopper) and conditionally installs appropriate versions of the `flash-attn` library:
-- **Hopper Architecture (H100, etc.):** Builds with PyTorch nightly (cu128) and FlashAttention v3 for maximum performance. These builds might be considered 'preview' or 'beta'.
-- **Ampere Architecture (RTX 30xx, A100, etc.):** Builds with stable PyTorch (cu126) and FlashAttention v2.
-- **Pre-Ampere Architecture (Turing, Volta, etc.):** Builds with stable PyTorch (cu126) and no FlashAttention.
+The `Dockerfile` serves as a unified template supporting multiple GPU architectures (Turing, Ampere, Hopper). It uses a common CUDA 12.8 base image with architecture-specific PyTorch versions and conditionally installs appropriate versions of the `flash-attn` library:
+- **Hopper Architecture (H100, etc.):** Builds with PyTorch nightly 2.8.0rc0+cu128 and FlashAttention v3 for maximum performance.
+- **Ampere Architecture (RTX 30xx, A100, etc.):** Builds with stable PyTorch 2.7.1+cu126 and FlashAttention v2.
+- **Turing Architecture (RTX 2080 Ti, etc.):** Builds with stable PyTorch 2.7.1+cu126 and no FlashAttention.
 
 ## Build Process
 
@@ -18,9 +18,9 @@ The `build.sh` script simplifies the build process and supports two source modes
 
 Use `--source github` (default) for production builds and `--source local` for development.
 
-### 1. Building for Ampere GPUs (Stable PyTorch with FlashAttention v2)
+### 1. Building for Ampere GPUs (Stable PyTorch 2.7.1 with FlashAttention v2)
 
-This build uses stable PyTorch and includes FlashAttention v2.
+This build uses stable PyTorch 2.7.1+cu126 and includes FlashAttention v2.
 
 ```bash
 # Build from GitHub (default)
@@ -31,22 +31,22 @@ This build uses stable PyTorch and includes FlashAttention v2.
 ```
 This will create an image like `frontierkodiak/linnaeus-dev:ampere-stable-cu126`.
 
-### 2. Building for Pre-Ampere GPUs (Stable PyTorch, No FlashAttention)
+### 2. Building for Turing GPUs (Stable PyTorch 2.7.1, No FlashAttention)
 
-This build uses stable PyTorch and explicitly disables FlashAttention.
+This build uses stable PyTorch 2.7.1+cu126 and explicitly disables FlashAttention.
 
 ```bash
 # Build from GitHub (default)
-./tools/docker/build.sh --arch pre-ampere
+./tools/docker/build.sh --arch turing
 
 # Build from local source (for development)
-./tools/docker/build.sh --arch pre-ampere --source local
+./tools/docker/build.sh --arch turing --source local
 ```
-This will create an image like `frontierkodiak/linnaeus-dev:pre-ampere-stable-cu126`.
+This will create an image like `frontierkodiak/linnaeus-dev:turing-stable-cu126`.
 
-### 3. Building for Hopper GPUs (Nightly PyTorch with FlashAttention v3)
+### 3. Building for Hopper GPUs (Nightly PyTorch 2.8.0rc0 with FlashAttention v3)
 
-This build uses PyTorch nightly builds (cu128) to enable FlashAttention v3, offering optimal performance on Hopper. These images are typically tagged with a `nightly-cu128` suffix.
+This build uses PyTorch nightly 2.8.0rc0+cu128 to enable FlashAttention v3, offering optimal performance on Hopper. These images are tagged with a `nightly-cu128` suffix.
 
 ```bash
 # Build from GitHub (default main branch)
@@ -70,15 +70,15 @@ If the branch is not `main`, its name will be included in the image tag (e.g., `
 The image tags now follow a more descriptive structure:
 `[REPO]/[IMAGE_NAME]:[ARCH]-[PYTORCH_VARIANT_SUFFIX]-[BRANCH_TAG_PART]-[TAG_SUFFIX]`
 Where:
-- `ARCH`: `hopper`, `ampere`, or `pre-ampere`.
-- `PYTORCH_VARIANT_SUFFIX`: Indicates the PyTorch setup, e.g., `nightly-cu128` (for Hopper) or `stable-cu126` (for Ampere/Pre-ampere).
+- `ARCH`: `hopper`, `ampere`, or `turing`.
+- `PYTORCH_VARIANT_SUFFIX`: Indicates the PyTorch setup, e.g., `nightly-cu128` (for Hopper) or `stable-cu126` (for Ampere/Turing).
 - `BRANCH_TAG_PART`: Optional. If building from a GitHub branch other than `main`, this part will include the branch name (e.g., `-feat-new-model`). Slashes in branch names are replaced with dashes.
 - `TAG_SUFFIX`: Optional. User-defined suffix provided via `--tag-suffix`.
 
 Example tags:
 - `frontierkodiak/linnaeus-dev:hopper-nightly-cu128`
 - `frontierkodiak/linnaeus-dev:ampere-stable-cu126-my-feature`
-- `frontierkodiak/linnaeus-dev:pre-ampere-stable-cu126-task123`
+- `frontierkodiak/linnaeus-dev:turing-stable-cu126-task123`
 - `frontierkodiak/linnaeus-dev:hopper-nightly-cu128-feat-xyz-exp01`
 
 You can add a custom suffix to your tag using `--tag-suffix` and push the image to a container registry using `--push`.
@@ -99,8 +99,8 @@ After building an image, you can validate it using the `validate.sh` script. Thi
 # Validate the ampere image (stable PyTorch, FA2)
 ./tools/docker/validate.sh frontierkodiak/linnaeus-dev:ampere-stable-cu126
 
-# Validate the pre-ampere image (stable PyTorch, no FA)
-./tools/docker/validate.sh frontierkodiak/linnaeus-dev:pre-ampere-stable-cu126
+# Validate the turing image (stable PyTorch, no FA)
+./tools/docker/validate.sh frontierkodiak/linnaeus-dev:turing-stable-cu126
 
 # Validate the hopper image (nightly PyTorch, FA3)
 ./tools/docker/validate.sh frontierkodiak/linnaeus-dev:hopper-nightly-cu128
@@ -142,12 +142,12 @@ docker run --gpus all -it --rm \
 
 The Dockerfile automatically configures PyTorch and Flash Attention support based on your GPU architecture:
 
-| GPU Architecture | Example GPUs | PyTorch Setup     | Flash Attention | Use Flag            | Resulting Image Tag Segment    |
-|------------------|----------------|-------------------|-----------------|---------------------|--------------------------------|
-| Hopper (SM 9.0+) | H100, H200     | Nightly (cu128)   | ✅ v3           | `--arch hopper`     | `hopper-nightly-cu128`         |
-| Ampere (SM 8.x)  | RTX 3090, A100 | Stable (cu126)    | ✅ v2           | `--arch ampere`     | `ampere-stable-cu126`          |
-| Turing (SM 7.5)  | RTX 2080 Ti    | Stable (cu126)    | ❌ None         | `--arch pre-ampere` | `pre-ampere-stable-cu126`      |
-| Volta (SM 7.0)   | V100           | Stable (cu126)    | ❌ None         | `--arch pre-ampere` | `pre-ampere-stable-cu126`      |
+| GPU Architecture | Example GPUs | PyTorch Setup           | Flash Attention | Use Flag            | Resulting Image Tag Segment    |
+|------------------|----------------|-------------------------|-----------------|---------------------|--------------------------------|
+| Hopper (SM 9.0+) | H100, H200     | Nightly 2.8.0rc0+cu128 | ✅ v3           | `--arch hopper`     | `hopper-nightly-cu128`         |
+| Ampere (SM 8.x)  | RTX 3090, A100 | Stable 2.7.1+cu126     | ✅ v2           | `--arch ampere`     | `ampere-stable-cu126`          |
+| Turing (SM 7.5)  | RTX 2080 Ti    | Stable 2.7.1+cu126     | ❌ None         | `--arch turing`     | `turing-stable-cu126`          |
+| Volta (SM 7.0)   | V100           | Stable 2.7.1+cu126     | ❌ None         | `--arch turing`     | `turing-stable-cu126`          |
 
 ## Troubleshooting
 

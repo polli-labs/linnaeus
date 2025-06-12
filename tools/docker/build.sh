@@ -28,8 +28,8 @@ while [[ "$#" -gt 0 ]]; do
 done
 
 # Validate architecture
-if [[ "$ARCH" != "ampere" && "$ARCH" != "pre-ampere" && "$ARCH" != "hopper" ]]; then
-    echo "Error: --arch must be 'ampere', 'pre-ampere', or 'hopper'."
+if [[ "$ARCH" != "ampere" && "$ARCH" != "turing" && "$ARCH" != "hopper" ]]; then
+    echo "Error: --arch must be 'ampere', 'turing', or 'hopper'."
     exit 1
 fi
 
@@ -53,18 +53,18 @@ if [[ "$ARCH" == "hopper" ]]; then
 elif [[ "$ARCH" == "ampere" ]]; then
     DOCKER_FLASH_ATTENTION_VERSION="2"
     PYTORCH_CHANNEL_ARG="stable"
-    PYTORCH_VERSION_TAG_ARG="2.8.0" # User-specified stable target
+    PYTORCH_VERSION_TAG_ARG="2.7.1" # Latest stable with cu126 support
     PYTORCH_CUDA_SUFFIX_ARG="cu126"
-    TORCHVISION_VERSION_TAG_ARG="0.23.0" # Placeholder for torch 2.8.0 stable
-    TORCHAUDIO_VERSION_TAG_ARG="2.3.0"  # Placeholder for torch 2.8.0 stable
+    TORCHVISION_VERSION_TAG_ARG="0.22.1" # Compatible with torch 2.7.1
+    TORCHAUDIO_VERSION_TAG_ARG="2.2.1"  # Compatible with torch 2.7.1
     PYTORCH_VARIANT_SUFFIX="-stable-${PYTORCH_CUDA_SUFFIX_ARG}"
-else # pre-ampere (Turing)
+else # turing
     DOCKER_FLASH_ATTENTION_VERSION="none"
     PYTORCH_CHANNEL_ARG="stable"
-    PYTORCH_VERSION_TAG_ARG="2.8.0" # User-specified stable target
+    PYTORCH_VERSION_TAG_ARG="2.7.1" # Latest stable with cu126 support
     PYTORCH_CUDA_SUFFIX_ARG="cu126"
-    TORCHVISION_VERSION_TAG_ARG="0.23.0" # Placeholder for torch 2.8.0 stable
-    TORCHAUDIO_VERSION_TAG_ARG="2.3.0"  # Placeholder for torch 2.8.0 stable
+    TORCHVISION_VERSION_TAG_ARG="0.22.1" # Compatible with torch 2.7.1
+    TORCHAUDIO_VERSION_TAG_ARG="2.2.1"  # Compatible with torch 2.7.1
     PYTORCH_VARIANT_SUFFIX="-stable-${PYTORCH_CUDA_SUFFIX_ARG}"
 fi
 

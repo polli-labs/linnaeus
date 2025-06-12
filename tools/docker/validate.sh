@@ -11,11 +11,11 @@ if [[ "$#" -ne 1 ]]; then
 fi
 
 IMAGE_TAG="$1"
-ARCH=$(echo "$IMAGE_TAG" | sed -n 's/.*:\(ampere\|pre-ampere\|hopper\).*/\1/p')
+ARCH=$(echo "$IMAGE_TAG" | sed -n 's/.*:\(ampere\|turing\|hopper\).*/\1/p')
 
 if [[ -z "$ARCH" ]]; then
     echo "Error: Could not determine architecture from tag: ${IMAGE_TAG}"
-    echo "Tag must include 'ampere', 'pre-ampere', or 'hopper'."
+    echo "Tag must include 'ampere', 'turing', or 'hopper'."
     exit 1
 fi
 
@@ -107,21 +107,20 @@ except Exception as e:
     print(f'ERROR: An unexpected error occurred during FA3 validation for hopper: {e}')
     sys.exit(1)
 "
-else # This is for pre-ampere
+else # This is for turing
     echo -e "
---- Test 2: Verifying NO Flash Attention (for pre-ampere) ---"
-    # The existing pre-ampere check remains the same:
+--- Test 2: Verifying NO Flash Attention (for turing) ---"
     docker run --rm --gpus all "${IMAGE_TAG}" python3 -c "
 import sys
 try:
     import flash_attn
-    print('ERROR: Flash Attention found but should not be installed for pre-ampere')
+    print('ERROR: Flash Attention found but should not be installed for turing')
     sys.exit(1)
 except ImportError:
-    print('Flash Attention not found, as expected for pre-ampere.')
+    print('Flash Attention not found, as expected for turing.')
     sys.exit(0)
 except Exception as e:
-    print(f'An unexpected error occurred during no-FA validation for pre-ampere: {e}')
+    print(f'An unexpected error occurred during no-FA validation for turing: {e}')
     sys.exit(1)
 "
 fi # End of the if/elif/else structure for Test 2
@@ -131,7 +130,7 @@ echo -e "\n--- Test 3: Running minimal training loop startup ---"
 # This test will run a few optimizer steps and then exit.
 # This verifies that the codebase, dependencies, and data paths can be correctly initialized.
 docker run --rm --gpus all "${IMAGE_TAG}" python3 -m linnaeus.main \
-  --cfg configs/experiments/example_experiment.yaml \
+  --cfg /app/linnaeus/configs/experiments/example_experiment.yaml \
   --opts \
   EXPERIMENT.WANDB.ENABLED False \
   TRAIN.EPOCHS 1 \
