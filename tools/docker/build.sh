@@ -26,8 +26,8 @@ while [[ "$#" -gt 0 ]]; do
 done
 
 # Validate architecture
-if [[ "$ARCH" != "ampere" && "$ARCH" != "pre-ampere" ]]; then
-    echo "Error: --arch must be 'ampere' or 'pre-ampere'."
+if [[ "$ARCH" != "ampere" && "$ARCH" != "pre-ampere" && "$ARCH" != "hopper" ]]; then
+    echo "Error: --arch must be 'ampere', 'pre-ampere', or 'hopper'."
     exit 1
 fi
 
@@ -38,10 +38,15 @@ if [[ "$SOURCE" != "github" && "$SOURCE" != "local" ]]; then
 fi
 
 # --- Build Logic ---
-# Determine Flash Attention setting based on architecture
-INSTALL_FLASH_ATTENTION="false"
-if [[ "$ARCH" == "ampere" ]]; then
-    INSTALL_FLASH_ATTENTION="true"
+# Determine Flash Attention version and NVIDIA CUDA tag based on architecture
+DOCKER_FLASH_ATTENTION_VERSION="none" # Default for pre-ampere
+TARGET_NVIDIA_CUDA_TAG="12.8.0-cudnn-devel-ubuntu22.04" # Common for all new builds
+
+if [[ "$ARCH" == "hopper" ]]; then
+    DOCKER_FLASH_ATTENTION_VERSION="3"
+elif [[ "$ARCH" == "ampere" ]]; then
+    DOCKER_FLASH_ATTENTION_VERSION="2"
+# For pre-ampere, it remains "none"
 fi
 
 # Determine final image tag
@@ -50,7 +55,8 @@ echo "================================================="
 echo "Building Docker Image"
 echo "Architecture:        ${ARCH}"
 echo "Source:              ${SOURCE}"
-echo "Flash Attention:     ${INSTALL_FLASH_ATTENTION}"
+echo "Flash Attention Ver: ${DOCKER_FLASH_ATTENTION_VERSION}"
+echo "NVIDIA CUDA Tag:     ${TARGET_NVIDIA_CUDA_TAG}"
 echo "Final Image Tag:     ${FINAL_TAG}"
 echo "================================================="
 
@@ -60,7 +66,8 @@ REPO_ROOT=$(git rev-parse --show-toplevel)
 # Build the Docker image using BuildKit
 DOCKER_BUILDKIT=1 docker build \
   --progress=plain \
-  --build-arg "FLASH_ATTENTION=${INSTALL_FLASH_ATTENTION}" \
+  --build-arg "FLASH_ATTENTION_VERSION=${DOCKER_FLASH_ATTENTION_VERSION}" \
+  --build-arg "NVIDIA_CUDA_TAG=${TARGET_NVIDIA_CUDA_TAG}" \
   --build-arg "SOURCE=${SOURCE}" \
   -t "${FINAL_TAG}" \
   -f "${REPO_ROOT}/tools/docker/Dockerfile" \
