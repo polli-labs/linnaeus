@@ -20,15 +20,35 @@ logger = get_main_logger()
 from linnaeus.models.blocks.drop_path import DropPath
 from linnaeus.models.blocks.mlp import Mlp
 
-# Import flash attention if available
-FLASH_ATTENTION_AVAILABLE = False
-flash_attn_func = None # Initialize flash_attn_func to None
+from linnaeus.utils.flash_attn_utils import is_flash_attn3_available
+
+_flash_attn_func_impl = None
+_flash_attn_qkvpacked_func_impl = None # For completeness if other code uses it
+_is_flash_attn_v2_plus_available = False # True if any FA (v2 or v3) is usable
+
 try:
-    from flash_attn import flash_attn_func  # Try to import the specific function
-    FLASH_ATTENTION_AVAILABLE = True
-    print("flash_attn library found.") # Use print as requested
-except Exception: # Broad catch during import
-    print("flash_attn library not found or import failed.") # Use print as requested
+    if is_flash_attn3_available():
+        # FA3 is available (implies Hopper SM>=9, and flash_attn v3.x is installed)
+        from flash_attn import flash_attn_varlen_func, flash_attn_varlen_qkvpacked_func
+        _flash_attn_func_impl = flash_attn_varlen_func
+        _flash_attn_qkvpacked_func_impl = flash_attn_varlen_qkvpacked_func
+        _is_flash_attn_v2_plus_available = True
+        logger.info("FlashAttention v3 (varlen funcs) selected by rope_2d_mhsa.")
+    else:
+        # Attempt to import FA2 if FA3 is not available/selected
+        # This will be used on Ampere (SM>=8) or if FA3 specific checks fail
+        from flash_attn import flash_attn_func as _fa2_func, flash_attn_qkvpacked_func as _fa2_qkvpacked_func
+        _flash_attn_func_impl = _fa2_func
+        _flash_attn_qkvpacked_func_impl = _fa2_qkvpacked_func
+        _is_flash_attn_v2_plus_available = True
+        logger.info("FlashAttention v2 (standard funcs) selected by rope_2d_mhsa.")
+except ImportError:
+    logger.info("No version of FlashAttention library found by rope_2d_mhsa. Standard attention will be used.")
+    # _flash_attn_func_impl remains None, _is_flash_attn_v2_plus_available remains False
+
+# For potential compatibility if other parts of the file use these global names directly
+FLASH_ATTENTION_AVAILABLE = _is_flash_attn_v2_plus_available
+flash_attn_func = _flash_attn_func_impl
 
 # --- RoPE Helper Functions (Adapted from rope-vit/models/vit_rope.py) ---
 
@@ -238,22 +258,36 @@ class RoPE2DAttention(nn.Module):
 
         # Flash Attention setup
         self.use_flash_attn = use_flash_attn
-        # self.use_flash_attn_impl = False # Default to False, initialized below
-
-        self.use_flash_attn_impl = False # Default to False
-        if self.use_flash_attn: # Config wants to use it
-            if FLASH_ATTENTION_AVAILABLE and flash_attn_func is not None: # Library was imported
+        self.use_flash_attn_impl = False
+        self.using_fa_version = None # To store "v2" or "v3"
+        if self.use_flash_attn: # If user configured RoPE2DAttention to use flash attention
+            if _is_flash_attn_v2_plus_available and _flash_attn_func_impl is not None:
                 try:
-                    # Check for CUDA availability and capability only if flash_attn was found
-                    if hasattr(torch, 'cuda') and torch.cuda.is_available() and torch.cuda.get_device_capability()[0] >= 8:
-                        self.use_flash_attn_impl = True
-                        logger.info(f"Using Flash Attention for RoPE2DAttention with {self.num_heads} heads")
+                    if not (hasattr(torch, 'cuda') and torch.cuda.is_available()):
+                        logger.warning("Flash Attention selected but CUDA not available. Falling back.")
                     else:
-                        logger.warning("Flash Attention is available but GPU capability is not sufficient (sm80+) or CUDA is not fully available. Falling back to standard attention.")
-                except Exception as e: # Catch potential errors from torch.cuda calls on CPU-only
-                    logger.warning(f"Could not verify CUDA for Flash Attention (CPU-only torch? Error: {e}). Falling back to standard attention.")
-            else: # Library not imported
-                logger.warning("Flash Attention requested in config but library is not available. Falling back to standard attention.")
+                        device_cap = torch.cuda.get_device_capability()
+
+                        # Check if FA3 was selected by the import logic above
+                        # is_flash_attn3_available() was the condition for importing varlen funcs.
+                        if is_flash_attn3_available(): # This confirms FA3 setup conditions were met
+                            if device_cap[0] >= 9: # Ensure current runtime matches
+                                self.use_flash_attn_impl = True
+                                self.using_fa_version = "v3"
+                                logger.info(f"Using Flash Attention v3 for RoPE2DAttention with {self.num_heads} heads.")
+                            else:
+                                logger.warning(f"FA3 was selected by import logic, but current device SM {device_cap} < 9.0. Fallback needed or error in setup.")
+                        # Else, FA2 was selected (if _is_flash_attn_v2_plus_available is true)
+                        elif device_cap[0] >= 8: # FA2 requires SM 8.0+
+                            self.use_flash_attn_impl = True
+                            self.using_fa_version = "v2"
+                            logger.info(f"Using Flash Attention v2 for RoPE2DAttention with {self.num_heads} heads.")
+                        else:
+                            logger.warning(f"Flash Attention available (likely v2), but device SM {device_cap} < 8.0. Falling back.")
+                except Exception as e:
+                    logger.warning(f"Error verifying CUDA for Flash Attention (Is CUDA installed correctly? Error: {e}). Falling back.")
+            else:
+                logger.warning("Flash Attention requested in config, but no suitable FlashAttention library (v2 or v3) was found/selected by rope_2d_mhsa. Falling back.")
 
         self.qkv = nn.Linear(dim, dim * 3, bias=qkv_bias)
         self.attn_drop = nn.Dropout(attn_drop)

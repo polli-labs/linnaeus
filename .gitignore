@@ -86,5 +86,6 @@ assets/
 metadata/
 *_export.txt
 archive/
+docker_test_notes.md
 # Add more if needed
 
