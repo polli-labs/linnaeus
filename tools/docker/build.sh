@@ -3,6 +3,20 @@
 
 set -e # Exit on any error
 
+# Function to display usage
+usage() {
+    echo "Usage: $0 [OPTIONS]"
+    echo "Options:"
+    echo "  --arch ARCH         Architecture: ampere, turing, or hopper (default: ampere)"
+    echo "  --source SOURCE     Source: github or local (default: github)"
+    echo "  --branch BRANCH     Branch name when using github source (default: main)"
+    echo "  --max-jobs N        Number of parallel jobs for ninja compilation (default: 12)"
+    echo "  --tag-suffix SUFFIX Additional suffix for the image tag"
+    echo "  --push              Push the image after building"
+    echo "  --help              Display this help message"
+    exit 0
+}
+
 # --- Configuration ---
 # Default repository and image name. Can be overridden.
 REPO="frontierkodiak"
@@ -14,6 +28,7 @@ TAG_SUFFIX=""
 PUSH=false
 SOURCE="github" # Default source (github or local)
 LINNAEUS_BRANCH_ARG="main"
+MAX_JOBS=12 # Default MAX_JOBS for ninja compilation
 
 while [[ "$#" -gt 0 ]]; do
     case $1 in
@@ -22,6 +37,8 @@ while [[ "$#" -gt 0 ]]; do
         --push) PUSH=true ;;
         --source) SOURCE="$2"; shift ;;
         --branch) LINNAEUS_BRANCH_ARG="$2"; shift ;;
+        --max-jobs) MAX_JOBS="$2"; shift ;;
+        --help) usage ;;
         *) echo "Unknown parameter passed: $1"; exit 1 ;;
     esac
     shift
@@ -90,6 +107,7 @@ echo "PyTorch Version:     ${PYTORCH_VERSION_TAG_ARG}+${PYTORCH_CUDA_SUFFIX_ARG}
 echo "Torchvision Version: ${TORCHVISION_VERSION_TAG_ARG}"
 echo "Torchaudio Version:  ${TORCHAUDIO_VERSION_TAG_ARG}"
 echo "Flash Attention Ver: ${DOCKER_FLASH_ATTENTION_VERSION}"
+echo "MAX_JOBS (ninja):    ${MAX_JOBS}"
 echo "NVIDIA CUDA Tag:     ${TARGET_NVIDIA_CUDA_TAG}" # Base image tag
 echo "Final Image Tag:     ${FINAL_TAG}"
 echo "================================================="
@@ -109,6 +127,7 @@ DOCKER_BUILDKIT=1 docker build \
   --build-arg "PYTORCH_CUDA_SUFFIX=${PYTORCH_CUDA_SUFFIX_ARG}" \
   --build-arg "TORCHVISION_VERSION_TAG=${TORCHVISION_VERSION_TAG_ARG}" \
   --build-arg "TORCHAUDIO_VERSION_TAG=${TORCHAUDIO_VERSION_TAG_ARG}" \
+  --build-arg "MAX_JOBS=${MAX_JOBS}" \
   -t "${FINAL_TAG}" \
   -f "${REPO_ROOT}/tools/docker/Dockerfile" \
   "${REPO_ROOT}"
