@@ -31,6 +31,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libgl1-mesa-glx \
     && rm -rf /var/lib/apt/lists/*
 
+# Install rclone
+RUN curl https://rclone.org/install.sh | bash
+
 # Link python3 to python3.11 and create python symlink
 RUN ln -sf /usr/bin/python3.11 /usr/bin/python3 && \
     ln -sf /usr/bin/python3 /usr/bin/python
