@@ -1334,25 +1334,29 @@ def main(config, args=None):
         )
         logger.info("Data loaders rebuilt with autobatch-determined batch sizes.")
 
-        # Re-initialize GroupedBatchSampler if needed
-        if hasattr(data_loader_train, "batch_sampler") and hasattr(
-            data_loader_train.batch_sampler, "set_current_group_level"
-        ):
-            try:
-                data_loader_train.batch_sampler.set_current_group_level(
-                    initial_group_level, subset_key="train"
-                )
-                logger.info(
-                    f"Re-initialized GroupedBatchSampler with level '{initial_group_level}'."
-                )
-            except (AttributeError, KeyError, Exception) as e:
-                logger.error(
-                    f"Failed to re-initialize GroupedBatchSampler: {e}",
-                    exc_info=True,
-                )
-                raise RuntimeError(
-                    f"Failed to set group level for GroupedBatchSampler: {e}"
-                ) from e
+            # --- START FIX ---
+            # Re-initialize GroupedBatchSampler if needed
+            if hasattr(data_loader_train, "batch_sampler") and hasattr(
+                data_loader_train.batch_sampler, "set_current_group_level"
+            ):
+                try:
+                    # This is the crucial step that was missing. It populates the sampler's
+                    # internal batch list so that len(data_loader_train) is non-zero.
+                    data_loader_train.batch_sampler.set_current_group_level(
+                        initial_group_level, subset_key="train"
+                    )
+                    logger.info(
+                        f"Re-initialized GroupedBatchSampler with level '{initial_group_level}'."
+                    )
+                except (AttributeError, KeyError, Exception) as e:
+                    logger.error(
+                        f"Failed to re-initialize GroupedBatchSampler: {e}",
+                        exc_info=True,
+                    )
+                    raise RuntimeError(
+                        f"Failed to set group level for GroupedBatchSampler: {e}"
+                    ) from e
+            # --- END FIX ---
 
         # Recalculate steps with new batch sizes
         num_mini_batches = len(data_loader_train)
