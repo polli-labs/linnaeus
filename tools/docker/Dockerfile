@@ -14,7 +14,9 @@ ENV PATH="/root/.local/bin:$PATH"
 ENV PYTHONPATH="/app/linnaeus:${PYTHONPATH}"
 
 # --- System Dependencies ---
-RUN apt-get update && apt-get install -y --no-install-recommends \
+# Add retry logic for apt operations
+RUN apt-get update || (sleep 10 && apt-get update) || (sleep 20 && apt-get update) && \
+    apt-get install -y --no-install-recommends \
     build-essential \
     git \
     python3.11 \
@@ -22,7 +24,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3.11-venv \
     python3-pip \
     curl \
-    ninja-build \
+    unzip \
     libglib2.0-0 \
     libsm6 \
     libxext6 \
