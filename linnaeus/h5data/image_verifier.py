@@ -200,18 +200,7 @@ class ImageVerifier:
                 report_path_obj = Path(report_path)
                 report_path_obj.parent.mkdir(parents=True, exist_ok=True)
                 with open(report_path_obj, "w", encoding="utf-8") as f:
-                    # Convert sets to lists for JSON serialization in the report dictionary
-                    report_to_save = report.copy()
-                    if isinstance(report_to_save["missing_identifiers"], set):
-                        report_to_save["missing_identifiers"] = sorted(
-                            list(report_to_save["missing_identifiers"])
-                        )
-                    if isinstance(report_to_save["missing_indices"], set):
-                        report_to_save["missing_indices"] = sorted(
-                            list(report_to_save["missing_indices"])
-                        )
-
-                    json.dump(report_to_save, f, indent=2)
+                    json.dump(report, f, indent=2)
                 self.logger.info(f"Saved missing images report to: {report_path}")
             except Exception as e:
                 self.logger.error(

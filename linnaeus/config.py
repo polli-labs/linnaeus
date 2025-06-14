@@ -346,9 +346,6 @@ _C.DATA.HYBRID.VERIFY_IMAGES.NUM_WORKERS = 8  # Default to reasonable number
 _C.DATA.HYBRID.VERIFY_IMAGES.CHUNK_SIZE = 1000
 # If True, log the identifiers of the first ~50 missing images found.
 _C.DATA.HYBRID.VERIFY_IMAGES.LOG_MISSING = True
-# Optional path to save a JSON report detailing missing images. Can use placeholders.
-# Example: '{output_dir}/assets/missing_images_report.json'
-_C.DATA.HYBRID.VERIFY_IMAGES.REPORT_PATH = ""
 
 # ------------------------------------------------------------------------
 # 3) Subsection for shared prefetch settings (used by HDF5 or Hybrid)

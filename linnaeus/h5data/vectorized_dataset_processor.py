@@ -43,6 +43,7 @@ See docstrings for more details.
 
 import logging
 from collections import Counter
+from pathlib import Path  # Added Path
 from typing import Any
 
 import h5py
@@ -144,9 +145,11 @@ class VectorizedDatasetProcessorOnePass:
         verify_num_workers: int = -1,
         verify_chunk_size: int = 1000,
         report_path: str = "",
+        config=None,
     ):
         self.main_logger = main_logger or get_h5data_logger()
         self.h5data_logger = h5data_logger or logging.getLogger("h5data")
+        self.config = config
 
         # Basic file & task stuff
         self.train_file = train_file
@@ -285,11 +288,35 @@ class VectorizedDatasetProcessorOnePass:
                     self.missing_image_indices, missing_ids = verifier.verify_images(img_identifiers)
 
                     # Generate report (optionally saves file)
+                    # Construct the actual report path
+                    actual_report_path = None
+                    if self.config and hasattr(self.config, 'ENV') and \
+                       hasattr(self.config.ENV, 'OUTPUT') and \
+                       hasattr(self.config.ENV.OUTPUT, 'DIRS') and \
+                       hasattr(self.config.ENV.OUTPUT.DIRS, 'ROOT'):
+                        output_dir = self.config.ENV.OUTPUT.DIRS.ROOT
+                        actual_report_path = Path(output_dir) / "assets" / "missing_images_report.json"
+                    elif self.main_logger:
+                        self.main_logger.warning(
+                            "Full config object not available or DIRS.ROOT not found. "
+                            "Image verification report will use constructor-defined path or not be saved if that's empty."
+                        )
+                        actual_report_path = self.report_path if self.report_path else None
+                    else:
+                        # This print is a last resort if no logger is available during construction.
+                        # Normal operation should have a logger.
+                        print(
+                            "WARNING: VectorizedDatasetProcessorOnePass: Full config object not available for report path construction and no logger provided. "
+                            "Report may not be saved to the intended location."
+                        )
+                        actual_report_path = self.report_path if self.report_path else None
+
+                    # Generate report (optionally saves file)
                     _ = verifier.generate_report(
                         missing_indices=self.missing_image_indices,
                         missing_identifiers=missing_ids,
                         total_count=total_count,
-                        report_path=self.report_path,  # Use the stored report path
+                        report_path=str(actual_report_path) if actual_report_path else None,
                     )
 
                     # Check against thresholds
