@@ -1,8 +1,6 @@
 """
 linnaeus/utils/autobatch.py
 
-# TODO: Needs heavy revision and testing
-
 A system that performs a binary search to find a memory-safe maximum batch size
 under a given GPU memory fraction constraint. This module supports two primary modes:
     1) Training mode (forward + backward pass, optionally with GradNorm).
@@ -98,9 +96,7 @@ class DummyOpsSchedule:
         return bool(self.config.LOSS.GRAD_WEIGHTING.TASK.GRADNORM_ENABLED)
 
 
-def _create_temporary_optimizer(
-    model_for_trial: torch.nn.Module, config_for_trial: CN, optimizer_main
-) -> torch.optim.Optimizer:
+def _create_temporary_optimizer(model_for_trial: torch.nn.Module, config_for_trial: CN, optimizer_main) -> torch.optim.Optimizer:
     try:
         return build_optimizer(config_for_trial, model_for_trial)
     except Exception:  # pragma: no cover - fallback for unusual configs
@@ -156,17 +152,11 @@ def auto_find_batch_size(
         )
 
     if dist is not None and dist.is_available() and dist.is_initialized():
-        best_bs_tensor = torch.tensor(
-            best_bs if best_bs is not None else 0, device="cuda", dtype=torch.int32
-        )
+        best_bs_tensor = torch.tensor(best_bs if best_bs is not None else 0, device="cuda", dtype=torch.int32)
         dist.broadcast(best_bs_tensor, src=0)
         best_bs = int(best_bs_tensor.item())
 
-    logger_autobatch.info(
-        "[auto_find_batch_size] rank=%s found batch size=%s",
-        rank,
-        best_bs,
-    )
+    logger_autobatch.info("[auto_find_batch_size] rank=%s found batch size=%s", rank, best_bs)
 
     return best_bs if best_bs is not None else min_batch_size
 
@@ -195,11 +185,9 @@ def _binary_search_for_batch_size(
         model_for_trial_unwrapped = model.module
         logger_autobatch.info("Using model.module for autobatch trial on rank 0.")
 
-    device = next(model_for_trial_unwrapped.parameters()).device # Use unwrapped model for device
+    device = next(model_for_trial_unwrapped.parameters()).device  # Use unwrapped model for device
     if device.type != "cuda":
-        logger_autobatch.info(
-            "AutoBatch is intended for CUDA devices. Returning min_batch_size for CPU usage."
-        )
+        logger_autobatch.info("AutoBatch is intended for CUDA devices. Returning min_batch_size for CPU usage.")
         return min_batch_size
 
     gb = 1 << 30
@@ -225,11 +213,11 @@ def _binary_search_for_batch_size(
         if mid % 2 != 0 and mid > min_batch_size:
             mid -= 1
 
-        if mid < min_batch_size: # Check if mid fell below min_batch_size after adjustment
+        if mid < min_batch_size:  # Check if mid fell below min_batch_size after adjustment
             break
 
         usage_gb = _run_trial(
-            model_for_trial=model_for_trial_unwrapped, # Pass unwrapped model
+            model_for_trial=model_for_trial_unwrapped,  # Pass unwrapped model
             config_for_trial=config,
             mode=mode,
             batch_size=mid,
@@ -249,25 +237,10 @@ def _binary_search_for_batch_size(
             if usage_gb <= target_gb:
                 best_bs = mid
                 low = mid + 1
-                logger_autobatch.info(
-                    "BS=%s => %.2fGB <= %.2fGB OK; new best=%s range=(%s,%s)",
-                    mid,
-                    usage_gb,
-                    target_gb,
-                    mid,
-                    low,
-                    high,
-                )
+                logger_autobatch.info("BS=%s => %.2fGB <= %.2fGB OK; new best=%s range=(%s,%s)", mid, usage_gb, target_gb, mid, low, high)
             else:
                 high = mid - 1
-                logger_autobatch.info(
-                    "BS=%s => %.2fGB > %.2fGB; range=(%s,%s)",
-                    mid,
-                    usage_gb,
-                    target_gb,
-                    low,
-                    high,
-                )
+                logger_autobatch.info("BS=%s => %.2fGB > %.2fGB; range=(%s,%s)", mid, usage_gb, target_gb, low, high)
 
     return best_bs
 
@@ -289,11 +262,7 @@ def _run_trial(
     """Execute a single trial and return peak memory in GB or ``None`` if OOM."""
 
     device = next(model_for_trial.parameters()).device
-    model_module = (
-        model_for_trial.module
-        if hasattr(model_for_trial, "module")
-        else model_for_trial
-    )
+    model_module = model_for_trial.module if hasattr(model_for_trial, "module") else model_for_trial
 
     use_amp = config_for_trial.TRAIN.AMP_OPT_LEVEL != "O0"
 
@@ -303,21 +272,13 @@ def _run_trial(
         model_for_trial.eval()
 
     if hasattr(model_module, "use_checkpoint"):
-        model_module.use_checkpoint = bool(
-            config_for_trial.TRAIN.GRADIENT_CHECKPOINTING.ENABLED_NORMAL_STEPS
-        )
+        model_module.use_checkpoint = bool(config_for_trial.TRAIN.GRADIENT_CHECKPOINTING.ENABLED_NORMAL_STEPS)
 
-    img_size = (
-        config_for_trial.DATA.IMG_SIZE
-        if isinstance(config_for_trial.DATA.IMG_SIZE, int)
-        else config_for_trial.DATA.IMG_SIZE[0]
-    )
+    img_size = config_for_trial.DATA.IMG_SIZE if isinstance(config_for_trial.DATA.IMG_SIZE, int) else config_for_trial.DATA.IMG_SIZE[0]
     in_chans = getattr(config_for_trial.MODEL, "IN_CHANS", 3)
 
     meta_dims = 0
-    if hasattr(config_for_trial.DATA, "META") and getattr(
-        config_for_trial.DATA.META, "ACTIVE", False
-    ):
+    if hasattr(config_for_trial.DATA, "META") and getattr(config_for_trial.DATA.META, "ACTIVE", False):
         for comp in config_for_trial.DATA.META.COMPONENTS.values():
             if getattr(comp, "ENABLED", False):
                 meta_dims += int(comp.DIM)
@@ -334,12 +295,7 @@ def _run_trial(
         else:
             num_classes = int(config_for_trial.MODEL.NUM_CLASSES)
 
-        targets_dict_gpu[task_key] = torch.randint(
-            0,
-            num_classes,
-            (batch_size,),
-            device=device,
-        )
+        targets_dict_gpu[task_key] = torch.randint(0, num_classes, (batch_size,), device=device)
 
     torch.cuda.empty_cache()
     torch.cuda.reset_peak_memory_stats(device)
@@ -348,9 +304,7 @@ def _run_trial(
 
     try:
         if mode.lower() == "train":
-            temp_optimizer = _create_temporary_optimizer(
-                model_for_trial, config_for_trial, optimizer_main
-            )
+            temp_optimizer = _create_temporary_optimizer(model_for_trial, config_for_trial, optimizer_main)
             temp_scaler = torch.cuda.amp.GradScaler(enabled=use_amp)
             dummy_ops_schedule = DummyOpsSchedule(config_for_trial)
 
@@ -359,18 +313,9 @@ def _run_trial(
             for _ in range(steps_per_trial):
                 temp_optimizer.zero_grad(set_to_none=True)
                 for accum_idx in range(accumulation_steps):
-                    images = torch.randn(
-                        batch_size,
-                        in_chans,
-                        img_size,
-                        img_size,
-                        device=device,
-                        requires_grad=True,
-                    )
+                    images = torch.randn(batch_size, in_chans, img_size, img_size, device=device, requires_grad=True)
                     aux_info = (
-                        torch.randn(
-                            batch_size, meta_dims, device=device, requires_grad=True
-                        )
+                        torch.randn(batch_size, meta_dims, device=device, requires_grad=True)
                         if meta_dims > 0
                         else torch.empty(batch_size, 0, device=device)
                     )
@@ -390,23 +335,18 @@ def _run_trial(
                     scaled_loss = total_loss / accumulation_steps
                     temp_scaler.scale(scaled_loss).backward()
 
-                    if (
-                        config_for_trial.LOSS.GRAD_WEIGHTING.TASK.GRADNORM_ENABLED
-                        and grad_weighting_main is not None
-                    ):
+                    if config_for_trial.LOSS.GRAD_WEIGHTING.TASK.GRADNORM_ENABLED and grad_weighting_main is not None:
                         orig_state = getattr(model_module, "use_checkpoint", False)
                         if hasattr(model_module, "use_checkpoint"):
-                            model_module.use_checkpoint = bool(
-                                config_for_trial.TRAIN.GRADIENT_CHECKPOINTING.ENABLED_GRADNORM_STEPS
-                            )
+                            model_module.use_checkpoint = bool(config_for_trial.TRAIN.GRADIENT_CHECKPOINTING.ENABLED_GRADNORM_STEPS)
                         # Note: The data_batch for GradNorm should be the current micro-batch
                         grad_weighting_main.update_gradnorm_weights_reforward(
-                            data_batch=(images, targets_dict_gpu, aux_info), # Current micro-batch
+                            data_batch=(images, targets_dict_gpu, aux_info),  # Current micro-batch
                             criteria=criteria_train,
                             scaler=temp_scaler,
                             amp_enabled=use_amp,
                             ops_schedule=dummy_ops_schedule,
-                            current_step=0, # Or a step counter that increments with each micro-batch if needed
+                            current_step=0,  # Or a step counter that increments with each micro-batch if needed
                         )
                         if hasattr(model_module, "use_checkpoint"):
                             model_module.use_checkpoint = orig_state
@@ -422,18 +362,8 @@ def _run_trial(
         else:  # val mode
             dummy_ops_schedule = DummyOpsSchedule(config_for_trial)
             for _ in range(steps_per_trial):
-                images = torch.randn(
-                    batch_size,
-                    in_chans,
-                    img_size,
-                    img_size,
-                    device=device,
-                )
-                aux_info = (
-                    torch.randn(batch_size, meta_dims, device=device)
-                    if meta_dims > 0
-                    else torch.empty(batch_size, 0, device=device)
-                )
+                images = torch.randn(batch_size, in_chans, img_size, img_size, device=device)
+                aux_info = torch.randn(batch_size, meta_dims, device=device) if meta_dims > 0 else torch.empty(batch_size, 0, device=device)
                 with torch.no_grad():
                     with amp_ctx:
                         outputs = model_for_trial(images, aux_info)
@@ -524,18 +454,9 @@ def _train_mode_with_gradnorm_trial(
             tdict_gpu = {}
             for i, task_key in enumerate(task_keys):
                 num_classes = 10  # Default
-                if (
-                    criteria
-                    and hasattr(criteria, "get")
-                    and hasattr(criteria.get(task_key, None), "num_classes")
-                ):
+                if criteria and hasattr(criteria, "get") and hasattr(criteria.get(task_key, None), "num_classes"):
                     num_classes = criteria[task_key].num_classes
-                elif (
-                    criteria
-                    and isinstance(criteria, (list, tuple))
-                    and i < len(criteria)
-                    and hasattr(criteria[i], "num_classes")
-                ):
+                elif criteria and isinstance(criteria, (list, tuple)) and i < len(criteria) and hasattr(criteria[i], "num_classes"):
                     num_classes = criteria[i].num_classes
 
                 # Create one-hot targets
@@ -551,18 +472,10 @@ def _train_mode_with_gradnorm_trial(
 
                 # Calculate loss using criteria if provided
                 if criteria is not None:
-                    from linnaeus.loss.hierarchical_loss import (
-                        weighted_hierarchical_loss,
-                    )
+                    from linnaeus.loss.hierarchical_loss import weighted_hierarchical_loss
 
                     total_loss, loss_components, _ = weighted_hierarchical_loss(
-                        out,
-                        tdict_gpu,
-                        criteria,
-                        grad_weighting,
-                        dummy_ops_schedule,
-                        current_step=0,
-                        config=config,
+                        out, tdict_gpu, criteria, grad_weighting, dummy_ops_schedule, current_step=0, config=config
                     )
                 else:
                     # Fallback to a dummy loss
@@ -581,9 +494,7 @@ def _train_mode_with_gradnorm_trial(
                 total_loss.backward()
 
             # Now perform GradNorm update if configured
-            if grad_weighting is not None and hasattr(
-                grad_weighting, "update_gradnorm_weights_reforward"
-            ):
+            if grad_weighting is not None and hasattr(grad_weighting, "update_gradnorm_weights_reforward"):
                 data_for_gradnorm = (inp, tdict_gpu, meta)
                 grad_weighting.update_gradnorm_weights_reforward(
                     data_batch=data_for_gradnorm,
