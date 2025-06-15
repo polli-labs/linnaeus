@@ -2,11 +2,15 @@
 ARG NVIDIA_CUDA_TAG="12.8.0-cudnn-devel-ubuntu22.04"
 FROM nvidia/cuda:${NVIDIA_CUDA_TAG} AS base
 
-# Build arguments for PyTorch and Flash Attention versions
+# Build arguments for PyTorch, Flash Attention, and CUDA architecture
 ARG TORCH_VER="2.7.1+cu126" # Example: 2.7.1+cu126
 ARG FA_VER="2.7.4.post1"    # Example: 2.7.4.post1
+ARG TORCH_CHANNEL="stable"  # PyTorch channel: stable or nightly
+ARG TORCH_CUDA_SUFFIX       # e.g., cu126, cu128 - must be passed by build.sh
+ARG CUDA_ARCH_LIST=""       # e.g., "7.5;8.0;8.6;9.0" - for flash-attn, if needed
 
 # --- Environment Setup ---
+ENV TORCH_CUDA_ARCH_LIST=${CUDA_ARCH_LIST}
 ENV DEBIAN_FRONTEND=noninteractive
 ENV TZ=Etc/UTC
 # Set path for uv
@@ -46,7 +50,17 @@ RUN uv pip install --system ninja && ninja --version
 # uv should be able to parse this and find the correct package.
 # If a specific index URL is needed, the build script would have to provide it
 # or this line would need to be adjusted. For now, relying on uv's capabilities.
-RUN uv pip install --system torch==${TORCH_VER} torchvision torchaudio
+RUN if [ "$TORCH_CHANNEL" = "nightly" ]; then \
+        echo "Installing PyTorch from NIGHTLY channel: ${TORCH_VER} for CUDA ${TORCH_CUDA_SUFFIX}"; \
+        uv pip install --system --pre \
+            torch==${TORCH_VER} torchvision torchaudio \
+            --index-url https://download.pytorch.org/whl/nightly/${TORCH_CUDA_SUFFIX}; \
+    else \
+        echo "Installing PyTorch from STABLE channel: ${TORCH_VER} for CUDA ${TORCH_CUDA_SUFFIX}"; \
+        uv pip install --system \
+            torch==${TORCH_VER} torchvision torchaudio \
+            --index-url https://download.pytorch.org/whl/${TORCH_CUDA_SUFFIX}; \
+    fi
 
 # Install packaging utilities and psutil
 RUN uv pip install --system packaging setuptools wheel psutil
