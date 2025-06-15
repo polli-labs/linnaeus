@@ -221,6 +221,13 @@ def _binary_search_for_batch_size(
 
     while low <= high:
         mid = (low + high) // 2
+        # Ensure mid is even and not below min_batch_size
+        if mid % 2 != 0 and mid > min_batch_size:
+            mid -= 1
+
+        if mid < min_batch_size: # Check if mid fell below min_batch_size after adjustment
+            break
+
         usage_gb = _run_trial(
             model_for_trial=model_for_trial_unwrapped, # Pass unwrapped model
             config_for_trial=config,

@@ -96,7 +96,10 @@ def init_distributed(backend: str = "nccl", config=None) -> tuple[int, int]:
 
         # Init the process group with the proper backend
         if world_size > 1:
-            dist.init_process_group(backend=backend, init_method="env://")
+            import datetime # Ensure datetime is imported if not already
+            dist.init_process_group(backend=backend, init_method="env://",
+                                    timeout=datetime.timedelta(seconds=1200),
+                                    device_id=local_rank)
             logger.info(f"Initialized distributed backend: {backend}")
             logger.info(
                 f"Distributed settings: rank={rank}, local_rank={local_rank}, world_size={world_size}"
