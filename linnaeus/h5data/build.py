@@ -746,6 +746,17 @@ def build_loaders(
     # 2) Build the train data loader with appropriate sampler (grouped or standard).
     # -------------------------------------------------------------------------
     sampler_type = config.DATA.SAMPLER.TYPE.lower()
+
+    # Adjust batch_size_train if 'mixed-pairs' sampler requires even batch size
+    if sampler_type == 'grouped' and config.DATA.SAMPLER.GROUPED_MODE == 'mixed-pairs':
+        if batch_size_train % 2 != 0:
+            original_bs = batch_size_train
+            batch_size_train -= 1
+            main_logger.warning(
+                f"[GroupedBatchSampler] Batch size was odd ({original_bs}) but 'mixed-pairs' mode "
+                f"requires an even number. Adjusting train batch size to {batch_size_train}."
+            )
+
     is_distributed = dist.is_available() and dist.is_initialized()
 
     # Log sampler selection
