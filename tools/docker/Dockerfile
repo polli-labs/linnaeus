@@ -59,15 +59,26 @@ RUN if [ "$TORCH_CHANNEL" = "nightly" ]; then \
 # Install packaging utilities and psutil
 RUN uv pip install --system packaging setuptools wheel psutil
 
-# Install Flash Attention
-RUN if [ -n "${FA_VER}" ]; then \
-      echo "Attempting to install flash-attn version: ${FA_VER}"; \
-      if [ -n "${MAX_JOBS}" ]; then \
-        export MAX_JOBS=${MAX_JOBS}; \
-      fi; \
-      uv pip install --system flash-attn==${FA_VER} --no-build-isolation; \
+# --- Flash Attention --------------------------------------------------
+# ARG FA_VER # Already defined globally
+# ARG TORCH_CHANNEL # Already defined globally
+# ARG MAX_JOBS # Already defined globally
+
+RUN echo "Processing Flash Attention installation..." && \
+    if [ "$TORCH_CHANNEL" = "nightly" ]; then \
+        echo "Installing latest Flash-Attention v3 nightly (>=3,<4)"; \
+        ACTUAL_MAX_JOBS=${MAX_JOBS:-12} && \
+        echo "Using MAX_JOBS=${ACTUAL_MAX_JOBS}" && \
+        uv pip install --system --pre \
+            'flash-attn>=3,<4' --no-build-isolation; \
+    elif [ -n "$FA_VER" ]; then \
+        echo "Installing Flash-Attention version $FA_VER"; \
+        ACTUAL_MAX_JOBS=${MAX_JOBS:-12} && \
+        echo "Using MAX_JOBS=${ACTUAL_MAX_JOBS}" && \
+        uv pip install --system \
+            flash-attn==$FA_VER --no-build-isolation; \
     else \
-      echo "FA_VER is empty, skipping flash-attn installation."; \
+        echo "FA_VER is empty or TORCH_CHANNEL is not nightly – skipping Flash-Attention"; \
     fi
 
 
@@ -88,7 +99,7 @@ RUN git clone --depth 1 --branch ${LINNAEUS_REF} https://github.com/polli-labs/l
 WORKDIR /app/linnaeus
 
 # Install Linnaeus and its development dependencies
-RUN uv pip install --system -e .[dev]
+RUN uv pip install --system --no-deps -e .[dev]
 
 # Set the entrypoint for the container
 ENTRYPOINT ["python", "-m", "linnaeus.main"]
