@@ -4,7 +4,7 @@ FROM nvidia/cuda:${NVIDIA_CUDA_TAG} AS base
 
 # Build arguments for PyTorch, Flash Attention, and CUDA architecture
 ARG TORCH_VER="2.7.1+cu126" # still passed for stable builds
-ARG FA_VER="2.7.4.post1"    # Example: 2.7.4.post1
+ARG FA_VER=""    # default is *blank* ⇒ skip on Turing
 ARG TORCH_CHANNEL="stable"  # PyTorch channel: stable or nightly
 ARG TORCH_CUDA_SUFFIX       # e.g., cu126, cu128
 ARG CUDA_ARCH_LIST=""       # e.g., "7.5;8.0;8.6;9.0" - for flash-attn, if needed
