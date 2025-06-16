@@ -350,7 +350,7 @@ class mFormerV1(BaseModel):
 
     def _init_weights(self, m):
         """Initialize weights like ConvNeXt and ViT."""
-        if isinstance(m, (nn.Conv2d, nn.Linear)):
+        if isinstance(m, nn.Conv2d | nn.Linear):
             trunc_normal_(m.weight, std=0.02)
             if isinstance(m, nn.Linear) and m.bias is not None:
                 nn.init.constant_(m.bias, 0)

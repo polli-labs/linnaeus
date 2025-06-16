@@ -26,9 +26,9 @@ from typing import Any
 import torch
 import torch.distributed as dist
 import torch.nn as nn
+import wandb
 from yacs.config import CfgNode as CN
 
-import wandb
 from linnaeus.utils.distributed import get_rank_safely
 
 # Global variables for JSONL logging
@@ -505,7 +505,7 @@ def log_training_metrics(
     debug_wandb_metrics = False
     try:
         debug_wandb_metrics = check_debug_flag(config, "DEBUG.WANDB_METRICS")
-    except:
+    except Exception:
         pass
 
     if debug_wandb_metrics:
@@ -579,7 +579,7 @@ def log_gradnorm_metrics(
     try:
         debug_wandb_metrics = config.DEBUG.WANDB_METRICS
         verbose_gradnorm_logging = config.DEBUG.LOSS.VERBOSE_GRADNORM_LOGGING
-    except:
+    except Exception:
         pass
 
     logger = logging.getLogger(__name__)

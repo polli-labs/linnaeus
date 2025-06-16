@@ -77,7 +77,7 @@ def log_memory_usage(
                                 tensor_stats[shape_key] = {"count": 0, "total_mb": 0.0}
                             tensor_stats[shape_key]["count"] += 1
                             tensor_stats[shape_key]["total_mb"] += size_mb
-                except:
+                except Exception:
                     pass
 
             logger.debug(

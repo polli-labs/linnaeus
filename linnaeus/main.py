@@ -1334,11 +1334,11 @@ def main(config, args=None):
         )
         logger.info("Data loaders rebuilt with autobatch-determined batch sizes.")
 
-            # --- START FIX ---
-            # Re-initialize GroupedBatchSampler if needed
-            if hasattr(data_loader_train, "batch_sampler") and hasattr(
-                data_loader_train.batch_sampler, "set_current_group_level"
-            ):
+        # --- START FIX ---
+        # Re-initialize GroupedBatchSampler if needed
+        if hasattr(data_loader_train, "batch_sampler") and hasattr(
+            data_loader_train.batch_sampler, "set_current_group_level"
+        ):
                 try:
                     # This is the crucial step that was missing. It populates the sampler's
                     # internal batch list so that len(data_loader_train) is non-zero.
@@ -2467,74 +2467,78 @@ def main(config, args=None):
         global _shutdown_in_progress
 
         # Check if emergency shutdown is already in progress
+        # If so, log and skip normal cleanup.
+        # Otherwise, proceed with normal cleanup.
+        cleanup_skipped = False
         with _shutdown_lock:
             if _shutdown_in_progress:
                 logger.info(
-                    "[main] Emergency shutdown already in progress, skipping normal cleanup"
+                    "[main] Emergency shutdown already in progress, skipping normal cleanup in finally block"
                 )
-                return
+                cleanup_skipped = True
 
-        logger.info("[main] Starting normal cleanup in finally block")
+        if not cleanup_skipped:
+            logger.info("[main] Starting normal cleanup in finally block")
 
-        # Try using dist.barrier() for coordinated shutdown, but with timeout
-        if dist.is_initialized():
-            try:
-                logger.debug("[main] Waiting at distributed barrier")
-                if hasattr(dist, "barrier"):
-                    # Try to use barrier with a timeout if available
-                    try:
-                        # Set a timeout of 30 seconds to avoid indefinite hanging
-                        import threading
+            # Try using dist.barrier() for coordinated shutdown, but with timeout
+            if dist.is_initialized():
+                try:
+                    logger.debug("[main] Waiting at distributed barrier")
+                    if hasattr(dist, "barrier"):
+                        # Try to use barrier with a timeout if available
+                        try:
+                            # Set a timeout of 30 seconds to avoid indefinite hanging
+                            import threading
 
-                        barrier_event = threading.Event()
+                            barrier_event = threading.Event()
 
-                        def barrier_with_timeout():
-                            try:
-                                dist.barrier()
-                                barrier_event.set()
-                            except Exception as e:
-                                logger.error(
-                                    f"[main] Error in barrier thread: {str(e)}"
+                            def barrier_with_timeout():
+                                try:
+                                    dist.barrier()
+                                    barrier_event.set()
+                                except Exception as e:
+                                    logger.error(
+                                        f"[main] Error in barrier thread: {str(e)}"
+                                    )
+
+                            barrier_thread = threading.Thread(target=barrier_with_timeout)
+                            barrier_thread.daemon = True
+                            barrier_thread.start()
+
+                            # Wait for barrier or timeout
+                            if not barrier_event.wait(timeout=30.0):
+                                logger.warning(
+                                    "[main] Distributed barrier timed out after 30 seconds"
                                 )
-
-                        barrier_thread = threading.Thread(target=barrier_with_timeout)
-                        barrier_thread.daemon = True
-                        barrier_thread.start()
-
-                        # Wait for barrier or timeout
-                        if not barrier_event.wait(timeout=30.0):
-                            logger.warning(
-                                "[main] Distributed barrier timed out after 30 seconds"
+                        except Exception as e:
+                            logger.error(
+                                f"[main] Error with barrier timeout approach: {str(e)}"
                             )
-                    except Exception as e:
-                        logger.error(
-                            f"[main] Error with barrier timeout approach: {str(e)}"
-                        )
-            except Exception as e:
-                logger.error(f"[main] Error at distributed barrier: {str(e)}")
+                except Exception as e:
+                    logger.error(f"[main] Error at distributed barrier: {str(e)}")
 
-        # Explicitly close datasets to ensure threads are terminated
-        if hasattr(dataset_train, "close"):
-            try:
-                logger.info("[main] Closing training dataset")
-                dataset_train.close()
-                # Unregister from emergency cleanup since we've handled it here
-                unregister_cleanup_resource(dataset_train)
-                logger.info("[main] Training dataset closed successfully")
-            except Exception as e:
-                logger.error(f"[main] Error closing training dataset: {str(e)}")
+            # Explicitly close datasets to ensure threads are terminated
+            if hasattr(dataset_train, "close"):
+                try:
+                    logger.info("[main] Closing training dataset")
+                    dataset_train.close()
+                    # Unregister from emergency cleanup since we've handled it here
+                    unregister_cleanup_resource(dataset_train)
+                    logger.info("[main] Training dataset closed successfully")
+                except Exception as e:
+                    logger.error(f"[main] Error closing training dataset: {str(e)}")
 
-        if hasattr(dataset_val, "close"):
-            try:
-                logger.info("[main] Closing validation dataset")
-                dataset_val.close()
-                # Unregister from emergency cleanup since we've handled it here
-                unregister_cleanup_resource(dataset_val)
-                logger.info("[main] Validation dataset closed successfully")
-            except Exception as e:
-                logger.error(f"[main] Error closing validation dataset: {str(e)}")
+            if hasattr(dataset_val, "close"):
+                try:
+                    logger.info("[main] Closing validation dataset")
+                    dataset_val.close()
+                    # Unregister from emergency cleanup since we've handled it here
+                    unregister_cleanup_resource(dataset_val)
+                    logger.info("[main] Validation dataset closed successfully")
+                except Exception as e:
+                    logger.error(f"[main] Error closing validation dataset: {str(e)}")
 
-        logger.info("[main] Normal cleanup complete")
+            logger.info("[main] Normal cleanup complete")
 
 
 # train_one_epoch has been moved to linnaeus/train.py

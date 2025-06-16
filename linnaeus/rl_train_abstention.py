@@ -18,11 +18,12 @@ try:
     from linnaeus.rl_env.reward_functions import AbstentionRewardFunction, EpisodeOutcomeReward, SimpleAbstentionReward
     from linnaeus.rl_env.verifier import TaxonomicRLVerifier  # Needed for explicit instantiation
     from linnaeus.utils.checkpoint import load_checkpoint
-    from linnaeus.utils.config_utils import load_model_base_config
+
+    # from linnaeus.utils.config_utils import load_model_base_config # F401 error
     from linnaeus.utils.distributed import get_rank_safely, get_world_size, init_distributed_mode, is_main_process_safely
     from linnaeus.utils.logging.logger import create_h5data_logger, create_logger, get_h5data_logger, get_main_logger
     from linnaeus.utils.logging.wandb import finish_wandb, initialize_wandb, log_to_wandb
-    from linnaeus.utils.taxonomy.taxonomy_tree import TaxonomyTree
+    # from linnaeus.utils.taxonomy.taxonomy_tree import TaxonomyTree # F401 error
 except ImportError as e:
     print(f"Failed to import Linnaeus components: {e}. Ensure PYTHONPATH is set correctly.")
     sys.exit(1)
@@ -128,7 +129,8 @@ def ppo_update(
             "ppo/total_loss": total_loss.item()
         }
         logger.info(f"PPO Update: Losses - Policy={log_data_ppo['ppo/policy_loss']:.4f}, Value={log_data_ppo['ppo/value_loss']:.4f}, Entropy={log_data_ppo['ppo/entropy']:.4f}")
-        if initialize_wandb.wandb_is_initialized: log_to_wandb(log_data_ppo)
+        if initialize_wandb.wandb_is_initialized:
+            log_to_wandb(log_data_ppo)
 
 def evaluate_policy(
     policy_wrapper: LinnaeusPolicyWrapper, eval_env: TaxonomicClassificationEnv, num_eval_episodes: int,
@@ -282,7 +284,8 @@ def parse_args(args_list=None):
 def main():
     config, cmd_args = parse_args() # cmd_args now simpler
     init_distributed_mode(config)
-    rank = get_rank_safely(); world_size = get_world_size()
+    rank = get_rank_safely()
+    world_size = get_world_size()
     create_logger(output_dir=config.ENV.OUTPUT.DIRS.LOGS, dist_rank=rank, name="", log_level=config.EXPERIMENT.LOG_LEVEL_MAIN)
     create_h5data_logger(output_dir=config.ENV.OUTPUT.DIRS.LOGS, dist_rank=rank, log_level=config.EXPERIMENT.LOG_LEVEL_H5DATA)
     logger = get_main_logger()

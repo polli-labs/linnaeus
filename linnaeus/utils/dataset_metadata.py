@@ -219,7 +219,7 @@ def calculate_additional_statistics(class_label_counts):
             if not isinstance(counts, (torch.Tensor, np.ndarray)):
                 try:
                     counts = np.array(counts)  # Attempt conversion
-                except:
+                except Exception:
                     logger.warning(f"Could not process counts for {split}/{task_str}. Skipping stats.")
                     continue
 

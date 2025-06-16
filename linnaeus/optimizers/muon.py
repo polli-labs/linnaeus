@@ -315,12 +315,12 @@ class DistributedMuon(Optimizer):
             params_world = None
 
             # Helper function to apply updates from previous batch
-            def update_prev():
-                if handle is not None and params_world:
-                    handle.wait()
-                    for p_world, g_world in zip(params_world, update_buffer_views, strict=False):
+            def update_prev(_handle=None, _params_world=None, _lr=None, _weight_decay=None, _update_buffer_views=None):
+                if _handle is not None and _params_world:
+                    _handle.wait()
+                    for p_world, g_world in zip(_params_world, _update_buffer_views, strict=False):
                         # Apply weight decay directly to parameter
-                        p_world.mul_(1 - lr * weight_decay)
+                        p_world.mul_(1 - _lr * _weight_decay)
 
                         try:
                             # Apply update with scaling factor
@@ -343,7 +343,7 @@ class DistributedMuon(Optimizer):
                             scaling = max(1, p_world.size(-2) / p_world.size(-1)) ** 0.5
 
                             # Apply the update
-                            p_world.add_(reshaped_g, alpha=-lr * scaling)
+                            p_world.add_(reshaped_g, alpha=-_lr * scaling)
                         except Exception as e:
                             logger.error(f"Error in update_prev: {str(e)}")
                             logger.error(
@@ -392,7 +392,7 @@ class DistributedMuon(Optimizer):
 
                 # Apply updates from previous iteration
                 if base_i > 0:
-                    update_prev()
+                    update_prev(_handle=handle, _params_world=params_world, _lr=lr, _weight_decay=weight_decay, _update_buffer_views=update_buffer_views)
 
                 # Ensure g has same dtype as update_buffer
                 if g.dtype != update_buffer.dtype:
@@ -423,7 +423,7 @@ class DistributedMuon(Optimizer):
                 params_world = params[base_i:end_idx]
 
             # Apply final updates
-            update_prev()
+            update_prev(_handle=handle, _params_world=params_world, _lr=lr, _weight_decay=weight_decay, _update_buffer_views=update_buffer_views)
 
         return loss
 

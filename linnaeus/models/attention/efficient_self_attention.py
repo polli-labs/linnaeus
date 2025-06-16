@@ -17,7 +17,7 @@ try:
 except Exception:
     print("flash_attn library not found or import failed.")
 
-from ..model_factory import register_attention
+from ..model_factory import register_attention # Moved import to top
 
 
 @register_attention("EfficientSelfAttention")

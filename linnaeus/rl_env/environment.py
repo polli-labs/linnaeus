@@ -169,7 +169,7 @@ class TaxonomicClassificationEnv(gym.Env):
 
         return self.current_observation, info
 
-    def step(self, action: Union[int, List[int], np.ndarray]) -> Tuple[Dict[str, Any], float, bool, bool, Dict[str, Any]]:
+    def step(self, action: int | list[int] | np.ndarray) -> tuple[dict[str, Any], float, bool, bool, dict[str, Any]]:
         """
         Executes one step in the environment based on the provided action.
 
@@ -205,7 +205,7 @@ class TaxonomicClassificationEnv(gym.Env):
         info = {"current_rank_idx_processed": self.current_rank_idx if self.mode == "sequential" else -1}
 
         if self.mode == "sequential":
-            if not isinstance(action, (int, np.integer)): # np.integer for numpy int types
+            if not isinstance(action, int | np.integer): # np.integer for numpy int types
                 raise ValueError(f"Action must be an integer for sequential mode, got {type(action)} with value {action}")
 
             current_rank_name = self.rank_order[self.current_rank_idx]
@@ -265,7 +265,8 @@ class TaxonomicClassificationEnv(gym.Env):
 
         elif self.mode == "multitask":
             # Ensure action is a numpy array for easier processing if it's a list
-            if isinstance(action, list): action = np.array(action, dtype=np.int64)
+            if isinstance(action, list):
+                action = np.array(action, dtype=np.int64)
 
             if not isinstance(action, np.ndarray):
                 raise ValueError(f"Action must be a list or numpy array for multitask mode, got {type(action)}")
@@ -415,9 +416,12 @@ if __name__ == "__main__":
     iter_epoch_0_multi = iter([batch1, batch2]) # Fresh iterators
     iter_epoch_1_multi = iter([batch3])
     def iter_side_effect_fn_multi(): # New side effect function for this test run
-        if mock_dataloader.current_epoch == 0: return iter_epoch_0_multi
-        elif mock_dataloader.current_epoch == 1: return iter_epoch_1_multi
-        else: return iter([batch1])
+        if mock_dataloader.current_epoch == 0:
+            return iter_epoch_0_multi
+        elif mock_dataloader.current_epoch == 1:
+            return iter_epoch_1_multi
+        else:
+            return iter([batch1])
     mock_dataloader.__iter__.side_effect = iter_side_effect_fn_multi
 
     env_multi = TaxonomicClassificationEnv(

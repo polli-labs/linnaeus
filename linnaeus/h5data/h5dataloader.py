@@ -196,7 +196,7 @@ class H5DataLoader(DataLoader):
                         # Use step=0 for initialization reporting
                         meta_mask_prob = ops_schedule.get_meta_mask_prob(0)
                         self.main_logger.debug(f"    - Initial meta_mask_prob: {meta_mask_prob}")
-                    except:
+                    except Exception:
                         self.main_logger.debug("    - Meta mask prob not yet available")
 
                 if hasattr(ops_schedule, "get_mixup_prob"):
@@ -208,7 +208,7 @@ class H5DataLoader(DataLoader):
                         # Check if we're using grouped sampler for mixup
                         if not using_grouped and mixup_prob > 0:
                             self.main_logger.debug("    - WARNING: Mixup probability > 0 but not using grouped sampler")
-                    except:
+                    except Exception:
                         self.main_logger.debug("    - Mixup prob not yet available")
 
                 if hasattr(ops_schedule, "should_use_cutmix"):
@@ -356,7 +356,7 @@ class H5DataLoader(DataLoader):
 
         # Calculate start and end indices
         start_idx = 0
-        for comp_name, idx, dim in enabled_components:
+        for comp_name, _idx, dim in enabled_components:
             if comp_name == component_name:
                 return start_idx, start_idx + dim
             start_idx += dim

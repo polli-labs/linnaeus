@@ -13,14 +13,14 @@ import torch.utils.checkpoint
 
 from linnaeus.utils.logging.logger import get_main_logger
 
+from linnaeus.models.blocks.drop_path import DropPath # Moved import to top
+from linnaeus.models.blocks.mlp import Mlp # Moved import to top
+from linnaeus.utils.flash_attn_utils import is_flash_attn3_available # Moved import to top
+
 # Get logger first so it can be used in imports
 logger = get_main_logger()
 
 # Internal imports from linnaeus structure
-from linnaeus.models.blocks.drop_path import DropPath
-from linnaeus.models.blocks.mlp import Mlp
-
-from linnaeus.utils.flash_attn_utils import is_flash_attn3_available
 
 _flash_attn_func_impl = None
 _flash_attn_qkvpacked_func_impl = None # For completeness if other code uses it
@@ -37,7 +37,8 @@ try:
     else:
         # Attempt to import FA2 if FA3 is not available/selected
         # This will be used on Ampere (SM>=8) or if FA3 specific checks fail
-        from flash_attn import flash_attn_func as _fa2_func, flash_attn_qkvpacked_func as _fa2_qkvpacked_func
+        from flash_attn import flash_attn_func as _fa2_func
+        from flash_attn import flash_attn_qkvpacked_func as _fa2_qkvpacked_func
         _flash_attn_func_impl = _fa2_func
         _flash_attn_qkvpacked_func_impl = _fa2_qkvpacked_func
         _is_flash_attn_v2_plus_available = True

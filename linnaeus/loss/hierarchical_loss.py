@@ -77,7 +77,7 @@ def weighted_hierarchical_loss(
         )
 
     # Add debugging info - determine if we should log details
-    debug_loss = False
+    _debug_loss = False
     if config is not None:
         pass
 
@@ -318,7 +318,7 @@ def weighted_hierarchical_loss(
                     if not is_validation
                     else config.LOSS.GRAD_WEIGHTING.CLASS.VAL
                 )
-            except:
+            except Exception:
                 apply_cw = (
                     True  # Default to applying class weighting if config not found
                 )

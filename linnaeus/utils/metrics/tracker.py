@@ -966,7 +966,7 @@ class MetricsTracker:
                 and self.config.TRAIN.PHASE1_MASK_NULL_LOSS
             ):
                 ignore_idx = 0
-        except:
+        except Exception:
             pass  # Ignore if config or flags not found
 
         rank = get_rank_safely()

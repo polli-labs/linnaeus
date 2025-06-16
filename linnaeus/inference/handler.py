@@ -52,11 +52,14 @@ class LinnaeusInferenceHandler:
         if self.config.model.expected_aux_vector_length is None:
             length = 0
             meta_cfg = self.config.metadata_preprocessing
-            if meta_cfg.use_geolocation: length += 3
+            if meta_cfg.use_geolocation:
+                length += 3
             if meta_cfg.use_temporal:
                 length += 2
-                if meta_cfg.temporal_use_hour: length += 2
-            if meta_cfg.use_elevation: length += 2 * len(meta_cfg.elevation_scales)
+                if meta_cfg.temporal_use_hour:
+                    length += 2
+            if meta_cfg.use_elevation:
+                length += 2 * len(meta_cfg.elevation_scales)
             self.config.model.expected_aux_vector_length = length
             logger.info(f"Derived expected_aux_vector_length: {self.config.model.expected_aux_vector_length}")
 
@@ -141,8 +144,10 @@ class LinnaeusInferenceHandler:
         start_time = time.monotonic()
         batch_size = len(images)
 
-        if metadata_list is None: metadata_list = [{} for _ in range(batch_size)]
-        if per_sample_overrides is None: per_sample_overrides = [None] * batch_size
+        if metadata_list is None:
+            metadata_list = [{} for _ in range(batch_size)]
+        if per_sample_overrides is None:
+            per_sample_overrides = [None] * batch_size
 
         if len(metadata_list) != batch_size or len(per_sample_overrides) != batch_size:
             raise ValueError("Images, metadata_list, and per_sample_overrides must have the same length.")
@@ -251,7 +256,8 @@ class LinnaeusInferenceHandler:
         if meta_cfg.use_temporal:
             meta_components_enabled.append("temporal")
             time_enc = f"{'day_of_year' if meta_cfg.temporal_use_julian_day else 'month_of_year'}"
-            if meta_cfg.temporal_use_hour: time_enc += " + hour_of_day"
+            if meta_cfg.temporal_use_hour:
+                time_enc += " + hour_of_day"
             meta_feature_encoding["temporal"] = f"{time_enc} -> cyclical (sin/cos) features"
         if meta_cfg.use_elevation:
             meta_components_enabled.append("elevation")

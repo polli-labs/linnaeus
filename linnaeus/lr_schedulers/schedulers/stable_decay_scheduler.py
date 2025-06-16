@@ -128,7 +128,7 @@ class StableDecayScheduler(_LRScheduler):
             # Just ensure LRs are set based on the current last_epoch set by step_update.
             # Do NOT increment self.last_epoch here.
             values = self.get_lr()
-            for i, data in enumerate(zip(self.optimizer.param_groups, values, strict=False)):
+            for _i, data in enumerate(zip(self.optimizer.param_groups, values, strict=False)):
                 param_group, lr = data
                 param_group["lr"] = lr
                 # Do NOT call self.print_lr here, WarmupLRScheduler handles verbose printing.

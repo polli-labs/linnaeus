@@ -1,6 +1,8 @@
 # linnaeus/utils/flash_attn_utils.py
-import torch
 import importlib.util
+
+import torch
+
 
 def is_flash_attn3_available() -> bool:
     """
@@ -37,7 +39,7 @@ def is_flash_attn3_available() -> bool:
 
     # 4. Import flash_attn and check its version for "3.x.x"
     try:
-        import flash_attn # Now actually import it
+        import flash_attn  # Now actually import it
         version = getattr(flash_attn, '__version__', '0.0.0') # Get version, default to '0.0.0' if not found
         if not version.startswith("3."):
             return False # Not FlashAttention 3.x.x
