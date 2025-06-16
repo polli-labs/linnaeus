@@ -98,7 +98,27 @@ RUN git clone --depth 1 --branch ${LINNAEUS_REF} https://github.com/polli-labs/l
 
 WORKDIR /app/linnaeus
 
-# Install Linnaeus and its development dependencies
+# Install non-torch dependencies first to avoid reinstalling torch
+RUN uv pip install --system \
+    yacs>=0.1.8 \
+    numpy>=1.20 \
+    tqdm \
+    h5py \
+    wandb \
+    pyyaml \
+    Pillow \
+    opencv-python \
+    pandas \
+    matplotlib \
+    termcolor \
+    rich \
+    polli-typus>=0.1.7 \
+    huggingface-hub \
+    python-dateutil \
+    ruff \
+    pytest
+
+# Install Linnaeus without dependencies (since we installed them above)
 RUN uv pip install --system --no-deps -e .[dev]
 
 # Set the entrypoint for the container
