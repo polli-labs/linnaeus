@@ -34,7 +34,7 @@ The Docker build process is split into two stages: a `base` image and a `runtime
     - `<git_sha>`: Short commit SHA of the Linnaeus repository.
     - `<arch>`: `ampere`, `hopper`, `turing`
     - `<tag_suffix>`: Optional user-defined suffix (e.g., `-myfeature`).
-- **How it's Built:** Built using `docker buildx build` targeting the `runtime` stage in the `Dockerfile`, which uses the appropriate `base` image as a cache and clones the Linnaeus repository at the specified branch/commit.
+- **How it's Built:** Built using `docker buildx build` targeting the `runtime` stage in the `Dockerfile`. This stage installs the Linnaeus application code using `uv pip install --system --no-deps -e .[dev]`, relying on the `base` image for all shared heavy dependencies. The appropriate `base` image is used as a cache, and the Linnaeus repository is cloned at the specified branch/commit.
 
 ## Building Docker Images
 
@@ -66,11 +66,12 @@ docker buildx build \
   --build-arg TORCH_CHANNEL=nightly \
   --build-arg TORCH_CUDA_SUFFIX=cu128 \
   --build-arg CUDA_ARCH_LIST="9.0" \
-  --build-arg FA_VER=3.0.0b3 \
   --build-arg MAX_JOBS=8 \
   -t frontierkodiak/linnaeus-base:hopper-cu128-nightly \
   --push .
 ```
+
+Note: For Hopper, `FA_VER` is generally not needed as the latest compatible Flash Attention v3 wheel is installed by default when `TORCH_CHANNEL=nightly`. Pass `FA_VER` only if you specifically need to pin to an older v3 tag.
 
 ### Building Runtime Images
 
@@ -100,7 +101,7 @@ The following configurations are used for different architectures when building 
 
 ### Hopper (e.g., H100)
 - PyTorch: Latest nightly wheel from `https://download.pytorch.org/whl/nightly/cu128` (unpinned)
-- Flash Attention: `3.0.0b3` (v3)
+- Flash Attention: Latest nightly Flash-Attention v3 wheel (unpinned, >=3.0.0)
 
 **Important PyTorch Installation Notes:**
 - **Stable channel (Ampere/Turing):** PyTorch versions are explicitly pinned (e.g., `2.7.1`) to ensure reproducibility.
