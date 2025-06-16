@@ -23,8 +23,8 @@ The Docker build process is split into two stages: a `base` image and a `runtime
     - `<cuda_suffix>`: e.g., `cu126`, `cu128`
     - `<torch_ver_short>`: e.g., `2.7.1`, `2.8.0rc0`
     - `<fa_ver_tag>`: `v2`, `v3`, or `none`
-- **When to Rebuild:** The `base` image only needs to be manually rebuilt or updated if there are changes to its core components (e.g., upgrading PyTorch, CUDA version, or changing the Flash Attention version). Docker's layer caching will handle most updates automatically if the underlying component versions passed to `build.sh` change.
-- **How it's Built:** The `build.sh` script automatically builds the `base` image when you build a `runtime` image if the `base` image doesn't already exist or if its build arguments have changed. It targets the `base` stage in the `Dockerfile`.
+- **When to Rebuild:** The `base` image only needs to be manually rebuilt or updated if there are changes to its core components (e.g., upgrading PyTorch, CUDA version, or changing the Flash Attention version).
+- **How it's Built:** Built using `docker buildx build` targeting the `base` stage in the `Dockerfile`.
 
 ## The `runtime` Image
 
@@ -34,39 +34,61 @@ The Docker build process is split into two stages: a `base` image and a `runtime
     - `<git_sha>`: Short commit SHA of the Linnaeus repository.
     - `<arch>`: `ampere`, `hopper`, `turing`
     - `<tag_suffix>`: Optional user-defined suffix (e.g., `-myfeature`).
-- **How it's Built:** This is the default image built by `build.sh`. The script targets the `runtime` stage in the `Dockerfile`, which uses the appropriate `base` image as a cache and clones the Linnaeus repository at the specified branch/commit.
+- **How it's Built:** Built using `docker buildx build` targeting the `runtime` stage in the `Dockerfile`, which uses the appropriate `base` image as a cache and clones the Linnaeus repository at the specified branch/commit.
 
-## Using `build.sh`
+## Building Docker Images
 
-The `build.sh` script is the primary tool for building both `base` and `runtime` images.
+Both `base` and `runtime` images are built using `docker buildx build` commands directly.
 
-**Key Options:**
+### Building Base Images
 
-- `--arch <ARCH>`: Specifies the target GPU architecture (`ampere`, `turing`, or `hopper`). This determines the CUDA, PyTorch, and Flash Attention versions for the `base` image. Default: `ampere`.
-- `--branch <BRANCH_OR_TAG_OR_SHA>`: Specifies the Git reference (branch name, tag, or commit SHA) for the Linnaeus code to be included in the `runtime` image. Default: `main`.
-- `--max-jobs <N>`: Sets the number of parallel compilation jobs (primarily for Flash Attention in the `base` image). Default: `12`.
-- `--tag-suffix <SUFFIX>`: Appends a custom suffix to the `runtime` image tag.
-- `--push`: Pushes both the `base` (if built/updated) and `runtime` images to the container registry.
-- `--help`: Displays the help message with all options.
-
-**Example Usage:**
-
+**Example for Ampere:**
 ```bash
-# Build for Ampere (default), using the 'main' branch of Linnaeus
-./tools/docker/build.sh
-
-# Build for Hopper, using a specific feature branch
-./tools/docker/build.sh --arch hopper --branch feat/new-model
-
-# Build for Ampere, push images after build
-./tools/docker/build.sh --arch ampere --push
+docker buildx build \
+  --platform linux/amd64 \
+  -f tools/docker/Dockerfile \
+  --target base \
+  --build-arg TORCH_CHANNEL=stable \
+  --build-arg TORCH_VER=2.7.1+cu126 \
+  --build-arg TORCH_CUDA_SUFFIX=cu126 \
+  --build-arg CUDA_ARCH_LIST="8.0;8.6" \
+  --build-arg FA_VER=2.7.4.post1 \
+  -t frontierkodiak/linnaeus-base:ampere-cu126 \
+  --push .
 ```
 
-The `--source` argument from previous versions of `build.sh` is no longer used for the Docker build, as the `runtime` image now always clones Linnaeus from GitHub.
+**Example for Hopper (with nightly PyTorch):**
+```bash
+docker buildx build \
+  --platform linux/amd64 \
+  -f tools/docker/Dockerfile \
+  --target base \
+  --build-arg TORCH_CHANNEL=nightly \
+  --build-arg TORCH_CUDA_SUFFIX=cu128 \
+  --build-arg CUDA_ARCH_LIST="9.0" \
+  --build-arg FA_VER=3.0.0b3 \
+  --build-arg MAX_JOBS=8 \
+  -t frontierkodiak/linnaeus-base:hopper-cu128-nightly \
+  --push .
+```
+
+### Building Runtime Images
+
+**Example:**
+```bash
+docker buildx build \
+  --platform linux/amd64 \
+  -f tools/docker/Dockerfile \
+  --target runtime \
+  --build-arg LINNAEUS_REF=main \
+  --cache-from=frontierkodiak/linnaeus-base:ampere-cu126 \
+  -t frontierkodiak/linnaeus-dev:ampere-main \
+  --push .
+```
 
 ## Architecture Configurations (for `base` image)
 
-The `--arch` flag in `build.sh` sets the following configurations for the `base` image:
+The following configurations are used for different architectures when building the `base` image:
 
 ### Ampere (e.g., RTX 3090, A100)
 - PyTorch: `2.7.1+cu126` (stable)
@@ -77,17 +99,27 @@ The `--arch` flag in `build.sh` sets the following configurations for the `base`
 - Flash Attention: Skipped (not supported/installed)
 
 ### Hopper (e.g., H100)
-- PyTorch: `2.8.0rc0+cu128` (nightly)
+- PyTorch: Latest nightly wheel from `https://download.pytorch.org/whl/nightly/cu128` (unpinned)
 - Flash Attention: `3.0.0b3` (v3)
 
-*(Note: The exact PyTorch and Flash Attention versions are defined in `build.sh` and passed as arguments (`TORCH_VER`, `FA_VER`) to the Docker build process.)*
+**Important PyTorch Installation Notes:**
+- **Stable channel (Ampere/Turing):** PyTorch versions are explicitly pinned (e.g., `2.7.1`) to ensure reproducibility.
+- **Nightly channel (Hopper/cu128):** PyTorch is installed without version pinning, allowing pip/uv to automatically select the latest available nightly wheel. This is necessary because CUDA 12.8 wheels are only available as rolling nightly releases.
 
 ## Flash Attention Compilation Notes
 
 - Flash Attention is compiled in the `base` stage if applicable for the selected architecture.
-- The `MAX_JOBS` argument for `build.sh` can control parallelism (`ninja` is used).
+- The `MAX_JOBS` argument controls compilation parallelism (`ninja` is used).
     - Default `MAX_JOBS=12` is suitable for machines with ample RAM (e.g., 128GB) and CPU cores.
     - Reduce `MAX_JOBS` (e.g., to 4) on systems with less memory to prevent out-of-memory errors during compilation.
+
+### Overriding MAX_JOBS with docker buildx
+
+You can override the `MAX_JOBS` build argument when building:
+
+```bash
+docker buildx build ... --build-arg MAX_JOBS=4 ...
+```
 
 ## Validation
 

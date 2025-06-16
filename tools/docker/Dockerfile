@@ -3,11 +3,12 @@ ARG NVIDIA_CUDA_TAG="12.8.0-cudnn-devel-ubuntu22.04"
 FROM nvidia/cuda:${NVIDIA_CUDA_TAG} AS base
 
 # Build arguments for PyTorch, Flash Attention, and CUDA architecture
-ARG TORCH_VER="2.7.1+cu126" # Example: 2.7.1+cu126
+ARG TORCH_VER="2.7.1+cu126" # still passed for stable builds
 ARG FA_VER="2.7.4.post1"    # Example: 2.7.4.post1
 ARG TORCH_CHANNEL="stable"  # PyTorch channel: stable or nightly
-ARG TORCH_CUDA_SUFFIX       # e.g., cu126, cu128 - must be passed by build.sh
+ARG TORCH_CUDA_SUFFIX       # e.g., cu126, cu128
 ARG CUDA_ARCH_LIST=""       # e.g., "7.5;8.0;8.6;9.0" - for flash-attn, if needed
+ARG MAX_JOBS=""             # Number of parallel compilation jobs for ninja
 
 # --- Environment Setup ---
 ENV TORCH_CUDA_ARCH_LIST=${CUDA_ARCH_LIST}
@@ -44,22 +45,15 @@ RUN ln -sf /usr/bin/python3.11 /usr/bin/python3 && \
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh
 RUN uv pip install --system ninja && ninja --version
 
-# --- Python Core Dependencies ---
-# Install PyTorch, TorchVision, TorchAudio
-# The TORCH_VER should be the full version string like "2.7.1+cu126"
-# uv should be able to parse this and find the correct package.
-# If a specific index URL is needed, the build script would have to provide it
-# or this line would need to be adjusted. For now, relying on uv's capabilities.
+# --- PyTorch, TorchVision, Torchaudio ---
 RUN if [ "$TORCH_CHANNEL" = "nightly" ]; then \
-        echo "Installing PyTorch from NIGHTLY channel: ${TORCH_VER} for CUDA ${TORCH_CUDA_SUFFIX}"; \
-        uv pip install --system --pre \
-            torch==${TORCH_VER} torchvision torchaudio \
-            --index-url https://download.pytorch.org/whl/nightly/${TORCH_CUDA_SUFFIX}; \
+      uv pip install --system --pre \
+          torch torchvision torchaudio \
+          --index-url https://download.pytorch.org/whl/nightly/${TORCH_CUDA_SUFFIX}; \
     else \
-        echo "Installing PyTorch from STABLE channel: ${TORCH_VER} for CUDA ${TORCH_CUDA_SUFFIX}"; \
-        uv pip install --system \
-            torch==${TORCH_VER} torchvision torchaudio \
-            --index-url https://download.pytorch.org/whl/${TORCH_CUDA_SUFFIX}; \
+      uv pip install --system \
+          torch==${TORCH_VER} torchvision torchaudio \
+          --index-url https://download.pytorch.org/whl/${TORCH_CUDA_SUFFIX}; \
     fi
 
 # Install packaging utilities and psutil
@@ -68,6 +62,9 @@ RUN uv pip install --system packaging setuptools wheel psutil
 # Install Flash Attention
 RUN if [ -n "${FA_VER}" ]; then \
       echo "Attempting to install flash-attn version: ${FA_VER}"; \
+      if [ -n "${MAX_JOBS}" ]; then \
+        export MAX_JOBS=${MAX_JOBS}; \
+      fi; \
       uv pip install --system flash-attn==${FA_VER} --no-build-isolation; \
     else \
       echo "FA_VER is empty, skipping flash-attn installation."; \
