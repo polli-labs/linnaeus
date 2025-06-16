@@ -121,8 +121,5 @@ RUN uv pip install --system \
 # Install Linnaeus without dependencies (since we installed them above)
 RUN uv pip install --system --no-deps -e .[dev]
 
-# Set the entrypoint for the container
-ENTRYPOINT ["python", "-m", "linnaeus.main"]
-
-# Set a default command (e.g., opening a shell if entrypoint is not used or overridden)
+# Default command is bash shell
 CMD ["/bin/bash"]
