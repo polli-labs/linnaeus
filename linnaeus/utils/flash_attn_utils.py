@@ -1,6 +1,8 @@
 # linnaeus/utils/flash_attn_utils.py
-import torch
 import importlib.util
+
+import torch
+
 
 def is_flash_attn3_available() -> bool:
     """
@@ -28,7 +30,7 @@ def is_flash_attn3_available() -> bool:
         # This can happen if CUDA is nominally available but no actual devices are found
         return False
 
-    if device_capability[0] < 9: # SM < 9.0 indicates not Hopper
+    if device_capability[0] < 9:  # SM < 9.0 indicates not Hopper
         return False
 
     # 3. Check if flash_attn package is installed (using find_spec for a lightweight check)
@@ -37,10 +39,11 @@ def is_flash_attn3_available() -> bool:
 
     # 4. Import flash_attn and check its version for "3.x.x"
     try:
-        import flash_attn # Now actually import it
-        version = getattr(flash_attn, '__version__', '0.0.0') # Get version, default to '0.0.0' if not found
+        import flash_attn  # Now actually import it
+
+        version = getattr(flash_attn, "__version__", "0.0.0")  # Get version, default to '0.0.0' if not found
         if not version.startswith("3."):
-            return False # Not FlashAttention 3.x.x
+            return False  # Not FlashAttention 3.x.x
     except ImportError:
         # This case should ideally be caught by find_spec, but included for robustness
         return False
@@ -54,7 +57,11 @@ def is_flash_attn3_available() -> bool:
     if getattr(torch.ops, "flash_attn_varlen_qkvpacked_func", None) is not None:
         op_found = True
     # Check if the op is under torch.ops.flash_attn (more common pattern)
-    elif hasattr(torch.ops, 'flash_attn') and          hasattr(torch.ops.flash_attn, 'flash_attn_varlen_qkvpacked_func') and          getattr(torch.ops.flash_attn, 'flash_attn_varlen_qkvpacked_func', None) is not None:
+    elif (
+        hasattr(torch.ops, "flash_attn")
+        and hasattr(torch.ops.flash_attn, "flash_attn_varlen_qkvpacked_func")
+        and getattr(torch.ops.flash_attn, "flash_attn_varlen_qkvpacked_func", None) is not None
+    ):
         op_found = True
 
     if not op_found:

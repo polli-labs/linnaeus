@@ -31,9 +31,7 @@ class AdaptivePoolingResolver(nn.Module):
         if kwargs:
             logger.debug(f"AdaptivePoolingResolver received unused kwargs: {kwargs}")
 
-    def forward(
-        self, lower_level: torch.Tensor, higher_level: torch.Tensor
-    ) -> torch.Tensor:
+    def forward(self, lower_level: torch.Tensor, higher_level: torch.Tensor) -> torch.Tensor:
         """
         Forward pass of AdaptivePoolingResolver.
 
@@ -44,9 +42,7 @@ class AdaptivePoolingResolver(nn.Module):
         Returns:
             torch.Tensor: Pooled lower-level features of shape (B, C_in, M).
         """
-        logger.debug(
-            f"AdaptivePoolingResolver Input shapes: lower_level={lower_level.shape}, higher_level={higher_level.shape}"
-        )
+        logger.debug(f"AdaptivePoolingResolver Input shapes: lower_level={lower_level.shape}, higher_level={higher_level.shape}")
         # Assuming that N != M and needs to be pooled
         pooled = self.pooling(lower_level)
         logger.debug(f"AdaptivePoolingResolver Pooled shape: {pooled.shape}")

@@ -43,17 +43,12 @@ def check_debug_flag(config: CN, flag_path_str: str) -> bool:
         # Flag path doesn't exist in the config
         # Log warning only once per missing path to avoid spam
         if flag_path_str not in _logged_warnings:
-            logger.warning(
-                f"Debug flag path '{flag_path_str}' not found in config. Assuming False."
-            )
+            logger.warning(f"Debug flag path '{flag_path_str}' not found in config. Assuming False.")
             _logged_warnings.add(flag_path_str)
         return False  # Default to False
     except Exception as e:
         # Catch other potential errors
         if flag_path_str not in _logged_warnings:
-            logger.error(
-                f"Error checking debug flag '{flag_path_str}': {e}. Assuming False.",
-                exc_info=True,
-            )
+            logger.error(f"Error checking debug flag '{flag_path_str}': {e}. Assuming False.", exc_info=True)
             _logged_warnings.add(flag_path_str)
         return False

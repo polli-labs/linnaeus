@@ -23,6 +23,4 @@ def to_2tuple(x: int) -> tuple[int, int]:
         logger.debug(f"Converting integer {x} to tuple ({x}, {x})")
         return (x, x)
     else:
-        raise TypeError(
-            f"to_2tuple expected int or tuple/list of length 2, got {type(x)} with value {x}"
-        )
+        raise TypeError(f"to_2tuple expected int or tuple/list of length 2, got {type(x)} with value {x}")

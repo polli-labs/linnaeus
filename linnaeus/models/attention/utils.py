@@ -12,9 +12,7 @@ from .task_specific_attention import TaskSpecificAttention
 logger = get_main_logger()
 
 
-def build_hierarchical_attention(
-    config: dict[str, Any], embed_dims: list[int], num_tasks: int
-) -> nn.ModuleList:
+def build_hierarchical_attention(config: dict[str, Any], embed_dims: list[int], num_tasks: int) -> nn.ModuleList:
     """
     Build a list of hierarchical attention layers based on the configuration.
 
@@ -31,9 +29,7 @@ def build_hierarchical_attention(
         return nn.ModuleList()
 
     task_specific = config.get("TASK_SPECIFIC", False)
-    attention_types = config.get(
-        "ATTENTION_TYPES", ["CBAM"] * len(embed_dims)
-    )  # New config field
+    attention_types = config.get("ATTENTION_TYPES", ["CBAM"] * len(embed_dims))  # New config field
     heads = config.get("HEADS", [8] * len(embed_dims))
     qkv_bias = config.get("QKV_BIAS", [True] * len(embed_dims))
     attn_drop_rate = config.get("ATTN_DROP_RATE", [0.1] * len(embed_dims))
@@ -41,9 +37,7 @@ def build_hierarchical_attention(
     drop_path_rate = config.get("DROP_PATH_RATE", 0.0)
 
     if len(attention_types) != len(embed_dims):
-        raise ValueError(
-            "Length of ATTENTION_TYPES must match the number of embed_dims."
-        )
+        raise ValueError("Length of ATTENTION_TYPES must match the number of embed_dims.")
 
     attn_layers = nn.ModuleList()
     for i, (dim, attn_type) in enumerate(zip(embed_dims, attention_types, strict=False)):
@@ -73,7 +67,5 @@ def build_hierarchical_attention(
                 )
             )
 
-    logger.debug(
-        f"Built {len(attn_layers)} hierarchical attention layers with types: {attention_types}"
-    )
+    logger.debug(f"Built {len(attn_layers)} hierarchical attention layers with types: {attention_types}")
     return attn_layers

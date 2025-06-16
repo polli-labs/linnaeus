@@ -59,9 +59,7 @@ def build_parent_child_map(
     h5_file: h5py.File,
     major_levels: list[LevelKey],
     min_obs_threshold: int = 1,  # Min observations for a link to be considered valid
-) -> tuple[
-    dict[NodeID, NodeID], dict[NodeID, list[NodeID]], dict[tuple[NodeID, NodeID], int]
-]:
+) -> tuple[dict[NodeID, NodeID], dict[NodeID, list[NodeID]], dict[tuple[NodeID, NodeID], int]]:
     """
     Builds parent-child relationships using TAXON IDs across adjacent levels.
 
@@ -103,14 +101,10 @@ def build_parent_child_map(
         parent_level_key = major_levels[i + 1]
 
         if child_level_key not in level_data or parent_level_key not in level_data:
-            logger.debug(
-                f"Skipping link check between {child_level_key} and {parent_level_key} (missing data)."
-            )
+            logger.debug(f"Skipping link check between {child_level_key} and {parent_level_key} (missing data).")
             continue
 
-        logger.info(
-            f"Finding links between {child_level_key} and {parent_level_key}..."
-        )
+        logger.info(f"Finding links between {child_level_key} and {parent_level_key}...")
         child_ids = level_data[child_level_key]
         parent_ids = level_data[parent_level_key]
 
@@ -120,11 +114,7 @@ def build_parent_child_map(
         valid_parent_ids = parent_ids[valid_mask]
 
         # Count occurrences of each unique link
-        unique_links, counts = np.unique(
-            np.stack([valid_child_ids, valid_parent_ids], axis=1),
-            axis=0,
-            return_counts=True,
-        )
+        unique_links, counts = np.unique(np.stack([valid_child_ids, valid_parent_ids], axis=1), axis=0, return_counts=True)
 
         processed_links = 0
         for (child_tid, parent_tid), count in zip(unique_links, counts, strict=False):
@@ -140,10 +130,7 @@ def build_parent_child_map(
             # Apply observation threshold
             if count >= min_obs_threshold:
                 # Check for multiple parents
-                if (
-                    child_node in child_to_parent
-                    and child_to_parent[child_node] != parent_node
-                ):
+                if child_node in child_to_parent and child_to_parent[child_node] != parent_node:
                     logger.error(
                         f"VALIDATION ERROR: Multiple Parents! Node {child_node} linked to "
                         f"{child_to_parent[child_node]} (count={link_counts.get((child_node, child_to_parent[child_node]), 0)}) "
@@ -155,9 +142,7 @@ def build_parent_child_map(
                     parent_to_children[parent_node].append(child_node)
                     processed_links += 1
 
-        logger.info(
-            f"  Established {processed_links} links (>= {min_obs_threshold} observations)."
-        )
+        logger.info(f"  Established {processed_links} links (>= {min_obs_threshold} observations).")
 
     # Ensure all nodes are keys in parent_to_children for completeness
     for node in all_nodes:
@@ -168,9 +153,7 @@ def build_parent_child_map(
 
 
 def validate_hierarchy(
-    child_to_parent: dict[NodeID, NodeID],
-    parent_to_children: dict[NodeID, list[NodeID]],
-    all_nodes: set[NodeID],
+    child_to_parent: dict[NodeID, NodeID], parent_to_children: dict[NodeID, list[NodeID]], all_nodes: set[NodeID]
 ) -> list[str]:
     """
     Performs structural validation checks (cycles, single parent).
@@ -231,22 +214,16 @@ def validate_hierarchy(
     return errors
 
 
-def find_roots(
-    child_to_parent: dict[NodeID, NodeID], all_nodes: set[NodeID]
-) -> set[NodeID]:
+def find_roots(child_to_parent: dict[NodeID, NodeID], all_nodes: set[NodeID]) -> set[NodeID]:
     """Finds nodes that are not children of any other node in the map."""
     children_nodes = set(child_to_parent.keys())
     potential_roots = all_nodes - children_nodes
     # Also include nodes explicitly mapped to None (if any were added that way)
-    potential_roots.update(
-        {node for node, parent in child_to_parent.items() if parent is None}
-    )
+    potential_roots.update({node for node, parent in child_to_parent.items() if parent is None})
     return potential_roots
 
 
-def analyze_roots(
-    h5_file: h5py.File, major_levels: list[LevelKey]
-) -> tuple[LevelKey, set[TaxonID]]:
+def analyze_roots(h5_file: h5py.File, major_levels: list[LevelKey]) -> tuple[LevelKey, set[TaxonID]]:
     """
     Finds the highest available level and the set of unique non-zero taxon IDs at that level.
 
@@ -278,22 +255,12 @@ def analyze_roots(
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="Validate taxonomic hierarchy in a labels.h5 file."
-    )
+    parser = argparse.ArgumentParser(description="Validate taxonomic hierarchy in a labels.h5 file.")
     parser.add_argument("h5_filepath", type=str, help="Path to the labels.h5 file.")
     parser.add_argument(
-        "--levels",
-        type=str,
-        default=",".join(DEFAULT_MAJOR_LEVELS),
-        help="Comma-separated list of major levels (e.g., L10,L20,L30).",
+        "--levels", type=str, default=",".join(DEFAULT_MAJOR_LEVELS), help="Comma-separated list of major levels (e.g., L10,L20,L30)."
     )
-    parser.add_argument(
-        "--threshold",
-        type=int,
-        default=1,
-        help="Minimum number of observations to consider a parent-child link valid.",
-    )
+    parser.add_argument("--threshold", type=int, default=1, help="Minimum number of observations to consider a parent-child link valid.")
     parser.add_argument("--debug", action="store_true", help="Enable debug logging.")
 
     args = parser.parse_args()
@@ -303,10 +270,7 @@ def main():
 
     # Parse levels and form full dataset keys (e.g., "taxa_L10")
     major_level_suffixes = [lvl.strip().upper() for lvl in args.levels.split(",")]
-    major_level_keys = sorted(
-        [f"taxa_{lvl}" for lvl in major_level_suffixes],
-        key=lambda k: parse_level(k) or 0,
-    )
+    major_level_keys = sorted([f"taxa_{lvl}" for lvl in major_level_suffixes], key=lambda k: parse_level(k) or 0)
 
     if not os.path.exists(args.h5_filepath):
         logger.error(f"File not found: {args.h5_filepath}")
@@ -317,21 +281,13 @@ def main():
             logger.info(f"--- Analyzing Taxonomy in {args.h5_filepath} ---")
 
             # 1. Build Parent-Child Map using Taxon IDs
-            child_to_parent_map, parent_to_children_map, link_counts = (
-                build_parent_child_map(hf, major_level_keys, args.threshold)
-            )
+            child_to_parent_map, parent_to_children_map, link_counts = build_parent_child_map(hf, major_level_keys, args.threshold)
 
-            all_found_nodes = set(child_to_parent_map.keys()) | set(
-                parent_to_children_map.keys()
-            )
-            logger.info(
-                f"Found {len(all_found_nodes)} unique nodes (taxon IDs) involved in links."
-            )
+            all_found_nodes = set(child_to_parent_map.keys()) | set(parent_to_children_map.keys())
+            logger.info(f"Found {len(all_found_nodes)} unique nodes (taxon IDs) involved in links.")
 
             # 2. Validate Structure (Cycles, Multiple Parent warnings logged during map building)
-            validation_errors = validate_hierarchy(
-                child_to_parent_map, parent_to_children_map, all_found_nodes
-            )
+            validation_errors = validate_hierarchy(child_to_parent_map, parent_to_children_map, all_found_nodes)
 
             # 3. Analyze Roots at Highest Available Level
             highest_level, true_roots = analyze_roots(hf, major_level_keys)
@@ -339,47 +295,27 @@ def main():
             logger.info(f"Analysis of highest available level ({highest_level}):")
             logger.info(f"  Found {num_roots} distinct non-zero taxon IDs.")
             if num_roots > 1:
-                logger.warning(
-                    f"  Potential Metaclade/Forest Structure Detected ({num_roots} roots)."
-                )
-                logger.info(
-                    f"  Root Taxon IDs at {highest_level}: {sorted(list(true_roots))}"
-                )
+                logger.warning(f"  Potential Metaclade/Forest Structure Detected ({num_roots} roots).")
+                logger.info(f"  Root Taxon IDs at {highest_level}: {sorted(list(true_roots))}")
             elif num_roots == 1:
-                logger.info(
-                    "  Likely Single-Rooted Clade Structure (1 root at highest level)."
-                )
-                logger.info(
-                    f"  Root Taxon ID at {highest_level}: {list(true_roots)[0]}"
-                )
+                logger.info("  Likely Single-Rooted Clade Structure (1 root at highest level).")
+                logger.info(f"  Root Taxon ID at {highest_level}: {list(true_roots)[0]}")
             else:
-                logger.warning(
-                    f"  No non-zero taxon IDs found at the highest level {highest_level}."
-                )
+                logger.warning(f"  No non-zero taxon IDs found at the highest level {highest_level}.")
 
             # 4. Summary Report
             logger.info("--- Validation Summary ---")
             if not validation_errors:
                 logger.info("Hierarchy structure appears valid (No cycles detected).")
             else:
-                logger.error(
-                    f"Hierarchy structure validation FAILED with {len(validation_errors)} issues:"
-                )
+                logger.error(f"Hierarchy structure validation FAILED with {len(validation_errors)} issues:")
                 for err in validation_errors:
                     logger.error(f"  - {err}")
 
-            logger.info(
-                f"Metaclade/Forest Status: {'Potential Metaclade/Forest' if num_roots > 1 else 'Likely Single-Rooted'}"
-            )
-            logger.info(
-                f"Number of distinct roots at highest level ({highest_level}): {num_roots}"
-            )
-            logger.info(
-                f"Total nodes involved in hierarchy links: {len(all_found_nodes)}"
-            )
-            logger.info(
-                f"Total parent-child links established (>= {args.threshold} obs): {len(child_to_parent_map)}"
-            )
+            logger.info(f"Metaclade/Forest Status: {'Potential Metaclade/Forest' if num_roots > 1 else 'Likely Single-Rooted'}")
+            logger.info(f"Number of distinct roots at highest level ({highest_level}): {num_roots}")
+            logger.info(f"Total nodes involved in hierarchy links: {len(all_found_nodes)}")
+            logger.info(f"Total parent-child links established (>= {args.threshold} obs): {len(child_to_parent_map)}")
 
     except Exception as e:
         logger.error(f"An error occurred during validation: {e}", exc_info=True)

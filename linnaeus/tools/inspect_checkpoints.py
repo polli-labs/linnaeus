@@ -8,9 +8,7 @@ from pathlib import Path
 import torch
 
 
-def inspect_checkpoint(
-    ckpt_path: str, output_file: str | None = None, key_filter: str | None = None
-):
+def inspect_checkpoint(ckpt_path: str, output_file: str | None = None, key_filter: str | None = None):
     """Loads a checkpoint and prints/saves its state dict keys and tensor shapes."""
     if not os.path.exists(ckpt_path):
         print(f"Error: Checkpoint file not found at {ckpt_path}")
@@ -35,20 +33,14 @@ def inspect_checkpoint(
                     state_dict = ckpt
                     print("Checkpoint file root appears to be the state dict.")
                 else:
-                    print(
-                        f"Error: Could not find a valid state dict under keys {potential_keys} or at the root."
-                    )
+                    print(f"Error: Could not find a valid state dict under keys {potential_keys} or at the root.")
                     print(f"Top-level keys found: {list(ckpt.keys())}")
                     return
-        elif isinstance(ckpt, OrderedDict) or isinstance(
-            ckpt, dict
-        ):  # Handle raw state dict files
+        elif isinstance(ckpt, OrderedDict) or isinstance(ckpt, dict):  # Handle raw state dict files
             state_dict = ckpt
             print("Checkpoint file appears to be a raw state dict.")
         else:
-            print(
-                f"Error: Checkpoint is not a dictionary or known state dict format (type: {type(ckpt)})."
-            )
+            print(f"Error: Checkpoint is not a dictionary or known state dict format (type: {type(ckpt)}).")
             return
 
         if not state_dict:
@@ -82,11 +74,7 @@ def inspect_checkpoint(
             numel = state_dict[key].numel()
             # Preserve the full key path including 'model.' prefix if it exists
             full_key = key
-            if (
-                "model" in potential_keys
-                and "model" in ckpt
-                and isinstance(ckpt["model"], dict)
-            ):
+            if "model" in potential_keys and "model" in ckpt and isinstance(ckpt["model"], dict):
                 full_key = f"model.{key}"
             line = f"- {full_key:<80} | Shape: {str(shape):<25} | Dtype: {str(dtype):<15} | Numel: {numel}"
             lines_to_write.append(line)
@@ -102,9 +90,7 @@ def inspect_checkpoint(
                 f.write(f"# Checkpoint Inspection: {Path(ckpt_path).name}\n")
                 f.write(f"# Total Keys: {len(state_dict)}\n")
                 if pattern:
-                    f.write(
-                        f"# Filtered Keys ({filtered_count}) using regex: '{key_filter}'\n"
-                    )
+                    f.write(f"# Filtered Keys ({filtered_count}) using regex: '{key_filter}'\n")
                 else:
                     f.write(f"# Filtered Keys: {filtered_count}\n")
                 f.write("-" * 120 + "\n")
@@ -119,15 +105,9 @@ def inspect_checkpoint(
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(
-        description="Inspect keys and shapes in PyTorch checkpoint files."
-    )
-    parser.add_argument(
-        "checkpoint_paths", nargs="+", help="Path(s) to the checkpoint file(s)."
-    )
-    parser.add_argument(
-        "-o", "--output", help="Optional path to save the inspection results to a file."
-    )
+    parser = argparse.ArgumentParser(description="Inspect keys and shapes in PyTorch checkpoint files.")
+    parser.add_argument("checkpoint_paths", nargs="+", help="Path(s) to the checkpoint file(s).")
+    parser.add_argument("-o", "--output", help="Optional path to save the inspection results to a file.")
     parser.add_argument("-f", "--filter", help="Optional regex pattern to filter keys.")
 
     # Add example paths for convenience
@@ -143,8 +123,7 @@ if __name__ == "__main__":
         "rope_l": f"{base_path}/rope_mixed_deit_large_patch16_LS.pth",
     }
     parser.epilog = (
-        "Example usage:\n"
-        "  python tools/inspect_checkpoint.py path/to/ckpt1.pth path/to/ckpt2.pth -f 'attn|mlp' -o inspection.txt\n"
+        "Example usage:\n  python tools/inspect_checkpoint.py path/to/ckpt1.pth path/to/ckpt2.pth -f 'attn|mlp' -o inspection.txt\n"
     )
     parser.epilog += "\nTarget Checkpoints for mFormerV1 Variants:\n"
     parser.epilog += f"  sm: {example_checkpoints['convnext_t']} AND {example_checkpoints['rope_s']}\n"

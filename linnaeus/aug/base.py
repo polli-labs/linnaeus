@@ -30,8 +30,7 @@ class AugmentationPipeline(ABC):
 
     @abstractmethod
     def __call__(
-        self,
-        batch: tuple[torch.Tensor, dict[str, torch.Tensor], torch.Tensor, torch.Tensor],
+        self, batch: tuple[torch.Tensor, dict[str, torch.Tensor], torch.Tensor, torch.Tensor]
     ) -> tuple[torch.Tensor, dict[str, torch.Tensor], torch.Tensor]:
         """
         Apply the augmentation pipeline to a batch of data.
@@ -56,18 +55,14 @@ class AutoAugmentBatch(ABC):
     def __init__(self, policy_name: str, color_jitter: float = 0.4, config=None):
         logger.info(f"Initializing AutoAugmentBatch with policy: {policy_name}")
         # Convert AutoAugment config to hparams
-        hparams = {
-            "color_jitter": color_jitter,
-        }
+        hparams = {"color_jitter": color_jitter}
         self.policy = get_policy(policy_name, hparams)
         self.hparams = hparams
 
         if config and check_debug_flag(config, "DEBUG.AUGMENTATION"):
             logger.debug(f"[AutoAugmentBatch] Initialized with policy: {policy_name}")
             logger.debug(f"[AutoAugmentBatch] Hyperparameters: {hparams}")
-            logger.debug(
-                f"[AutoAugmentBatch] Policy details: {self.policy.__class__.__name__}"
-            )
+            logger.debug(f"[AutoAugmentBatch] Policy details: {self.policy.__class__.__name__}")
 
     @abstractmethod
     def __call__(self, images: torch.Tensor) -> torch.Tensor:
@@ -98,13 +93,7 @@ class SelectiveMixup(ABC):
     @abstractmethod
     def __call__(
         self,
-        batch: tuple[
-            torch.Tensor,
-            dict[str, torch.Tensor],
-            torch.Tensor,
-            torch.Tensor,
-            torch.Tensor,
-        ],
+        batch: tuple[torch.Tensor, dict[str, torch.Tensor], torch.Tensor, torch.Tensor, torch.Tensor],
         exclude_null_samples: bool = True,
         null_task_keys: list[str] | str = None,
     ) -> tuple[torch.Tensor, dict[str, torch.Tensor], torch.Tensor, torch.Tensor]:
@@ -143,13 +132,7 @@ class SelectiveCutMix(ABC):
     @abstractmethod
     def __call__(
         self,
-        batch: tuple[
-            torch.Tensor,
-            dict[str, torch.Tensor],
-            torch.Tensor,
-            torch.Tensor,
-            torch.Tensor,
-        ],
+        batch: tuple[torch.Tensor, dict[str, torch.Tensor], torch.Tensor, torch.Tensor, torch.Tensor],
         exclude_null_samples: bool = True,
         null_task_keys: list[str] | str = None,
     ) -> tuple[torch.Tensor, dict[str, torch.Tensor], torch.Tensor, torch.Tensor]:

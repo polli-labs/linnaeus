@@ -100,9 +100,7 @@ _C.EXPERIMENT.WANDB.RUN_ID = ""
 # Logging levels
 _C.EXPERIMENT.LOG_LEVEL_MAIN = "INFO"
 _C.EXPERIMENT.LOG_LEVEL_H5DATA = "INFO"
-_C.EXPERIMENT.LOG_LEVEL_VALIDATION = (
-    "INFO"  # New setting to control validation logging specifically
-)
+_C.EXPERIMENT.LOG_LEVEL_VALIDATION = "INFO"  # New setting to control validation logging specifically
 
 # ----------------------------------------------------------------------------
 # Metrics Settings
@@ -120,12 +118,8 @@ _C.METRICS.TAXA_SUBSETS = []
 _C.METRICS.RARITY_PERCENTILES = [1, 5, 25, 50, 75, 90, 95, 99]
 
 # Null vs non-null sample metrics tracking
-_C.METRICS.TRACK_NULL_VS_NON_NULL = (
-    False  # Enable dedicated tracking of null vs non-null performance
-)
-_C.METRICS.NULL_VS_NON_NULL_TASKS = [
-    "taxa_L10"
-]  # Which tasks to track null vs non-null metrics for
+_C.METRICS.TRACK_NULL_VS_NON_NULL = False  # Enable dedicated tracking of null vs non-null performance
+_C.METRICS.NULL_VS_NON_NULL_TASKS = ["taxa_L10"]  # Which tasks to track null vs non-null metrics for
 
 # TaxAlign weighting for hierarchical metrics
 _C.METRICS.TAXALIGN = CN()  # DEPRECATED
@@ -138,9 +132,7 @@ _C.METRICS.TAXALIGN.COMPUTE_INTERVAL = 10  # DEPRECATED
 _C.CHECKPOINT = CN()  # DEPRECATED: Use SCHEDULE.CHECKPOINT instead
 _C.CHECKPOINT.KEEP_TOP_N = 0  # DEPRECATED: Use SCHEDULE.CHECKPOINT.KEEP_TOP_N instead
 _C.CHECKPOINT.KEEP_LAST_N = 0  # DEPRECATED: Use SCHEDULE.CHECKPOINT.KEEP_LAST_N instead
-_C.CHECKPOINT.SAVE_FREQ = (
-    1  # DEPRECATED: Use SCHEDULE.CHECKPOINT.INTERVAL_EPOCHS instead
-)
+_C.CHECKPOINT.SAVE_FREQ = 1  # DEPRECATED: Use SCHEDULE.CHECKPOINT.INTERVAL_EPOCHS instead
 
 # ----------------------------------------------------------------------------
 # Environment Settings (Local or HPC)
@@ -255,9 +247,7 @@ _C.DATA.PARTIAL.LEVELS = False
 # Handling out-of-region samples:
 # - INCLUDE: keep out-of-region samples.
 _C.DATA.OUT_OF_REGION = CN()
-_C.DATA.OUT_OF_REGION.INCLUDE = (
-    True  # Controls if OOR samples should be included at all (typically True)
-)
+_C.DATA.OUT_OF_REGION.INCLUDE = True  # Controls if OOR samples should be included at all (typically True)
 
 # Upward Major-Rank Check:
 # - If True, any non-null label at rank Lk requires all lower ranks (<k) to be non-null.
@@ -276,11 +266,13 @@ _C.DATA.META.COMPONENTS.TEMPORAL.ENABLED = True
 _C.DATA.META.COMPONENTS.TEMPORAL.SOURCE = "temporal"  # what is the name of the corresponding dataset/group in the labels hdf5 file?
 _C.DATA.META.COMPONENTS.TEMPORAL.COLUMNS = []  # Empty means use all columns
 _C.DATA.META.COMPONENTS.TEMPORAL.DIM = 2  # Expected dimension
-_C.DATA.META.COMPONENTS.TEMPORAL.IDX = 0  # controls the order in which this is packed into aux_info, as well as order of meta heads for building the model
-_C.DATA.META.COMPONENTS.TEMPORAL.ALLOW_MISSING = (
-    True  # If True, allow samples with missing (all-zero) temporal data in the dataset
+_C.DATA.META.COMPONENTS.TEMPORAL.IDX = (
+    0  # controls the order in which this is packed into aux_info, as well as order of meta heads for building the model
 )
-_C.DATA.META.COMPONENTS.TEMPORAL.OOR_MASK = False  # If True, zero out temporal data for out-of-region samples. Not applicable if ALLOW_MISSING = False.
+_C.DATA.META.COMPONENTS.TEMPORAL.ALLOW_MISSING = True  # If True, allow samples with missing (all-zero) temporal data in the dataset
+_C.DATA.META.COMPONENTS.TEMPORAL.OOR_MASK = (
+    False  # If True, zero out temporal data for out-of-region samples. Not applicable if ALLOW_MISSING = False.
+)
 
 # Default spatial component
 _C.DATA.META.COMPONENTS.SPATIAL = CN()
@@ -288,22 +280,26 @@ _C.DATA.META.COMPONENTS.SPATIAL.ENABLED = True
 _C.DATA.META.COMPONENTS.SPATIAL.SOURCE = "spatial"
 _C.DATA.META.COMPONENTS.SPATIAL.COLUMNS = []  # Empty means use all columns
 _C.DATA.META.COMPONENTS.SPATIAL.DIM = 3  # Expected dimension
-_C.DATA.META.COMPONENTS.SPATIAL.IDX = 1  # controls the order in which this is packed into aux_info, as well as order of meta heads for building the model
-_C.DATA.META.COMPONENTS.SPATIAL.ALLOW_MISSING = (
-    True  # If True, allow samples with missing (all-zero) spatial data in the dataset
+_C.DATA.META.COMPONENTS.SPATIAL.IDX = (
+    1  # controls the order in which this is packed into aux_info, as well as order of meta heads for building the model
 )
-_C.DATA.META.COMPONENTS.SPATIAL.OOR_MASK = False  # If True, zero out spatial data for out-of-region samples. Not applicable if ALLOW_MISSING = False.
+_C.DATA.META.COMPONENTS.SPATIAL.ALLOW_MISSING = True  # If True, allow samples with missing (all-zero) spatial data in the dataset
+_C.DATA.META.COMPONENTS.SPATIAL.OOR_MASK = (
+    False  # If True, zero out spatial data for out-of-region samples. Not applicable if ALLOW_MISSING = False.
+)
 # Default elevation component (disabled by default)
 _C.DATA.META.COMPONENTS.ELEVATION = CN()
 _C.DATA.META.COMPONENTS.ELEVATION.ENABLED = False
 _C.DATA.META.COMPONENTS.ELEVATION.SOURCE = "elevation_broadrange_2"
 _C.DATA.META.COMPONENTS.ELEVATION.COLUMNS = []  # Empty means use all columns
 _C.DATA.META.COMPONENTS.ELEVATION.DIM = 10  # Expected dimension
-_C.DATA.META.COMPONENTS.ELEVATION.IDX = 2  # controls the order in which this is packed into aux_info, as well as order of meta heads for building the model
-_C.DATA.META.COMPONENTS.ELEVATION.ALLOW_MISSING = (
-    True  # If True, allow samples with missing (all-zero) elevation data in the dataset
+_C.DATA.META.COMPONENTS.ELEVATION.IDX = (
+    2  # controls the order in which this is packed into aux_info, as well as order of meta heads for building the model
 )
-_C.DATA.META.COMPONENTS.ELEVATION.OOR_MASK = False  # If True, zero out elevation data for out-of-region samples. Not applicable if ALLOW_MISSING = False.
+_C.DATA.META.COMPONENTS.ELEVATION.ALLOW_MISSING = True  # If True, allow samples with missing (all-zero) elevation data in the dataset
+_C.DATA.META.COMPONENTS.ELEVATION.OOR_MASK = (
+    False  # If True, zero out elevation data for out-of-region samples. Not applicable if ALLOW_MISSING = False.
+)
 
 # ------------------------------------------------------------------------
 # 1) Subsection for HDF5 inputs (for label paths)
@@ -351,9 +347,7 @@ _C.DATA.HYBRID.VERIFY_IMAGES.LOG_MISSING = True
 # 3) Subsection for shared prefetch settings (used by HDF5 or Hybrid)
 # ------------------------------------------------------------------------
 _C.DATA.PREFETCH = CN()
-_C.DATA.PREFETCH.MEM_CACHE_SIZE = (
-    10 * 1024 * 1024 * 1024
-)  # e.g., 10GB allocated for raw sample cache
+_C.DATA.PREFETCH.MEM_CACHE_SIZE = 10 * 1024 * 1024 * 1024  # e.g., 10GB allocated for raw sample cache
 
 # Renamed prefetch parameters:
 # - BATCH_CONCURRENCY replaces the old PREFETCH_BATCH_AHEAD.
@@ -397,14 +391,8 @@ _C.AUG.RANDOM_ERASE = CN()
 _C.AUG.RANDOM_ERASE.PROB = 0.25
 _C.AUG.RANDOM_ERASE.MODE = "pixel"
 _C.AUG.RANDOM_ERASE.COUNT = 1
-_C.AUG.RANDOM_ERASE.AREA_RANGE = [
-    0.02,
-    0.4,
-]  # Erase between 2% and 40% of the image area
-_C.AUG.RANDOM_ERASE.ASPECT_RATIO = [
-    0.3,
-    3.3,
-]  # Aspect ratio range for the erased region
+_C.AUG.RANDOM_ERASE.AREA_RANGE = [0.02, 0.4]  # Erase between 2% and 40% of the image area
+_C.AUG.RANDOM_ERASE.ASPECT_RATIO = [0.3, 3.3]  # Aspect ratio range for the erased region
 
 # ----------------------------------------------------------------------------
 # Model Settings
@@ -433,9 +421,7 @@ _C.MODEL.FIND_UNUSED_PARAMETERS = False
 
 # Feature Resolver Subconfig (e.g. LearnedProjection)
 _C.MODEL.FEATURE_RESOLVER = CN()
-_C.MODEL.FEATURE_RESOLVER.TYPE = (
-    "LearnedProjection"  # e.g. 'AdaptivePooling', 'Concatenation', 'Identity'
-)
+_C.MODEL.FEATURE_RESOLVER.TYPE = "LearnedProjection"  # e.g. 'AdaptivePooling', 'Concatenation', 'Identity'
 _C.MODEL.FEATURE_RESOLVER.PROJECTION_INIT_MATRIX = "xavier"
 _C.MODEL.FEATURE_RESOLVER.PARAMETERS = CN()
 _C.MODEL.FEATURE_RESOLVER.PARAMETERS.projection_dim = 512
@@ -488,32 +474,25 @@ _C.LOSS.TASK_SPECIFIC.VAL.FUNCS = ["CrossEntropyLoss"] * len(_C.DATA.TASK_KEYS_H
 _C.LOSS.GRAD_WEIGHTING = CN()
 _C.LOSS.GRAD_WEIGHTING.TASK = CN()
 _C.LOSS.GRAD_WEIGHTING.TASK.TYPE = "gradnorm"  # Options: 'static', 'gradnorm'
-_C.LOSS.GRAD_WEIGHTING.TASK.ALPHA = (
-    1.5  # GradNorm alpha parameter (set to 0 for pure equalization)
-)
+_C.LOSS.GRAD_WEIGHTING.TASK.ALPHA = 1.5  # GradNorm alpha parameter (set to 0 for pure equalization)
 _C.LOSS.GRAD_WEIGHTING.TASK.UPDATE_INTERVAL = 100  # Steps between weight updates
-_C.LOSS.GRAD_WEIGHTING.TASK.INIT_STRATEGY = "inverse_density"  # Options: 'inverse_density', 'class_complexity' (class complexity is Inverse density * class complexity)
+_C.LOSS.GRAD_WEIGHTING.TASK.INIT_STRATEGY = (
+    "inverse_density"  # Options: 'inverse_density', 'class_complexity' (class complexity is Inverse density * class complexity)
+)
 _C.LOSS.GRAD_WEIGHTING.TASK.INIT_WEIGHTS = []  # Optional override for computed initial weights (leave empty to use INIT_STRATEGY)
 
 # Parameters to exclude from GradNorm's shared backbone
 # The new unified filter configuration (preferred approach)
 _C.LOSS.GRAD_WEIGHTING.TASK.EXCLUDE_CONFIG = CN(new_allowed=True)
 _C.LOSS.GRAD_WEIGHTING.TASK.EXCLUDE_CONFIG.TYPE = "or"
-_C.LOSS.GRAD_WEIGHTING.TASK.EXCLUDE_CONFIG.FILTERS = [
-    {"TYPE": "name", "PATTERNS": ["head"]},
-    {"TYPE": "name", "PATTERNS": ["meta_"]},
-]
+_C.LOSS.GRAD_WEIGHTING.TASK.EXCLUDE_CONFIG.FILTERS = [{"TYPE": "name", "PATTERNS": ["head"]}, {"TYPE": "name", "PATTERNS": ["meta_"]}]
 
 # For backward compatibility only - will be removed in future versions
 _C.LOSS.GRAD_WEIGHTING.TASK.EXCLUDE_PATTERNS = ["head", "meta_"]
 
 _C.LOSS.GRAD_WEIGHTING.TASK.GRADNORM_ENABLED = True  # Master toggle
-_C.LOSS.GRAD_WEIGHTING.TASK.GRADNORM_WARMUP_STEPS = (
-    0  # Steps to skip GradNorm updates during initial training
-)
-_C.LOSS.GRAD_WEIGHTING.TASK.ZERO_AUX_INFO = (
-    True  # Whether to zero out auxiliary info during GradNorm reforward
-)
+_C.LOSS.GRAD_WEIGHTING.TASK.GRADNORM_WARMUP_STEPS = 0  # Steps to skip GradNorm updates during initial training
+_C.LOSS.GRAD_WEIGHTING.TASK.ZERO_AUX_INFO = True  # Whether to zero out auxiliary info during GradNorm reforward
 # If >1, we split the data_batch into multiple sub-batches for partial re-forward.
 # This can reduce memory usage for large batch sizes during GradNorm computation.
 _C.LOSS.GRAD_WEIGHTING.TASK.GRADNORM_ACCUM_STEPS = 1
@@ -528,20 +507,12 @@ _C.LOSS.GRAD_WEIGHTING.CLASS.VAL = False
 
 # Taxonomy-aware Label Smoothing
 _C.LOSS.TAXONOMY_SMOOTHING = CN()
-_C.LOSS.TAXONOMY_SMOOTHING.ENABLED = [False] * len(
-    _C.DATA.TASK_KEYS_H5
-)  # Per-task enablement
+_C.LOSS.TAXONOMY_SMOOTHING.ENABLED = [False] * len(_C.DATA.TASK_KEYS_H5)  # Per-task enablement
 _C.LOSS.TAXONOMY_SMOOTHING.ALPHA = 0.1  # Label smoothing strength parameter
 _C.LOSS.TAXONOMY_SMOOTHING.BETA = 1.0  # Distance scaling parameter
-_C.LOSS.TAXONOMY_SMOOTHING.UNIFORM_ROOTS = (
-    True  # Whether to use uniform distribution at root level
-)
-_C.LOSS.TAXONOMY_SMOOTHING.FALLBACK_TO_UNIFORM = (
-    True  # For tasks without hierarchy data, fall back to uniform smoothing
-)
-_C.LOSS.TAXONOMY_SMOOTHING.PARTIAL_SUBTREE_WEIGHTING = (
-    False  # For metaclade cases, enable partial weighting across subtrees
-)
+_C.LOSS.TAXONOMY_SMOOTHING.UNIFORM_ROOTS = True  # Whether to use uniform distribution at root level
+_C.LOSS.TAXONOMY_SMOOTHING.FALLBACK_TO_UNIFORM = True  # For tasks without hierarchy data, fall back to uniform smoothing
+_C.LOSS.TAXONOMY_SMOOTHING.PARTIAL_SUBTREE_WEIGHTING = False  # For metaclade cases, enable partial weighting across subtrees
 
 # ----------------------------------------------------------------------------
 # Training Settings
@@ -553,27 +524,17 @@ _C.TRAIN.EPOCHS = 300  # Total number of training epochs
 _C.TRAIN.CLIP_GRAD = 5.0
 _C.TRAIN.ACCUMULATION_STEPS = 0
 _C.TRAIN.AUTO_RESUME = True
-_C.TRAIN.ALLOW_WANDB_VAL_CHANGE = (
-    True  # Allow small value changes when resuming wandb runs
-)
+_C.TRAIN.ALLOW_WANDB_VAL_CHANGE = True  # Allow small value changes when resuming wandb runs
 # Gradient checkpointing configuration (for memory efficiency)
 _C.TRAIN.GRADIENT_CHECKPOINTING = CN()
-_C.TRAIN.GRADIENT_CHECKPOINTING.ENABLED_NORMAL_STEPS = (
-    True  # Apply checkpointing to normal forward passes
-)
-_C.TRAIN.GRADIENT_CHECKPOINTING.ENABLED_GRADNORM_STEPS = (
-    True  # Apply checkpointing to GradNorm re-forward passes
-)
+_C.TRAIN.GRADIENT_CHECKPOINTING.ENABLED_NORMAL_STEPS = True  # Apply checkpointing to normal forward passes
+_C.TRAIN.GRADIENT_CHECKPOINTING.ENABLED_GRADNORM_STEPS = True  # Apply checkpointing to GradNorm re-forward passes
 
 # Phase 1 training flag to deterministically mask null loss
-_C.TRAIN.PHASE1_MASK_NULL_LOSS = (
-    False  # When True, always exclude null labels from loss calculation
-)
+_C.TRAIN.PHASE1_MASK_NULL_LOSS = False  # When True, always exclude null labels from loss calculation
 
 # DEBUG_FORCE_VALIDATION removed - automatic validation resumption is used instead
-_C.TRAIN.PRESERVE_CHECKPOINT_SCHEDULE = (
-    False  # Use current config's schedule parameters instead of checkpoint's
-)
+_C.TRAIN.PRESERVE_CHECKPOINT_SCHEDULE = False  # Use current config's schedule parameters instead of checkpoint's
 # Automatic Mixed Precision (AMP) training level
 # Possible values and their characteristics:
 # - "O0": FP32 training (no mixed precision)
@@ -651,13 +612,9 @@ _C.OPTIMIZER.MUON = CN()
 _C.OPTIMIZER.MUON.MOMENTUM = 0.95  # Higher momentum (0.95) recommended for Muon
 _C.OPTIMIZER.MUON.NESTEROV = True  # Nesterov momentum is recommended for Muon
 _C.OPTIMIZER.MUON.NS_STEPS = 5  # Number of Newton-Schulz iterations
-_C.OPTIMIZER.MUON.USE_DISTRIBUTED = (
-    True  # Whether to use DistributedMuon for multi-GPU training
-)
+_C.OPTIMIZER.MUON.USE_DISTRIBUTED = True  # Whether to use DistributedMuon for multi-GPU training
 _C.OPTIMIZER.MUON.STRICT = False  # Whether to strictly enforce 2D/4D parameter shapes
-_C.OPTIMIZER.MUON.APPLY_SCALING = (
-    True  # Whether to apply scaling factor for non-square matrices
-)
+_C.OPTIMIZER.MUON.APPLY_SCALING = True  # Whether to apply scaling factor for non-square matrices
 
 # New section for parameter groups
 _C.OPTIMIZER.PARAMETER_GROUPS = CN(new_allowed=True)
@@ -676,28 +633,20 @@ _C.LR_SCHEDULER.FROM = ""
 _C.LR_SCHEDULER.NAME = "cosine"
 
 # LR scaling parameters
-_C.LR_SCHEDULER.REFERENCE_BS = (
-    512  # Reference batch size for LR scaling (MetaFormer paper)
-)
-_C.LR_SCHEDULER.REFERENCE_LR = (
-    5e-5  # Reference learning rate at reference batch size (MetaFormer paper)
-)
+_C.LR_SCHEDULER.REFERENCE_BS = 512  # Reference batch size for LR scaling (MetaFormer paper)
+_C.LR_SCHEDULER.REFERENCE_LR = 5e-5  # Reference learning rate at reference batch size (MetaFormer paper)
 
 # Primary methods for defining warmup (choose only one):
 # 1. Epoch-based training parameters (recommended for human-readable configs)
 _C.LR_SCHEDULER.WARMUP_EPOCHS = 5.0  # Warmup epochs (float, allows partial epochs)
 # TODO confirm partial epochs are supported
 # 2. Fraction-based warmup alternative (preferred for robustness to dataset size changes)
-_C.LR_SCHEDULER.WARMUP_FRACTION = (
-    None  # Fraction of total steps for warmup (should be > 0 to use this approach)
-)
+_C.LR_SCHEDULER.WARMUP_FRACTION = None  # Fraction of total steps for warmup (should be > 0 to use this approach)
 # 3. Step-based training parameters (legacy support)
 _C.LR_SCHEDULER.WARMUP_STEPS = 0  # Explicit warmup steps (only use if WARMUP_EPOCHS and WARMUP_FRACTION are both 0)
 
 # Computed values and other parameters
-_C.LR_SCHEDULER.TOTAL_STEPS = (
-    50000  # Total training steps (computed from TRAIN.EPOCHS internally)
-)
+_C.LR_SCHEDULER.TOTAL_STEPS = 50000  # Total training steps (computed from TRAIN.EPOCHS internally)
 
 # Common parameters for all scheduler types
 _C.LR_SCHEDULER.BASE_LR = 1e-4
@@ -706,9 +655,7 @@ _C.LR_SCHEDULER.MIN_LR = 1e-5
 
 # Step scheduler specific parameters (used only if NAME is 'step')
 _C.LR_SCHEDULER.DECAY_STEPS = 5000  # Step interval for decay
-_C.LR_SCHEDULER.DECAY_FRACTION = (
-    None  # Alternative: fraction of total steps for decay interval
-)
+_C.LR_SCHEDULER.DECAY_FRACTION = None  # Alternative: fraction of total steps for decay interval
 _C.LR_SCHEDULER.DECAY_RATE = 0.1  # Multiplicative decay factor
 
 # WSD specific parameters (used only if NAME is 'wsd')
@@ -734,9 +681,7 @@ _C.SCHEDULE.META_MASKING.ENABLED = True
 _C.SCHEDULE.META_MASKING.START_PROB = 1.0
 _C.SCHEDULE.META_MASKING.END_PROB = 0.0
 _C.SCHEDULE.META_MASKING.END_STEPS = 0  # Steps at which to reach end probability
-_C.SCHEDULE.META_MASKING.END_FRACTION = (
-    None  # Alternative: fraction of total steps for end of meta-masking
-)
+_C.SCHEDULE.META_MASKING.END_FRACTION = None  # Alternative: fraction of total steps for end of meta-masking
 
 # Partial meta masking config
 _C.SCHEDULE.META_MASKING.PARTIAL = CN()
@@ -746,46 +691,25 @@ _C.SCHEDULE.META_MASKING.PARTIAL.START_FRACTION = None
 _C.SCHEDULE.META_MASKING.PARTIAL.END_STEPS = 0
 _C.SCHEDULE.META_MASKING.PARTIAL.END_FRACTION = None
 # New parameters for partial meta masking probability schedule
-_C.SCHEDULE.META_MASKING.PARTIAL.START_PROB = (
-    0.01  # Initial probability of applying partial meta masking
-)
-_C.SCHEDULE.META_MASKING.PARTIAL.END_PROB = (
-    0.7  # Final probability of applying partial meta masking
-)
-_C.SCHEDULE.META_MASKING.PARTIAL.PROB_END_STEPS = (
-    0  # Set to 0 when using PROB_END_FRACTION
-)
-_C.SCHEDULE.META_MASKING.PARTIAL.PROB_END_FRACTION = (
-    0.5  # Reach END_PROB at 50% of training
-)
+_C.SCHEDULE.META_MASKING.PARTIAL.START_PROB = 0.01  # Initial probability of applying partial meta masking
+_C.SCHEDULE.META_MASKING.PARTIAL.END_PROB = 0.7  # Final probability of applying partial meta masking
+_C.SCHEDULE.META_MASKING.PARTIAL.PROB_END_STEPS = 0  # Set to 0 when using PROB_END_FRACTION
+_C.SCHEDULE.META_MASKING.PARTIAL.PROB_END_FRACTION = 0.5  # Reach END_PROB at 50% of training
 _C.SCHEDULE.META_MASKING.PARTIAL.WHITELIST = []  # e.g. [["TEMPORAL"], ["TEMPORAL", "SPATIAL"]]
 _C.SCHEDULE.META_MASKING.PARTIAL.WEIGHTS = []  # Optional weights for each whitelist combination
 
 # Null-masking schedule (gradual introduction of null-labeled samples in the loss)
 _C.SCHEDULE.NULL_MASKING = CN()
-_C.SCHEDULE.NULL_MASKING.ENABLED = (
-    False  # Whether to apply null masking (default: disabled)
-)
-_C.SCHEDULE.NULL_MASKING.START_PROB = (
-    0.0  # Initial probability of including null-labeled samples
-)
-_C.SCHEDULE.NULL_MASKING.END_PROB = (
-    1.0  # Final probability of including null-labeled samples
-)
+_C.SCHEDULE.NULL_MASKING.ENABLED = False  # Whether to apply null masking (default: disabled)
+_C.SCHEDULE.NULL_MASKING.START_PROB = 0.0  # Initial probability of including null-labeled samples
+_C.SCHEDULE.NULL_MASKING.END_PROB = 1.0  # Final probability of including null-labeled samples
 _C.SCHEDULE.NULL_MASKING.END_STEPS = 15000  # Steps at which to reach end probability
-_C.SCHEDULE.NULL_MASKING.END_FRACTION = (
-    None  # Alternative: fraction of total steps for end of null masking
-)
+_C.SCHEDULE.NULL_MASKING.END_FRACTION = None  # Alternative: fraction of total steps for end of null masking
 
 # Mix schedule (formerly Mixup)
 _C.SCHEDULE.MIX = CN()
 # Group level parameters (shared between mixup and cutmix)
-_C.SCHEDULE.MIX.GROUP_LEVELS = [
-    "taxa_L40",
-    "taxa_L30",
-    "taxa_L20",
-    "taxa_L10",
-]  # Available group levels
+_C.SCHEDULE.MIX.GROUP_LEVELS = ["taxa_L40", "taxa_L30", "taxa_L20", "taxa_L10"]  # Available group levels
 _C.SCHEDULE.MIX.LEVEL_SWITCH_EPOCHS = []  # Epochs at which to switch group levels (epoch-based only)
 _C.SCHEDULE.MIX.LEVEL_SWITCH_STEPS = []  # Steps at which to check if we should switch group levels
 # (will only take effect at epoch boundaries)
@@ -796,23 +720,17 @@ _C.SCHEDULE.MIX.PROB.ENABLED = True
 _C.SCHEDULE.MIX.PROB.START_PROB = 1.0
 _C.SCHEDULE.MIX.PROB.END_PROB = 0.2
 _C.SCHEDULE.MIX.PROB.END_STEPS = 0  # Steps at which to reach end probability
-_C.SCHEDULE.MIX.PROB.END_FRACTION = (
-    None  # Alternative: fraction of total steps for end of mix probability decay
-)
+_C.SCHEDULE.MIX.PROB.END_FRACTION = None  # Alternative: fraction of total steps for end of mix probability decay
 
 # Shared parameters
 _C.SCHEDULE.MIX.USE_GPU = True
 _C.SCHEDULE.MIX.MIN_GROUP_SIZE = 4
-_C.SCHEDULE.MIX.EXCLUDE_NULL_SAMPLES = (
-    False  # Whether to exclude null-labeled samples from mixing
-)
+_C.SCHEDULE.MIX.EXCLUDE_NULL_SAMPLES = False  # Whether to exclude null-labeled samples from mixing
 _C.SCHEDULE.MIX.CHUNK_BOUNDS = []  # Define if needed for metadata hard-pick
 _C.SCHEDULE.MIX.NULL_TASK_KEYS = None  # Which tasks to check for nulls when excluding
 
 # Switch probability between mixup and cutmix
-_C.SCHEDULE.MIX.SWITCH_PROB = (
-    0.5  # Probability of using CutMix vs. Mixup when both enabled
-)
+_C.SCHEDULE.MIX.SWITCH_PROB = 0.5  # Probability of using CutMix vs. Mixup when both enabled
 
 # Mixup specific parameters
 _C.SCHEDULE.MIX.MIXUP = CN()
@@ -830,26 +748,14 @@ _C.SCHEDULE.METRICS = CN()
 
 # Step-level metrics logging configuration
 # REMOVED: STEP_INTERVAL and STEP_FRACTION - use CONSOLE_INTERVAL and WANDB_INTERVAL instead
-_C.SCHEDULE.METRICS.WANDB_INTERVAL = (
-    50  # How often to log metrics to wandb during training
-)
-_C.SCHEDULE.METRICS.WANDB_FRACTION = (
-    None  # Alternative: fraction of total steps for wandb logging
-)
+_C.SCHEDULE.METRICS.WANDB_INTERVAL = 50  # How often to log metrics to wandb during training
+_C.SCHEDULE.METRICS.WANDB_FRACTION = None  # Alternative: fraction of total steps for wandb logging
 _C.SCHEDULE.METRICS.CONSOLE_INTERVAL = 100  # How often to log metrics to console
-_C.SCHEDULE.METRICS.CONSOLE_FRACTION = (
-    None  # Alternative: fraction of total steps for console logging
-)
+_C.SCHEDULE.METRICS.CONSOLE_FRACTION = None  # Alternative: fraction of total steps for console logging
 _C.SCHEDULE.METRICS.LR_INTERVAL = 100  # How often to log learning rates
-_C.SCHEDULE.METRICS.LR_FRACTION = (
-    None  # Alternative: fraction of total steps for learning rate logging
-)
-_C.SCHEDULE.METRICS.PIPELINE_INTERVAL = (
-    250  # How often to log pipeline metrics (queue depths, throughput)
-)
-_C.SCHEDULE.METRICS.PIPELINE_FRACTION = (
-    None  # Alternative: fraction of total steps for pipeline metrics logging
-)
+_C.SCHEDULE.METRICS.LR_FRACTION = None  # Alternative: fraction of total steps for learning rate logging
+_C.SCHEDULE.METRICS.PIPELINE_INTERVAL = 250  # How often to log pipeline metrics (queue depths, throughput)
+_C.SCHEDULE.METRICS.PIPELINE_FRACTION = None  # Alternative: fraction of total steps for pipeline metrics logging
 
 _C.SCHEDULE.VALIDATION = CN()
 # Validation intervals can be configured in three ways:
@@ -864,22 +770,18 @@ _C.SCHEDULE.VALIDATION.INTERVAL_STEPS = 0  # If > 0, validate every N steps
 _C.SCHEDULE.VALIDATION.INTERVAL_FRACTION = None  # Alternative: defines periodic interval at every (fraction * total_steps) steps
 
 # Mask meta validation interval configuration
-_C.SCHEDULE.VALIDATION.MASK_META_INTERVAL_EPOCHS = (
-    1  # Mask meta validate every N epochs
-)
-_C.SCHEDULE.VALIDATION.MASK_META_INTERVAL_STEPS = (
-    0  # If > 0, mask meta validate every N steps
-)
+_C.SCHEDULE.VALIDATION.MASK_META_INTERVAL_EPOCHS = 1  # Mask meta validate every N epochs
+_C.SCHEDULE.VALIDATION.MASK_META_INTERVAL_STEPS = 0  # If > 0, mask meta validate every N steps
 _C.SCHEDULE.VALIDATION.MASK_META_INTERVAL_FRACTION = None  # Alternative: defines periodic interval at every (fraction * total_steps) steps
 
 # Partial meta mask validation configuration
 _C.SCHEDULE.VALIDATION.PARTIAL_MASK_META = CN()
 _C.SCHEDULE.VALIDATION.PARTIAL_MASK_META.ENABLED = False
 _C.SCHEDULE.VALIDATION.PARTIAL_MASK_META.INTERVAL_EPOCHS = 0  # Validate every N epochs
-_C.SCHEDULE.VALIDATION.PARTIAL_MASK_META.INTERVAL_STEPS = (
-    0  # If > 0, validate every N steps
+_C.SCHEDULE.VALIDATION.PARTIAL_MASK_META.INTERVAL_STEPS = 0  # If > 0, validate every N steps
+_C.SCHEDULE.VALIDATION.PARTIAL_MASK_META.INTERVAL_FRACTION = (
+    None  # Alternative: defines periodic interval at every (fraction * total_steps) steps
 )
-_C.SCHEDULE.VALIDATION.PARTIAL_MASK_META.INTERVAL_FRACTION = None  # Alternative: defines periodic interval at every (fraction * total_steps) steps
 _C.SCHEDULE.VALIDATION.PARTIAL_MASK_META.WHITELIST = []  # e.g. [["TEMPORAL"], ["TEMPORAL", "SPATIAL"]]
 
 # Final epoch exhaustive validation configuration
@@ -899,9 +801,7 @@ _C.SCHEDULE.CHECKPOINT.INTERVAL_STEPS = 0  # If > 0, save checkpoint every N ste
 _C.SCHEDULE.CHECKPOINT.INTERVAL_FRACTION = None  # Alternative: defines periodic interval at every (fraction * total_steps) steps
 
 # Checkpoint management policies
-_C.SCHEDULE.CHECKPOINT.KEEP_TOP_N = (
-    0  # Number of best checkpoints to keep based on validation metrics
-)
+_C.SCHEDULE.CHECKPOINT.KEEP_TOP_N = 0  # Number of best checkpoints to keep based on validation metrics
 _C.SCHEDULE.CHECKPOINT.KEEP_LAST_N = 0  # Number of most recent checkpoints to keep
 
 # ----------------------------------------------------------------------------
@@ -912,9 +812,7 @@ _C.MISC.SEED = 42
 _C.MISC.OUTPUT = "output"
 _C.MISC.SAVE_FREQ = 1
 _C.MISC.PRINT_FREQ = 50
-_C.MISC.PIPELINE_METRICS_FREQ = (
-    30.0  # seconds (DEPRECATED: use SCHEDULE.METRICS.PIPELINE_INTERVAL instead)
-)
+_C.MISC.PIPELINE_METRICS_FREQ = 30.0  # seconds (DEPRECATED: use SCHEDULE.METRICS.PIPELINE_INTERVAL instead)
 
 # ----------------------------------------------------------------------------
 # Debug Settings
@@ -928,49 +826,33 @@ _C.DEBUG.TRAIN_METRICS = False  # For debugging training metrics tracking
 _C.DEBUG.WANDB_METRICS = False  # For debugging wandb metrics logging
 
 # New granular debug flags for system components
-_C.DEBUG.SCHEDULING = (
-    False  # Controls logs for OpsSchedule, LR scheduler, and schedule utilities
-)
+_C.DEBUG.SCHEDULING = False  # Controls logs for OpsSchedule, LR scheduler, and schedule utilities
 _C.DEBUG.CHECKPOINT = False  # Controls logs for checkpoint saving, loading, and mapping
-_C.DEBUG.DATALOADER = (
-    False  # Controls logs for h5data components (datasets, loaders, samplers)
-)
+_C.DEBUG.DATALOADER = False  # Controls logs for h5data components (datasets, loaders, samplers)
 _C.DEBUG.AUGMENTATION = False  # Controls logs for augmentation pipeline components
-_C.DEBUG.OPTIMIZER = (
-    False  # Controls logs for optimizer building and parameter filtering
-)
+_C.DEBUG.OPTIMIZER = False  # Controls logs for optimizer building and parameter filtering
 _C.DEBUG.DISTRIBUTED = False  # Controls logs for DDP setup and distributed utilities
-_C.DEBUG.MODEL_BUILD = (
-    False  # Controls logs for model factory and component initialization
-)
-_C.DEBUG.TRAINING_LOOP = (
-    False  # Controls logs for high-level flow in main.py and validation.py
-)
+_C.DEBUG.MODEL_BUILD = False  # Controls logs for model factory and component initialization
+_C.DEBUG.TRAINING_LOOP = False  # Controls logs for high-level flow in main.py and validation.py
 
 # Loss module debugging flags
 _C.DEBUG.LOSS = CN()
-_C.DEBUG.LOSS.TAXONOMY_SMOOTHING = (
-    False  # For debugging taxonomy-guided label smoothing
-)
+_C.DEBUG.LOSS.TAXONOMY_SMOOTHING = False  # For debugging taxonomy-guided label smoothing
 _C.DEBUG.LOSS.NULL_MASKING = False  # For debugging null masking behavior
 _C.DEBUG.LOSS.CLASS_WEIGHTING = False  # For debugging class weighting interactions
-_C.DEBUG.LOSS.GRADNORM_MEMORY = (
-    False  # For detailed memory profiling of GradNorm reforward
-)
+_C.DEBUG.LOSS.GRADNORM_MEMORY = False  # For detailed memory profiling of GradNorm reforward
 _C.DEBUG.LOSS.GRADNORM_METRICS = False  # For debugging GradNorm metrics tracking
-_C.DEBUG.LOSS.VERBOSE_GRADNORM_LOGGING = (
-    False  # Extra verbose logging for GradNorm metrics flow
-)
+_C.DEBUG.LOSS.VERBOSE_GRADNORM_LOGGING = False  # Extra verbose logging for GradNorm metrics flow
 
 # Metrics debugging flags
 _C.DEBUG.METRICS = CN()
-_C.DEBUG.METRICS.AVG_METER_VERBOSE_ACTUAL_META_STATS = False  # For extremely verbose tracking of AverageMeter updates specifically for meta_stats
+_C.DEBUG.METRICS.AVG_METER_VERBOSE_ACTUAL_META_STATS = (
+    False  # For extremely verbose tracking of AverageMeter updates specifically for meta_stats
+)
 
 # Dataset debugging flags
 _C.DEBUG.DATASET = CN()
-_C.DEBUG.DATASET.READ_ITEM_VERBOSE = (
-    False  # New flag for verbose _read_raw_item logging
-)
+_C.DEBUG.DATASET.READ_ITEM_VERBOSE = False  # New flag for verbose _read_raw_item logging
 
 # Special debug flag for early termination of training
 _C.DEBUG.EARLY_EXIT_AFTER_N_OPTIMIZER_STEPS = 0  # Default to 0 (disabled)

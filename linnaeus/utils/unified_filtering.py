@@ -31,9 +31,7 @@ class UnifiedParamFilter:
     in the codebase, ensuring consistent behavior across different components.
     """
 
-    def __init__(
-        self, config: dict, model: nn.Module, checkpoint_state_dict: dict = None
-    ):
+    def __init__(self, config: dict, model: nn.Module, checkpoint_state_dict: dict = None):
         """
         Initialize a unified parameter filter.
 
@@ -45,9 +43,7 @@ class UnifiedParamFilter:
         self._filter_config = config
         self._model = model
         self._checkpoint_state_dict = checkpoint_state_dict
-        self._param_filter = create_filter_from_config(
-            config, model=model, checkpoint_state_dict=checkpoint_state_dict
-        )
+        self._param_filter = create_filter_from_config(config, model=model, checkpoint_state_dict=checkpoint_state_dict)
 
     def matches(self, name: str, param: nn.Parameter) -> bool:
         """
@@ -67,9 +63,7 @@ class UnifiedParamFilter:
         else:
             return self._param_filter.matches(name, param)
 
-    def filter_parameters(
-        self, named_params: list[tuple[str, nn.Parameter]]
-    ) -> list[tuple[str, nn.Parameter]]:
+    def filter_parameters(self, named_params: list[tuple[str, nn.Parameter]]) -> list[tuple[str, nn.Parameter]]:
         """
         Filter parameters based on this filter's criteria.
 
@@ -81,9 +75,7 @@ class UnifiedParamFilter:
         """
         return self._param_filter.filter_parameters(named_params)
 
-    def inspect(
-        self, named_params: list[tuple[str, nn.Parameter]], max_display: int = 10
-    ) -> dict[str, Any]:
+    def inspect(self, named_params: list[tuple[str, nn.Parameter]], max_display: int = 10) -> dict[str, Any]:
         """
         Inspect and return information about the matched parameters.
 
@@ -103,9 +95,7 @@ class UnifiedParamFilter:
             "total_params": total_params,
             "matched_names": matched_names[:max_display],
             "has_more": len(matched_names) > max_display,
-            "remaining_count": len(matched_names) - max_display
-            if len(matched_names) > max_display
-            else 0,
+            "remaining_count": len(matched_names) - max_display if len(matched_names) > max_display else 0,
         }
 
     def log_matches(
@@ -137,10 +127,7 @@ class UnifiedParamFilter:
         info = self.inspect(named_params, max_display)
         prefix = f"Parameter group '{group_name}'" if group_name else "Filter"
 
-        logger.log(
-            log_level,
-            f"[UnifiedParamFilter] {prefix} matched {info['matched_count']} parameters ({info['total_params']} elements)",
-        )
+        logger.log(log_level, f"[UnifiedParamFilter] {prefix} matched {info['matched_count']} parameters ({info['total_params']} elements)")
         for name in info["matched_names"]:
             logger.log(log_level, f"  - {name}")
         if info["has_more"]:
@@ -164,16 +151,12 @@ def inspect_gradnorm_filters(model: nn.Module, config, logger=None) -> dict[str,
         logger = get_main_logger()
 
     exclude_config = config.LOSS.GRAD_WEIGHTING.TASK.get("EXCLUDE_CONFIG", None)
-    exclude_patterns = config.LOSS.GRAD_WEIGHTING.TASK.get(
-        "EXCLUDE_PATTERNS", ["head", "meta_"]
-    )
+    exclude_patterns = config.LOSS.GRAD_WEIGHTING.TASK.get("EXCLUDE_PATTERNS", ["head", "meta_"])
 
     # If no EXCLUDE_CONFIG, use the old exclude_patterns approach
     if exclude_config is None:
         if exclude_patterns:
-            logger.info(
-                f"[inspect_gradnorm_filters] Using EXCLUDE_PATTERNS: {exclude_patterns}"
-            )
+            logger.info(f"[inspect_gradnorm_filters] Using EXCLUDE_PATTERNS: {exclude_patterns}")
 
             included, excluded = [], []
             for name, param in model.named_parameters():
@@ -225,9 +208,7 @@ def inspect_gradnorm_filters(model: nn.Module, config, logger=None) -> dict[str,
     }
 
     if logger.isEnabledFor(logging.INFO) and get_rank_safely() == 0:
-        logger.info(
-            f"[inspect_gradnorm_filters] => Found {len(included)} included parameters and {len(excluded)} excluded parameters"
-        )
+        logger.info(f"[inspect_gradnorm_filters] => Found {len(included)} included parameters and {len(excluded)} excluded parameters")
 
         if logger.isEnabledFor(logging.DEBUG):
             # Log some examples at DEBUG level
@@ -247,9 +228,7 @@ def inspect_gradnorm_filters(model: nn.Module, config, logger=None) -> dict[str,
     return result
 
 
-def inspect_multilr_filters(
-    model: nn.Module, config, logger=None
-) -> dict[str, dict[str, Any]]:
+def inspect_multilr_filters(model: nn.Module, config, logger=None) -> dict[str, dict[str, Any]]:
     """
     Inspect and return information about parameter groups for multi-LR scheduling.
 
@@ -269,9 +248,7 @@ def inspect_multilr_filters(
     result = {}
 
     if not hasattr(param_groups_config, "items"):
-        logger.warning(
-            "[inspect_multilr_filters] => No PARAMETER_GROUPS found in config"
-        )
+        logger.warning("[inspect_multilr_filters] => No PARAMETER_GROUPS found in config")
         return result
 
     # Track parameters for default group
@@ -297,12 +274,8 @@ def inspect_multilr_filters(
             "matched_count": len(matched),
             "matched_names": matched_names,
             "lr_multiplier": group_config.get("LR_MULTIPLIER", 1.0),
-            "optimizer": group_config.get(
-                "OPTIMIZER", param_groups_config.DEFAULT.OPTIMIZER
-            ),
-            "weight_decay": group_config.get(
-                "WEIGHT_DECAY", param_groups_config.DEFAULT.WEIGHT_DECAY
-            ),
+            "optimizer": group_config.get("OPTIMIZER", param_groups_config.DEFAULT.OPTIMIZER),
+            "weight_decay": group_config.get("WEIGHT_DECAY", param_groups_config.DEFAULT.WEIGHT_DECAY),
         }
 
         # Log at INFO level
@@ -369,16 +342,12 @@ class StagedParamFilter(ParameterFilter):
         self.param_to_stage = {}
 
         if not hasattr(model, "parameter_groups_metadata"):
-            logger.warning(
-                "Model does not have parameter_groups_metadata, stage-based filtering will not work"
-            )
+            logger.warning("Model does not have parameter_groups_metadata, stage-based filtering will not work")
             return
 
         metadata = model.parameter_groups_metadata
         if not metadata or "stages" not in metadata:
-            logger.warning(
-                "Model.parameter_groups_metadata does not contain 'stages' information"
-            )
+            logger.warning("Model.parameter_groups_metadata does not contain 'stages' information")
             return
 
         stage_info = metadata["stages"]

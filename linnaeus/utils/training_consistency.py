@@ -12,7 +12,6 @@ It helps to catch potential issues early by validating:
 3. Learning rate schedule alignment with training duration
 """
 
-
 from yacs.config import CfgNode as CN
 
 from linnaeus.utils.logging.logger import get_main_logger
@@ -20,9 +19,7 @@ from linnaeus.utils.logging.logger import get_main_logger
 logger = get_main_logger()
 
 
-def validate_training_schedule(
-    config: CN, world_size: int, accumulation_steps: int
-) -> tuple[list[str], list[str]]:
+def validate_training_schedule(config: CN, world_size: int, accumulation_steps: int) -> tuple[list[str], list[str]]:
     """
     Extended validation of training schedule parameters.
 
@@ -63,26 +60,16 @@ def validate_training_schedule(
         if hasattr(config.DATA, "DROP_LAST") and config.DATA.DROP_LAST:
             steps_per_epoch = train_dataset_size // effective_batch_size
         else:
-            steps_per_epoch = (
-                train_dataset_size + effective_batch_size - 1
-            ) // effective_batch_size
+            steps_per_epoch = (train_dataset_size + effective_batch_size - 1) // effective_batch_size
 
-        estimated_total_steps = (
-            steps_per_epoch * config.TRAIN.EPOCHS // accumulation_steps
-        )
+        estimated_total_steps = steps_per_epoch * config.TRAIN.EPOCHS // accumulation_steps
 
         # Check against configured total steps
-        if (
-            hasattr(config.LR_SCHEDULER, "TOTAL_STEPS")
-            and config.LR_SCHEDULER.TOTAL_STEPS > 0
-        ):
+        if hasattr(config.LR_SCHEDULER, "TOTAL_STEPS") and config.LR_SCHEDULER.TOTAL_STEPS > 0:
             configured_steps = config.LR_SCHEDULER.TOTAL_STEPS
 
             # Warn if there's a significant mismatch
-            if (
-                abs(estimated_total_steps - configured_steps) / max(1, configured_steps)
-                > 0.1
-            ):
+            if abs(estimated_total_steps - configured_steps) / max(1, configured_steps) > 0.1:
                 warnings.append(
                     f"Total steps mismatch: calculated {estimated_total_steps} but configured {configured_steps}. "
                     f"This can cause incorrect scheduling of learning rates, validation, etc."
@@ -109,10 +96,7 @@ def validate_training_schedule(
             # Check for mixed use of step-based and epoch-based scheduling
             has_step_scheduling = (
                 (hasattr(val_cfg, "INTERVAL_STEPS") and val_cfg.INTERVAL_STEPS > 0)
-                or (
-                    hasattr(val_cfg, "MASK_META_INTERVAL_STEPS")
-                    and val_cfg.MASK_META_INTERVAL_STEPS > 0
-                )
+                or (hasattr(val_cfg, "MASK_META_INTERVAL_STEPS") and val_cfg.MASK_META_INTERVAL_STEPS > 0)
                 or (
                     hasattr(val_cfg, "PARTIAL_MASK_META")
                     and hasattr(val_cfg.PARTIAL_MASK_META, "INTERVAL_STEPS")
@@ -122,10 +106,7 @@ def validate_training_schedule(
 
             has_epoch_scheduling = (
                 (hasattr(val_cfg, "INTERVAL_EPOCHS") and val_cfg.INTERVAL_EPOCHS > 0)
-                or (
-                    hasattr(val_cfg, "MASK_META_INTERVAL_EPOCHS")
-                    and val_cfg.MASK_META_INTERVAL_EPOCHS > 0
-                )
+                or (hasattr(val_cfg, "MASK_META_INTERVAL_EPOCHS") and val_cfg.MASK_META_INTERVAL_EPOCHS > 0)
                 or (
                     hasattr(val_cfg, "PARTIAL_MASK_META")
                     and hasattr(val_cfg.PARTIAL_MASK_META, "INTERVAL_EPOCHS")
@@ -141,33 +122,20 @@ def validate_training_schedule(
                 )
 
     # 4. Validate all fraction-based scheduling is using same frame of reference
-    if hasattr(config.SCHEDULE, "VALIDATION") and hasattr(
-        config.SCHEDULE.VALIDATION, "PARTIAL_MASK_META"
-    ):
+    if hasattr(config.SCHEDULE, "VALIDATION") and hasattr(config.SCHEDULE.VALIDATION, "PARTIAL_MASK_META"):
         pmm_cfg = config.SCHEDULE.VALIDATION.PARTIAL_MASK_META
 
-        if (
-            hasattr(pmm_cfg, "INTERVAL_FRACTION")
-            and pmm_cfg.INTERVAL_FRACTION is not None
-            and pmm_cfg.INTERVAL_FRACTION > 0
-        ):
-            if (
-                not hasattr(config.LR_SCHEDULER, "TOTAL_STEPS")
-                or config.LR_SCHEDULER.TOTAL_STEPS <= 0
-            ):
+        if hasattr(pmm_cfg, "INTERVAL_FRACTION") and pmm_cfg.INTERVAL_FRACTION is not None and pmm_cfg.INTERVAL_FRACTION > 0:
+            if not hasattr(config.LR_SCHEDULER, "TOTAL_STEPS") or config.LR_SCHEDULER.TOTAL_STEPS <= 0:
                 warnings.append(
                     "Using fraction-based validation scheduling (PARTIAL_MASK_META.INTERVAL_FRACTION) "
                     "but LR_SCHEDULER.TOTAL_STEPS is not set. This may cause incorrect fraction resolution."
                 )
             elif train_dataset_size > 0:
                 # Calculate approximate epoch where validation will happen
-                validation_steps = int(
-                    config.LR_SCHEDULER.TOTAL_STEPS * pmm_cfg.INTERVAL_FRACTION
-                )
+                validation_steps = int(config.LR_SCHEDULER.TOTAL_STEPS * pmm_cfg.INTERVAL_FRACTION)
                 if steps_per_epoch > 0:
-                    validation_epoch = (
-                        validation_steps * accumulation_steps // steps_per_epoch
-                    )
+                    validation_epoch = validation_steps * accumulation_steps // steps_per_epoch
                     # Informational message
                     warnings.append(
                         f"PARTIAL_MASK_META.INTERVAL_FRACTION={pmm_cfg.INTERVAL_FRACTION} resolves to approximately "
@@ -178,15 +146,11 @@ def validate_training_schedule(
     if (
         hasattr(config.SCHEDULE, "VALIDATION")
         and hasattr(config.SCHEDULE.VALIDATION, "FINAL_EPOCH")
-        and hasattr(
-            config.SCHEDULE.VALIDATION.FINAL_EPOCH, "EXHAUSTIVE_PARTIAL_META_VALIDATION"
-        )
+        and hasattr(config.SCHEDULE.VALIDATION.FINAL_EPOCH, "EXHAUSTIVE_PARTIAL_META_VALIDATION")
         and config.SCHEDULE.VALIDATION.FINAL_EPOCH.EXHAUSTIVE_PARTIAL_META_VALIDATION
     ):
         if (
-            not hasattr(
-                config.SCHEDULE.VALIDATION.FINAL_EPOCH, "EXHAUSTIVE_META_COMPONENTS"
-            )
+            not hasattr(config.SCHEDULE.VALIDATION.FINAL_EPOCH, "EXHAUSTIVE_META_COMPONENTS")
             or not config.SCHEDULE.VALIDATION.FINAL_EPOCH.EXHAUSTIVE_META_COMPONENTS
         ):
             errors.append(
@@ -229,9 +193,7 @@ class TrainingConsistencyChecker:
         # Expectations
         self.expected_steps_per_epoch = self._calculate_expected_steps_per_epoch()
         self.expected_global_steps_per_epoch = (
-            self.expected_steps_per_epoch // self.accumulation_steps
-            if self.expected_steps_per_epoch
-            else None
+            self.expected_steps_per_epoch // self.accumulation_steps if self.expected_steps_per_epoch else None
         )
 
         # Track warning count to avoid log spam
@@ -240,12 +202,8 @@ class TrainingConsistencyChecker:
 
         # Log initialization
         if self.expected_steps_per_epoch:
-            logger.info(
-                f"TrainingConsistencyChecker: expecting ~{self.expected_steps_per_epoch} steps per epoch"
-            )
-            logger.info(
-                f"TrainingConsistencyChecker: expecting ~{self.expected_global_steps_per_epoch} global steps per epoch"
-            )
+            logger.info(f"TrainingConsistencyChecker: expecting ~{self.expected_steps_per_epoch} steps per epoch")
+            logger.info(f"TrainingConsistencyChecker: expecting ~{self.expected_global_steps_per_epoch} global steps per epoch")
 
     def _calculate_expected_steps_per_epoch(self) -> int | None:
         """
@@ -255,10 +213,7 @@ class TrainingConsistencyChecker:
             Expected steps per epoch, or None if necessary information is unavailable
         """
         # Check if we have train dataset size information
-        if (
-            not hasattr(self.config.DATA, "TRAIN_DATASET_SIZE")
-            or self.config.DATA.TRAIN_DATASET_SIZE <= 0
-        ):
+        if not hasattr(self.config.DATA, "TRAIN_DATASET_SIZE") or self.config.DATA.TRAIN_DATASET_SIZE <= 0:
             return None
 
         # Calculate steps per epoch
@@ -286,18 +241,10 @@ class TrainingConsistencyChecker:
         # Only update if we don't already have expectations
         if not self.expected_steps_per_epoch:
             self.expected_steps_per_epoch = actual_steps
-            self.expected_global_steps_per_epoch = (
-                actual_steps // self.accumulation_steps
-            )
-            logger.info(
-                "TrainingConsistencyChecker: updated expectations based on first epoch"
-            )
-            logger.info(
-                f"TrainingConsistencyChecker: expecting ~{self.expected_steps_per_epoch} steps per epoch"
-            )
-            logger.info(
-                f"TrainingConsistencyChecker: expecting ~{self.expected_global_steps_per_epoch} global steps per epoch"
-            )
+            self.expected_global_steps_per_epoch = actual_steps // self.accumulation_steps
+            logger.info("TrainingConsistencyChecker: updated expectations based on first epoch")
+            logger.info(f"TrainingConsistencyChecker: expecting ~{self.expected_steps_per_epoch} steps per epoch")
+            logger.info(f"TrainingConsistencyChecker: expecting ~{self.expected_global_steps_per_epoch} global steps per epoch")
 
     def validate_epoch_steps(self, epoch: int, actual_steps: int):
         """
@@ -332,10 +279,7 @@ class TrainingConsistencyChecker:
             global_step: Current global step (optimizer steps)
             epoch: Current epoch
         """
-        if (
-            not self.expected_global_steps_per_epoch
-            or self.warning_count >= self.max_warnings
-        ):
+        if not self.expected_global_steps_per_epoch or self.warning_count >= self.max_warnings:
             return
 
         # Expected global step given current epoch
@@ -343,9 +287,7 @@ class TrainingConsistencyChecker:
 
         # Allow 20% tolerance
         tolerance = 0.2
-        diff_ratio = abs(global_step - expected_global_step) / max(
-            1, expected_global_step
-        )
+        diff_ratio = abs(global_step - expected_global_step) / max(1, expected_global_step)
 
         if diff_ratio > tolerance:
             self.warning_count += 1
@@ -354,9 +296,7 @@ class TrainingConsistencyChecker:
                 f"but got {global_step}. This may indicate step counting issues with distributed training or accumulation."
             )
 
-    def validate_lr_schedule(
-        self, current_lr: float, global_step: int, total_steps: int
-    ):
+    def validate_lr_schedule(self, current_lr: float, global_step: int, total_steps: int):
         """
         Validate that the learning rate is consistent with the global step.
         Logs a warning if there's a significant discrepancy in the progress fraction.

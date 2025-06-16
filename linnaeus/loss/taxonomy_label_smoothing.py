@@ -62,16 +62,12 @@ def build_taxonomy_smoothing_matrix(
     if num_classes <= 0:
         raise ValueError("num_classes must be positive.")
     if distances.shape != (num_classes, num_classes):
-        raise ValueError(
-            f"distances must be shape ({num_classes},{num_classes}), got {distances.shape}"
-        )
+        raise ValueError(f"distances must be shape ({num_classes},{num_classes}), got {distances.shape}")
     if root_class_ids is None:
         root_class_ids = []  # Ensure it's a list for easier checking
 
     # Initialize probability matrix
-    prob_matrix = torch.zeros(
-        (num_classes, num_classes), dtype=torch.float32, device=distances.device
-    )
+    prob_matrix = torch.zeros((num_classes, num_classes), dtype=torch.float32, device=distances.device)
 
     # Compute weights: exp(-beta * distance). Set weight to 0 for infinite distance.
     weights = torch.exp(-beta * distances)
@@ -105,8 +101,7 @@ def build_taxonomy_smoothing_matrix(
             # Fallback: If all weights are near zero (e.g., all others disconnected),
             # distribute alpha uniformly among others.
             logger.warning(
-                f"Row {i} has near-zero off-diagonal weights sum ({sum_weights:.2e}). "
-                f"Falling back to uniform smoothing for this row."
+                f"Row {i} has near-zero off-diagonal weights sum ({sum_weights:.2e}). Falling back to uniform smoothing for this row."
             )
             uniform_prob = alpha / (num_classes - 1)
             smoothing_probs = torch.full_like(row_weights, uniform_prob)
@@ -155,9 +150,7 @@ class TaxonomyAwareLabelSmoothingCE(nn.Module):
             ignore_index: Optional index to ignore in loss calculation (e.g., null class)
         """
         super().__init__()
-        if soft_label_matrix.dim() != 2 or (
-            soft_label_matrix.shape[0] != soft_label_matrix.shape[1]
-        ):
+        if soft_label_matrix.dim() != 2 or (soft_label_matrix.shape[0] != soft_label_matrix.shape[1]):
             raise ValueError("soft_label_matrix must be square [C, C].")
 
         self.num_classes = soft_label_matrix.shape[0]
@@ -172,15 +165,11 @@ class TaxonomyAwareLabelSmoothingCE(nn.Module):
         self.weight = None  # Default to None
         if weight is not None:
             if not isinstance(weight, torch.Tensor):  # NOTE: UNREACHABLE
-                logger.warning(
-                    "Class weights provided are not a Tensor. Attempting conversion."
-                )
+                logger.warning("Class weights provided are not a Tensor. Attempting conversion.")
                 try:
                     weight = torch.tensor(weight, dtype=torch.float32)
                 except Exception as e:
-                    logger.error(
-                        f"Failed to convert class weights to tensor: {e}. Weights will not be applied."
-                    )
+                    logger.error(f"Failed to convert class weights to tensor: {e}. Weights will not be applied.")
                     weight = None  # Disable weights if conversion fails
 
             if weight is not None and weight.shape[0] != self.num_classes:
@@ -210,15 +199,12 @@ class TaxonomyAwareLabelSmoothingCE(nn.Module):
         if not torch.allclose(row_sums, torch.ones_like(row_sums), atol=1e-5):
             max_err = (row_sums - 1.0).abs().max().item()
             logger.warning(
-                f"Input soft_label_matrix rows do not sum close to 1.0 (max error: {max_err:.2e}). "
-                f"Ensure matrix is correctly normalized."
+                f"Input soft_label_matrix rows do not sum close to 1.0 (max error: {max_err:.2e}). Ensure matrix is correctly normalized."
             )
         if not torch.all(matrix >= 0):
             logger.warning("Input soft_label_matrix contains negative values.")
 
-    def forward(
-        self, logits: torch.Tensor | dict[str, torch.Tensor], target: torch.Tensor
-    ) -> torch.Tensor:
+    def forward(self, logits: torch.Tensor | dict[str, torch.Tensor], target: torch.Tensor) -> torch.Tensor:
         """
         Args:
             logits: Either a tensor [B, C] or a dictionary returned by ConditionalClassifierHead.
@@ -235,9 +221,7 @@ class TaxonomyAwareLabelSmoothingCE(nn.Module):
         null_masking_debug = check_debug_flag(self.config, "DEBUG.LOSS.NULL_MASKING")
 
         if rank == 0 and debug_enabled:
-            logger.debug(
-                f"[TAXONOMY_LOSS_FWD] Start. Input type: {type(logits).__name__}. Target shape: {target.shape}."
-            )
+            logger.debug(f"[TAXONOMY_LOSS_FWD] Start. Input type: {type(logits).__name__}. Target shape: {target.shape}.")
 
         # --- Input Handling ---
         logits_tensor = None
@@ -245,36 +229,25 @@ class TaxonomyAwareLabelSmoothingCE(nn.Module):
             # Handle ConditionalClassifierHead output dict
             found_key = None
             for key, value in logits.items():
-                if (
-                    isinstance(value, torch.Tensor)
-                    and value.ndim == 2
-                    and value.shape[1] == self.num_classes
-                ):
+                if isinstance(value, torch.Tensor) and value.ndim == 2 and value.shape[1] == self.num_classes:
                     logits_tensor = value
                     found_key = key
                     break
             if logits_tensor is None:
                 # Fallback if no exact match - maybe log available shapes?
-                available_shapes = {
-                    k: v.shape for k, v in logits.items() if isinstance(v, torch.Tensor)
-                }
+                available_shapes = {k: v.shape for k, v in logits.items() if isinstance(v, torch.Tensor)}
                 raise ValueError(
-                    f"Could not find logits tensor with {self.num_classes} classes in input dict. "
-                    f"Available shapes: {available_shapes}"
+                    f"Could not find logits tensor with {self.num_classes} classes in input dict. Available shapes: {available_shapes}"
                 )
             if rank == 0 and debug_enabled:
                 logger.debug(f"  Using key '{found_key}' from input dict.")
         elif isinstance(logits, torch.Tensor):
             logits_tensor = logits
         else:
-            raise TypeError(
-                f"Unsupported logits type: {type(logits)}. Expected Tensor or Dict."
-            )
+            raise TypeError(f"Unsupported logits type: {type(logits)}. Expected Tensor or Dict.")
 
         if logits_tensor.shape[1] != self.num_classes:
-            raise ValueError(
-                f"Logits dimension mismatch. Expected {self.num_classes} classes, got {logits_tensor.shape[1]}."
-            )
+            raise ValueError(f"Logits dimension mismatch. Expected {self.num_classes} classes, got {logits_tensor.shape[1]}.")
 
         # --- Target Handling ---
         # Ensure target is 1D long/int tensor
@@ -298,9 +271,7 @@ class TaxonomyAwareLabelSmoothingCE(nn.Module):
                 f"Target tensor has invalid shape {target.shape}. Expected 1D indices or [B, C] one-hot/soft-representing-one-class."
             )
         if target.dtype not in [torch.long, torch.int]:
-            logger.warning(
-                f"Target tensor dtype is {target.dtype}. Casting to long. Ensure targets are integer class indices."
-            )
+            logger.warning(f"Target tensor dtype is {target.dtype}. Casting to long. Ensure targets are integer class indices.")
             target = target.long()
 
         # --- Device Handling ---
@@ -316,9 +287,7 @@ class TaxonomyAwareLabelSmoothingCE(nn.Module):
         if matrix_device != logits_device:
             # This shouldn't happen if buffer registration works, but check just in case
             self.soft_labels = self.soft_labels.to(logits_device)
-            logger.warning(
-                f"Moved soft_labels matrix to device {logits_device}. Ensure model and buffers are on correct device."
-            )
+            logger.warning(f"Moved soft_labels matrix to device {logits_device}. Ensure model and buffers are on correct device.")
 
         # --- Loss Calculation ---
         log_probs = F.log_softmax(logits_tensor, dim=-1)  # [B, C]
@@ -328,15 +297,11 @@ class TaxonomyAwareLabelSmoothingCE(nn.Module):
         if torch.any(target < 0) or torch.any(target >= self.num_classes):
             invalid_mask = (target < 0) | (target >= self.num_classes)
             num_invalid = invalid_mask.sum().item()
-            logger.error(
-                f"Detected {num_invalid} target indices out of bounds [0, {self.num_classes - 1}]. Cannot compute loss."
-            )
+            logger.error(f"Detected {num_invalid} target indices out of bounds [0, {self.num_classes - 1}]. Cannot compute loss.")
             # Option 1: Raise error
             # raise IndexError(f"{num_invalid} target indices out of bounds.")
             # Option 2: Return zero loss for safety? Or NaN? Let's raise error for now.
-            raise IndexError(
-                f"{num_invalid} target indices out of bounds [0, {self.num_classes - 1}]."
-            )
+            raise IndexError(f"{num_invalid} target indices out of bounds [0, {self.num_classes - 1}].")
 
         row_distributions = self.soft_labels[target]  # [B, C]
 
@@ -345,12 +310,8 @@ class TaxonomyAwareLabelSmoothingCE(nn.Module):
 
         # Debug log for per_sample_loss requires_grad before masking
         if debug_enabled:
-            logger.debug(
-                f"[TAXONOMY_LOSS_FWD] Task Check: Final per_sample_loss requires_grad = {per_sample_loss.requires_grad}"
-            )
-            logger.debug(
-                f"[TAXONOMY_LOSS_FWD] Task Check: Final per_sample_loss grad_fn = {per_sample_loss.grad_fn}"
-            )
+            logger.debug(f"[TAXONOMY_LOSS_FWD] Task Check: Final per_sample_loss requires_grad = {per_sample_loss.requires_grad}")
+            logger.debug(f"[TAXONOMY_LOSS_FWD] Task Check: Final per_sample_loss grad_fn = {per_sample_loss.grad_fn}")
 
         # Handle ignore_index by zeroing out corresponding losses
         if self.ignore_index is not None:
@@ -364,9 +325,7 @@ class TaxonomyAwareLabelSmoothingCE(nn.Module):
                 logger.debug(
                     f"[TAXONOMY_LOSS_FWD] Task Check: After masking per_sample_loss requires_grad = {per_sample_loss.requires_grad}"
                 )
-                logger.debug(
-                    f"[TAXONOMY_LOSS_FWD] Task Check: After masking per_sample_loss grad_fn = {per_sample_loss.grad_fn}"
-                )
+                logger.debug(f"[TAXONOMY_LOSS_FWD] Task Check: After masking per_sample_loss grad_fn = {per_sample_loss.grad_fn}")
 
             # Optional Debug Log (gated by DEBUG.LOSS.NULL_MASKING)
             if rank == 0 and null_masking_debug:
@@ -389,9 +348,7 @@ class TaxonomyAwareLabelSmoothingCE(nn.Module):
             if self.ignore_index is not None:
                 ignore_mask = target == self.ignore_index
                 per_sample_loss = torch.where(
-                    ignore_mask,
-                    torch.tensor(0.0, device=per_sample_loss.device),
-                    per_sample_loss * sample_weights,
+                    ignore_mask, torch.tensor(0.0, device=per_sample_loss.device), per_sample_loss * sample_weights
                 )
             else:
                 per_sample_loss = per_sample_loss * sample_weights
@@ -400,9 +357,7 @@ class TaxonomyAwareLabelSmoothingCE(nn.Module):
                 logger.debug("  Applied class weights.")
 
         if rank == 0 and debug_enabled:
-            logger.debug(
-                f"  Computed per_sample_loss shape: {per_sample_loss.shape}. Mean: {per_sample_loss.mean().item():.4f}"
-            )
+            logger.debug(f"  Computed per_sample_loss shape: {per_sample_loss.shape}. Mean: {per_sample_loss.mean().item():.4f}")
             logger.debug("[TAXONOMY_LOSS_FWD] End.")
 
         return per_sample_loss

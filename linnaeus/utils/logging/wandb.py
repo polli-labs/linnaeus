@@ -26,9 +26,9 @@ from typing import Any
 import torch
 import torch.distributed as dist
 import torch.nn as nn
+import wandb
 from yacs.config import CfgNode as CN
 
-import wandb
 from linnaeus.utils.distributed import get_rank_safely
 
 # Global variables for JSONL logging
@@ -43,15 +43,11 @@ def _close_jsonl_handler():
     rank = get_rank_safely()  # Check rank again, just in case
     if rank == 0 and _jsonl_file_handler:
         try:
-            print(
-                f"[INFO][Rank {rank}] Closing local metrics log file: {_jsonl_filepath}"
-            )  # Use print for atexit safety
+            print(f"[INFO][Rank {rank}] Closing local metrics log file: {_jsonl_filepath}")  # Use print for atexit safety
             _jsonl_file_handler.flush()
             _jsonl_file_handler.close()
         except Exception as e:
-            print(
-                f"[ERROR][Rank {rank}] Error closing local metrics log file '{_jsonl_filepath}': {e}"
-            )  # Use print
+            print(f"[ERROR][Rank {rank}] Error closing local metrics log file '{_jsonl_filepath}': {e}")  # Use print
         _jsonl_file_handler = None
 
 
@@ -59,9 +55,7 @@ def _close_jsonl_handler():
 atexit.register(_close_jsonl_handler)
 
 
-def initialize_wandb(
-    config: Any, model: nn.Module, dataset_metadata: dict[str, Any]
-) -> None:
+def initialize_wandb(config: Any, model: nn.Module, dataset_metadata: dict[str, Any]) -> None:
     """
     Initialize Weights & Biases logging with the config, model, and dataset metadata.
 
@@ -94,15 +88,10 @@ def initialize_wandb(
 
                 # Get the standard logger
                 logger = logging.getLogger(__name__)
-                logger.info(
-                    f"Initialized local JSONL metrics logging to: {_jsonl_filepath}"
-                )
+                logger.info(f"Initialized local JSONL metrics logging to: {_jsonl_filepath}")
             except Exception as e:
                 logger = logging.getLogger(__name__)
-                logger.error(
-                    f"Failed to initialize local JSONL metrics logging: {e}",
-                    exc_info=True,
-                )
+                logger.error(f"Failed to initialize local JSONL metrics logging: {e}", exc_info=True)
                 _jsonl_file_handler = None  # Ensure it's None on failure
                 _jsonl_filepath = None
                 _jsonl_lock = None
@@ -193,26 +182,16 @@ def log_epoch_results(config: Any, metrics_tracker: Any) -> None:
         #     epoch_summary_metrics[key] = value
 
     # Add epoch number if not already present (should be, but safety check)
-    if "epoch" not in epoch_summary_metrics and hasattr(
-        metrics_tracker, "schedule_values"
-    ):
-        epoch_summary_metrics["epoch"] = metrics_tracker.schedule_values.get(
-            "epoch", -1
-        )
+    if "epoch" not in epoch_summary_metrics and hasattr(metrics_tracker, "schedule_values"):
+        epoch_summary_metrics["epoch"] = metrics_tracker.schedule_values.get("epoch", -1)
 
     # If we have historical task/subset weights, also log them
-    if (
-        hasattr(metrics_tracker, "historical_task_weights")
-        and metrics_tracker.historical_task_weights
-    ):
+    if hasattr(metrics_tracker, "historical_task_weights") and metrics_tracker.historical_task_weights:
         last_task_w = metrics_tracker.historical_task_weights[-1]
         for task, weight in last_task_w.items():
             epoch_summary_metrics[f"task_weights/task_{task}"] = weight
 
-    if (
-        hasattr(metrics_tracker, "historical_subset_weights")
-        and metrics_tracker.historical_subset_weights
-    ):
+    if hasattr(metrics_tracker, "historical_subset_weights") and metrics_tracker.historical_subset_weights:
         last_subset_w = metrics_tracker.historical_subset_weights[-1]
         for subset_type, weight in last_subset_w.items():
             epoch_summary_metrics[f"subset_weights/{subset_type}"] = weight
@@ -227,9 +206,7 @@ def log_epoch_results(config: Any, metrics_tracker: Any) -> None:
         # for epoch-level summaries.
         wandb.log(epoch_summary_metrics)
         logger = logging.getLogger(__name__)
-        logger.debug(
-            f"[WandB] Logged epoch summary metrics: {list(epoch_summary_metrics.keys())}"
-        )
+        logger.debug(f"[WandB] Logged epoch summary metrics: {list(epoch_summary_metrics.keys())}")
     elif not epoch_summary_metrics:
         logger = logging.getLogger(__name__)
         logger.debug("[WandB] No epoch summary metrics to log.")
@@ -246,11 +223,7 @@ def _write_metrics_to_jsonl(metrics_dict: dict[str, Any], step: int | None) -> N
             # Add logging to check metrics_dict before copy
             logger_jsonl = logging.getLogger(__name__)
             if logger_jsonl.isEnabledFor(logging.DEBUG):
-                problem_keys_original = {
-                    k: v
-                    for k, v in metrics_dict.items()
-                    if "meta_masking/actual_valid_pct" in k
-                }
+                problem_keys_original = {k: v for k, v in metrics_dict.items() if "meta_masking/actual_valid_pct" in k}
                 if problem_keys_original:
                     logger_jsonl.debug(
                         f"[_WRITE_JSONL_PRE_COPY] metrics_dict before copy (id: {id(metrics_dict)}): {problem_keys_original}"
@@ -261,15 +234,9 @@ def _write_metrics_to_jsonl(metrics_dict: dict[str, Any], step: int | None) -> N
 
             # Add logging to check log_entry after copy
             if logger_jsonl.isEnabledFor(logging.DEBUG):
-                problem_keys_copied = {
-                    k: v
-                    for k, v in log_entry.items()
-                    if "meta_masking/actual_valid_pct" in k
-                }
+                problem_keys_copied = {k: v for k, v in log_entry.items() if "meta_masking/actual_valid_pct" in k}
                 if problem_keys_copied:
-                    logger_jsonl.debug(
-                        f"[_WRITE_JSONL_POST_COPY] log_entry after copy (id: {id(log_entry)}): {problem_keys_copied}"
-                    )
+                    logger_jsonl.debug(f"[_WRITE_JSONL_POST_COPY] log_entry after copy (id: {id(log_entry)}): {problem_keys_copied}")
 
             # Add/overwrite the global_step
             if step is not None:
@@ -282,26 +249,16 @@ def _write_metrics_to_jsonl(metrics_dict: dict[str, Any], step: int | None) -> N
 
                 log_entry["timestamp"] = time.time()
                 # Log a warning if step is missing for a potentially step-based log
-                if not any(
-                    k.startswith("final_") for k in log_entry
-                ):  # Don't warn for final summary logs
+                if not any(k.startswith("final_") for k in log_entry):  # Don't warn for final summary logs
                     logger = logging.getLogger(__name__)
-                    logger.warning(
-                        f"Logging metrics to JSONL without global_step: {list(log_entry.keys())[:5]}..."
-                    )
+                    logger.warning(f"Logging metrics to JSONL without global_step: {list(log_entry.keys())[:5]}...")
             else:
                 logger = logging.getLogger(__name__)
-                logger.warning(
-                    f"Attempting to log metrics to JSONL without step or epoch: {list(log_entry.keys())[:5]}..."
-                )
+                logger.warning(f"Attempting to log metrics to JSONL without step or epoch: {list(log_entry.keys())[:5]}...")
 
             # Add one more log before JSON serialization
             if logger_jsonl.isEnabledFor(logging.DEBUG):
-                problem_keys_pre_dumps = {
-                    k: v
-                    for k, v in log_entry.items()
-                    if "meta_masking/actual_valid_pct" in k
-                }
+                problem_keys_pre_dumps = {k: v for k, v in log_entry.items() if "meta_masking/actual_valid_pct" in k}
                 if problem_keys_pre_dumps:
                     logger_jsonl.debug(
                         f"[_WRITE_JSONL_PRE_DUMP] log_entry before json.dumps (id: {id(log_entry)}): {problem_keys_pre_dumps}"
@@ -317,10 +274,7 @@ def _write_metrics_to_jsonl(metrics_dict: dict[str, Any], step: int | None) -> N
 
         except Exception as e:
             logger = logging.getLogger(__name__)
-            logger.error(
-                f"Failed to write metrics to local JSONL file '{_jsonl_filepath}': {e}",
-                exc_info=True,
-            )
+            logger.error(f"Failed to write metrics to local JSONL file '{_jsonl_filepath}': {e}", exc_info=True)
 
 
 def log_final_results(config, metrics_tracker):
@@ -338,19 +292,13 @@ def log_final_results(config, metrics_tracker):
     final_metrics = {}
 
     # 1) Gather final/best from the 'val' phase (if it exists in your tracker)
-    if (
-        hasattr(metrics_tracker, "phase_metrics")
-        and "val" in metrics_tracker.phase_metrics
-    ):
+    if hasattr(metrics_tracker, "phase_metrics") and "val" in metrics_tracker.phase_metrics:
         for metric_name, metric_obj in metrics_tracker.phase_metrics["val"].items():
             # e.g. metric_name = "loss" or "chain_accuracy"
             # We'll store final_val_loss = metric_obj.best, etc.
             final_metrics[f"final_val_{metric_name}"] = metric_obj.best
 
-    if (
-        hasattr(metrics_tracker, "phase_task_metrics")
-        and "val" in metrics_tracker.phase_task_metrics
-    ):
+    if hasattr(metrics_tracker, "phase_task_metrics") and "val" in metrics_tracker.phase_task_metrics:
         for task_key, sub_metrics in metrics_tracker.phase_task_metrics["val"].items():
             for stat_name, metric_obj in sub_metrics.items():
                 # e.g. stat_name = "acc1", "loss"
@@ -358,56 +306,34 @@ def log_final_results(config, metrics_tracker):
                 final_metrics[f"final_val_{stat_name}_{task_key}"] = metric_obj.best
 
     # 2) Gather final/best from the 'val_mask' phase (if you also want those)
-    if (
-        hasattr(metrics_tracker, "phase_metrics")
-        and "val_mask" in metrics_tracker.phase_metrics
-    ):
-        for metric_name, metric_obj in metrics_tracker.phase_metrics[
-            "val_mask"
-        ].items():
+    if hasattr(metrics_tracker, "phase_metrics") and "val_mask" in metrics_tracker.phase_metrics:
+        for metric_name, metric_obj in metrics_tracker.phase_metrics["val_mask"].items():
             final_metrics[f"final_valMask_{metric_name}"] = metric_obj.best
 
-    if (
-        hasattr(metrics_tracker, "phase_task_metrics")
-        and "val_mask" in metrics_tracker.phase_task_metrics
-    ):
-        for task_key, sub_metrics in metrics_tracker.phase_task_metrics[
-            "val_mask"
-        ].items():
+    if hasattr(metrics_tracker, "phase_task_metrics") and "val_mask" in metrics_tracker.phase_task_metrics:
+        for task_key, sub_metrics in metrics_tracker.phase_task_metrics["val_mask"].items():
             for stat_name, metric_obj in sub_metrics.items():
                 final_metrics[f"final_valMask_{stat_name}_{task_key}"] = metric_obj.best
 
     # 3) Optionally, gather final/best from the 'train' phase (if you want those too)
-    if (
-        hasattr(metrics_tracker, "phase_metrics")
-        and "train" in metrics_tracker.phase_metrics
-    ):
+    if hasattr(metrics_tracker, "phase_metrics") and "train" in metrics_tracker.phase_metrics:
         for metric_name, metric_obj in metrics_tracker.phase_metrics["train"].items():
             final_metrics[f"final_train_{metric_name}"] = metric_obj.best
 
-    if (
-        hasattr(metrics_tracker, "phase_task_metrics")
-        and "train" in metrics_tracker.phase_task_metrics
-    ):
-        for task_key, sub_metrics in metrics_tracker.phase_task_metrics[
-            "train"
-        ].items():
+    if hasattr(metrics_tracker, "phase_task_metrics") and "train" in metrics_tracker.phase_task_metrics:
+        for task_key, sub_metrics in metrics_tracker.phase_task_metrics["train"].items():
             for stat_name, metric_obj in sub_metrics.items():
                 final_metrics[f"final_train_{stat_name}_{task_key}"] = metric_obj.best
 
     # Write to JSONL first
-    _write_metrics_to_jsonl(
-        final_metrics, None
-    )  # Final results typically don't have a step
+    _write_metrics_to_jsonl(final_metrics, None)  # Final results typically don't have a step
 
     # Finally, log everything to wandb if enabled
     if config.EXPERIMENT.WANDB.ENABLED:
         wandb.log(final_metrics)
 
 
-def log_pipeline_metrics(
-    config: Any, metrics_tracker: Any, phase: str = "train", step: int | None = None
-) -> None:
+def log_pipeline_metrics(config: Any, metrics_tracker: Any, phase: str = "train", step: int | None = None) -> None:
     """
     Log pipeline metrics (queue depths, cache stats, throughput) to wandb.
 
@@ -435,9 +361,7 @@ def log_pipeline_metrics(
     # Throughput rates
     for throughput_type, rates in metrics_tracker.metrics["throughput"].items():
         if rates:
-            pipeline_metrics[f"pipeline/{phase}/throughput/{throughput_type}"] = rates[
-                -1
-            ]
+            pipeline_metrics[f"pipeline/{phase}/throughput/{throughput_type}"] = rates[-1]
 
     # Timing metrics - only process specific timing keys
     for timing_key in ["prefetch_times", "preprocess_times"]:
@@ -446,9 +370,7 @@ def log_pipeline_metrics(
             and isinstance(metrics_tracker.metrics[timing_key], list)
             and metrics_tracker.metrics[timing_key]
         ):
-            pipeline_metrics[f"pipeline/{phase}/timing/{timing_key}"] = (
-                metrics_tracker.metrics[timing_key][-1]
-            )
+            pipeline_metrics[f"pipeline/{phase}/timing/{timing_key}"] = metrics_tracker.metrics[timing_key][-1]
 
     # Write to JSONL first
     if pipeline_metrics:
@@ -465,9 +387,7 @@ def log_pipeline_metrics(
             wandb.log(pipeline_metrics)
 
 
-def log_learning_rates(
-    config: Any, lr_dict: dict[str, float], step: int | None = None
-) -> None:
+def log_learning_rates(config: Any, lr_dict: dict[str, float], step: int | None = None) -> None:
     """
     Log learning rates to wandb.
 
@@ -492,9 +412,7 @@ def log_learning_rates(
             wandb.log(lr_dict)
 
 
-def log_training_metrics(
-    config: Any, metrics_dict: dict[str, Any], step: int | None = None
-) -> None:
+def log_training_metrics(config: Any, metrics_dict: dict[str, Any], step: int | None = None) -> None:
     """
     Log training metrics to wandb.
 
@@ -514,18 +432,14 @@ def log_training_metrics(
         pass
 
     if debug_wandb_metrics:
-        logger_wandb.debug(
-            f"[WANDB_UTILS_RECEIVED] log_training_metrics received metrics_dict (id: {id(metrics_dict)}). Problematic keys:"
-        )
+        logger_wandb.debug(f"[WANDB_UTILS_RECEIVED] log_training_metrics received metrics_dict (id: {id(metrics_dict)}). Problematic keys:")
         for k_debug in [
             "meta_masking/actual_valid_pct/TEMPORAL/train",
             "meta_masking/actual_valid_pct/SPATIAL/train",
             "meta_masking/actual_valid_pct/ELEVATION/train",
         ]:
             if k_debug in metrics_dict:
-                logger_wandb.debug(
-                    f"    - {k_debug}: {metrics_dict[k_debug]} (type: {type(metrics_dict[k_debug])})"
-                )
+                logger_wandb.debug(f"    - {k_debug}: {metrics_dict[k_debug]} (type: {type(metrics_dict[k_debug])})")
     # Write to JSONL first
     if metrics_dict:
         _write_metrics_to_jsonl(metrics_dict, step)
@@ -541,9 +455,7 @@ def log_training_metrics(
             wandb.log(metrics_dict)
 
 
-def log_validation_metrics(
-    config: Any, metrics_dict: dict[str, Any], step: int | None = None
-) -> None:
+def log_validation_metrics(config: Any, metrics_dict: dict[str, Any], step: int | None = None) -> None:
     """
     Log validation metrics to wandb.
 
@@ -567,9 +479,7 @@ def log_validation_metrics(
             wandb.log(metrics_dict)
 
 
-def log_gradnorm_metrics(
-    config: Any, metrics_tracker: Any, step: int | None = None
-) -> None:
+def log_gradnorm_metrics(config: Any, metrics_tracker: Any, step: int | None = None) -> None:
     """
     Log GradNorm metrics to wandb.
 
@@ -590,19 +500,13 @@ def log_gradnorm_metrics(
     logger = logging.getLogger(__name__)
 
     if debug_wandb_metrics or verbose_gradnorm_logging:
-        logger.info(
-            f"[WANDB_METRICS_DEBUG] log_gradnorm_metrics called with step={step}"
-        )
+        logger.info(f"[WANDB_METRICS_DEBUG] log_gradnorm_metrics called with step={step}")
         if hasattr(metrics_tracker, "gradnorm_metrics"):
-            logger.info(
-                f"[WANDB_METRICS_DEBUG] metrics_tracker.gradnorm_metrics contains {len(metrics_tracker.gradnorm_metrics)} items:"
-            )
+            logger.info(f"[WANDB_METRICS_DEBUG] metrics_tracker.gradnorm_metrics contains {len(metrics_tracker.gradnorm_metrics)} items:")
             for k, v in metrics_tracker.gradnorm_metrics.items():
                 logger.info(f"[WANDB_METRICS_DEBUG]   - {k}: {v}")
         else:
-            logger.info(
-                "[WANDB_METRICS_DEBUG] metrics_tracker has no 'gradnorm_metrics' attribute"
-            )
+            logger.info("[WANDB_METRICS_DEBUG] metrics_tracker has no 'gradnorm_metrics' attribute")
 
     # Get only GradNorm metrics
     gradnorm_metrics = {}
@@ -614,17 +518,12 @@ def log_gradnorm_metrics(
                 gradnorm_metrics[k] = float(v)  # Ensure float values
             except Exception as e:
                 if debug_wandb_metrics or verbose_gradnorm_logging:
-                    logger.error(
-                        f"[WANDB_METRICS_DEBUG] Error converting metric {k}: {str(e)}"
-                    )
+                    logger.error(f"[WANDB_METRICS_DEBUG] Error converting metric {k}: {str(e)}")
 
     # Write to JSONL first - prefix the keys with gradnorm/ for consistency
     if gradnorm_metrics:
         # Prefix keys for JSONL consistency with wandb structure
-        jsonl_gradnorm_metrics = {
-            f"gradnorm/{k}" if not k.startswith("gradnorm/") else k: v
-            for k, v in gradnorm_metrics.items()
-        }
+        jsonl_gradnorm_metrics = {f"gradnorm/{k}" if not k.startswith("gradnorm/") else k: v for k, v in gradnorm_metrics.items()}
         _write_metrics_to_jsonl(jsonl_gradnorm_metrics, step)
 
     # Only proceed with wandb logging if enabled
@@ -632,19 +531,13 @@ def log_gradnorm_metrics(
         return
 
     if gradnorm_metrics:
-        if (
-            verbose_gradnorm_logging and get_rank_safely() == 0
-        ):  # <-- Check flag and rank
-            logger.debug(
-                f"[DEBUG_GRADNORM_MEM][WANDB_API] Wandb.log called with GradNorm metrics at step {step}:"
-            )
+        if verbose_gradnorm_logging and get_rank_safely() == 0:  # <-- Check flag and rank
+            logger.debug(f"[DEBUG_GRADNORM_MEM][WANDB_API] Wandb.log called with GradNorm metrics at step {step}:")
             for k, v in gradnorm_metrics.items():
                 logger.debug(f"[DEBUG_GRADNORM_MEM][WANDB_API]   - {k}: {v}")
 
         if debug_wandb_metrics:
-            logger.info(
-                f"[WANDB_METRICS_DEBUG] Calling wandb.log with {len(gradnorm_metrics)} metrics at step {step}"
-            )
+            logger.info(f"[WANDB_METRICS_DEBUG] Calling wandb.log with {len(gradnorm_metrics)} metrics at step {step}")
 
         if step is not None:
             wandb.log(gradnorm_metrics, step=step)
@@ -688,9 +581,7 @@ def log_static_schedule_values(config: Any, schedule_dict: dict[str, Any]) -> No
     wandb.config.update(flat_config, allow_val_change=allow_val_change)
 
 
-def log_schedule_values(
-    config: Any, schedule_dict: dict[str, Any], step: int | None = None
-) -> None:
+def log_schedule_values(config: Any, schedule_dict: dict[str, Any], step: int | None = None) -> None:
     """
     Log dynamic schedule values (meta_mask_prob, mixup_prob, mixup_group_str) to wandb.
 
@@ -736,9 +627,7 @@ def _cfg_node_to_dict(cfg_node):
     return result
 
 
-def construct_wandb_config(
-    config: Any, model: nn.Module, dataset_metadata: dict[str, Any]
-) -> dict[str, Any]:
+def construct_wandb_config(config: Any, model: nn.Module, dataset_metadata: dict[str, Any]) -> dict[str, Any]:
     """
     Construct the config dict to log to wandb by converting YACS config nodes to dictionaries.
     This approach is more maintainable as it automatically captures all configuration options
@@ -857,9 +746,7 @@ def maybe_generate_wandb_run_id(config):
         length_val = int(length_t.item())
         if rank != 0:
             run_id_bytes = bytearray(length_val)
-        run_id_tensor = torch.tensor(
-            list(run_id_bytes), dtype=torch.uint8, device="cuda"
-        )
+        run_id_tensor = torch.tensor(list(run_id_bytes), dtype=torch.uint8, device="cuda")
         dist.broadcast(run_id_tensor, src=0)
         final_run_id = run_id_tensor.cpu().numpy().tobytes().decode("utf-8")
 

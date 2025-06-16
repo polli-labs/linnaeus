@@ -60,9 +60,7 @@ class GPUSelectiveCutMix(SelectiveCutMix):
         self.minmax = mix_config.get("MINMAX", None)
 
         # Use the precomputed chunk boundaries if provided
-        if "meta_chunk_bounds_list" in mix_config and isinstance(
-            mix_config["meta_chunk_bounds_list"], list
-        ):
+        if "meta_chunk_bounds_list" in mix_config and isinstance(mix_config["meta_chunk_bounds_list"], list):
             self.chunk_bounds = mix_config["meta_chunk_bounds_list"]
             logger.debug("GPUSelectiveCutMix using precomputed chunk bounds")
         else:
@@ -77,9 +75,7 @@ class GPUSelectiveCutMix(SelectiveCutMix):
         # Debug logging if enabled
         debug_flag = False
         try:
-            debug_flag = self.config is not None and check_debug_flag(
-                self.config, "DEBUG.AUGMENTATION"
-            )
+            debug_flag = self.config is not None and check_debug_flag(self.config, "DEBUG.AUGMENTATION")
         except Exception:
             pass
 
@@ -90,9 +86,7 @@ class GPUSelectiveCutMix(SelectiveCutMix):
             if self.chunk_bounds is not None:
                 logger.debug(f"  - Chunk bounds: {self.chunk_bounds}")
             elif "CHUNK_BOUNDS" in self.mix_config:
-                logger.debug(
-                    f"  - CHUNK_BOUNDS (deprecated): {self.mix_config['CHUNK_BOUNDS']}"
-                )
+                logger.debug(f"  - CHUNK_BOUNDS (deprecated): {self.mix_config['CHUNK_BOUNDS']}")
 
     def __call__(
         self,
@@ -121,17 +115,13 @@ class GPUSelectiveCutMix(SelectiveCutMix):
         # Check debug flag
         debug_flag = False
         try:
-            debug_flag = self.config is not None and check_debug_flag(
-                self.config, "DEBUG.AUGMENTATION"
-            )
+            debug_flag = self.config is not None and check_debug_flag(self.config, "DEBUG.AUGMENTATION")
         except Exception:
             pass
 
         # Optionally exclude null-category samples from cutmix
         if exclude_null_samples:
-            batch = exclude_null_samples_from_mixup(
-                batch, null_task_keys, config=self.config
-            )
+            batch = exclude_null_samples_from_mixup(batch, null_task_keys, config=self.config)
 
         images, targets, aux_info, meta_masks, group_ids = batch
 
@@ -174,9 +164,7 @@ class GPUSelectiveCutMix(SelectiveCutMix):
                 pass
 
         # 1) Probability check
-        if torch.rand(1, device=images.device).item() > self.mix_config.get(
-            "PROB", 1.0
-        ):
+        if torch.rand(1, device=images.device).item() > self.mix_config.get("PROB", 1.0):
             if debug_flag:
                 logger.debug("[GPUSelectiveCutMix] Skipped due to probability check")
             return images, targets, aux_info, meta_masks
@@ -184,9 +172,7 @@ class GPUSelectiveCutMix(SelectiveCutMix):
         # 2) If all group_ids == -1 => skip
         if (group_ids == -1).all():
             if debug_flag:
-                logger.debug(
-                    "[GPUSelectiveCutMix] Skipped because all group_ids are -1"
-                )
+                logger.debug("[GPUSelectiveCutMix] Skipped because all group_ids are -1")
             return images, targets, aux_info, meta_masks
 
         # 3) Build in-group permutation
@@ -215,9 +201,7 @@ class GPUSelectiveCutMix(SelectiveCutMix):
         lam_adjusted = 1.0 - (box_area / img_area)
 
         if debug_flag:
-            logger.debug(
-                f"[GPUSelectiveCutMix] Original lam: {lam.item():.4f}, Adjusted lam: {lam_adjusted:.4f}"
-            )
+            logger.debug(f"[GPUSelectiveCutMix] Original lam: {lam.item():.4f}, Adjusted lam: {lam_adjusted:.4f}")
             logger.debug(
                 f"[GPUSelectiveCutMix] Box: ({bbx1}, {bby1}) to ({bbx2}, {bby2}), Area: {box_area}/{img_area} = {box_area / img_area:.4f}"
             )
@@ -231,9 +215,7 @@ class GPUSelectiveCutMix(SelectiveCutMix):
             valid_perm_indices = perm[valid_indices]
 
             # Apply CutMix to valid samples only
-            mixed_images[valid_indices, :, bbx1:bbx2, bby1:bby2] = images[
-                valid_perm_indices, :, bbx1:bbx2, bby1:bby2
-            ]
+            mixed_images[valid_indices, :, bbx1:bbx2, bby1:bby2] = images[valid_perm_indices, :, bbx1:bbx2, bby1:bby2]
 
             # Mix targets proportionally to adjusted lambda for valid samples
             for k in mixed_targets.keys():
@@ -243,12 +225,8 @@ class GPUSelectiveCutMix(SelectiveCutMix):
                     if targets[k].dim() > 1:
                         # For one-hot targets, log the index 0 (null category) values
                         logger.debug(f"[CUTMIX_TARGET_DEBUG] Task {k} BEFORE mixing:")
-                        logger.debug(
-                            f"  - Shape: {targets[k].shape}, dtype: {targets[k].dtype}"
-                        )
-                        logger.debug(
-                            f"  - First {sample_size} samples, index 0 values: {targets[k][:sample_size, 0]}"
-                        )
+                        logger.debug(f"  - Shape: {targets[k].shape}, dtype: {targets[k].dtype}")
+                        logger.debug(f"  - First {sample_size} samples, index 0 values: {targets[k][:sample_size, 0]}")
 
                         # Check null distribution in the original and permuted targets
                         idx0_vals_orig = targets[k][valid_indices, 0]
@@ -272,23 +250,14 @@ class GPUSelectiveCutMix(SelectiveCutMix):
                             )
                     else:
                         # For hard labels
-                        logger.debug(
-                            f"[CUTMIX_TARGET_DEBUG] Task {k} BEFORE mixing (hard labels):"
-                        )
-                        logger.debug(
-                            f"  - Shape: {targets[k].shape}, dtype: {targets[k].dtype}"
-                        )
-                        logger.debug(
-                            f"  - First {sample_size} samples: {targets[k][:sample_size]}"
-                        )
-                        logger.debug(
-                            f"  - First {sample_size} permuted samples: {targets[k][perm][:sample_size]}"
-                        )
+                        logger.debug(f"[CUTMIX_TARGET_DEBUG] Task {k} BEFORE mixing (hard labels):")
+                        logger.debug(f"  - Shape: {targets[k].shape}, dtype: {targets[k].dtype}")
+                        logger.debug(f"  - First {sample_size} samples: {targets[k][:sample_size]}")
+                        logger.debug(f"  - First {sample_size} permuted samples: {targets[k][perm][:sample_size]}")
 
                 # Apply CutMix to targets based on adjusted lambda
                 mixed_targets[k][valid_indices] = (
-                    lam_adjusted * targets[k][valid_indices]
-                    + (1 - lam_adjusted) * targets[k][valid_perm_indices]
+                    lam_adjusted * targets[k][valid_indices] + (1 - lam_adjusted) * targets[k][valid_perm_indices]
                 )
 
                 # Debug logging after mixing to see the effect
@@ -297,49 +266,33 @@ class GPUSelectiveCutMix(SelectiveCutMix):
                     if mixed_targets[k].dim() > 1:
                         # For one-hot targets, check the mixed results
                         logger.debug(f"[CUTMIX_TARGET_DEBUG] Task {k} AFTER mixing:")
-                        logger.debug(
-                            f"  - First {sample_size} mixed samples, index 0 values: {mixed_targets[k][:sample_size, 0]}"
-                        )
+                        logger.debug(f"  - First {sample_size} mixed samples, index 0 values: {mixed_targets[k][:sample_size, 0]}")
 
                         # Calculate how many values are near critical thresholds
                         idx0_vals_mixed = mixed_targets[k][valid_indices, 0]
                         if len(idx0_vals_mixed) > 0:
-                            near_half = (
-                                ((idx0_vals_mixed > 0.4) & (idx0_vals_mixed < 0.6))
-                                .sum()
-                                .item()
-                            )
+                            near_half = ((idx0_vals_mixed > 0.4) & (idx0_vals_mixed < 0.6)).sum().item()
                             logger.debug(
                                 f"  - Values near 0.5 threshold: {near_half}/{len(idx0_vals_mixed)} ({100 * near_half / len(idx0_vals_mixed) if len(idx0_vals_mixed) > 0 else 0:.1f}%)"
                             )
 
                         # Compare lam value with the mixing effect
-                        logger.debug(
-                            f"  - Mixing coefficient lam_adjusted={lam_adjusted:.4f}"
-                        )
+                        logger.debug(f"  - Mixing coefficient lam_adjusted={lam_adjusted:.4f}")
 
                         # Show a detailed example of how the mixing worked on the first sample
                         if sample_size > 0 and len(valid_indices) > 0:
                             idx = valid_indices[0].item()
                             perm_idx = valid_perm_indices[0].item()
                             logger.debug(f"  - Example: Sample {idx}")
-                            logger.debug(
-                                f"    Original: index 0 = {targets[k][idx, 0].item():.4f}"
-                            )
-                            logger.debug(
-                                f"    Permuted: index 0 = {targets[k][perm_idx, 0].item():.4f}"
-                            )
+                            logger.debug(f"    Original: index 0 = {targets[k][idx, 0].item():.4f}")
+                            logger.debug(f"    Permuted: index 0 = {targets[k][perm_idx, 0].item():.4f}")
                             logger.debug(
                                 f"    Mixed:    index 0 = {mixed_targets[k][idx, 0].item():.4f} (formula: {lam_adjusted:.4f} * {targets[k][idx, 0].item():.4f} + {1 - lam_adjusted:.4f} * {targets[k][perm_idx, 0].item():.4f})"
                             )
                     else:
                         # For hard labels
-                        logger.debug(
-                            f"[CUTMIX_TARGET_DEBUG] Task {k} AFTER mixing (hard labels):"
-                        )
-                        logger.debug(
-                            f"  - First {sample_size} mixed samples: {mixed_targets[k][:sample_size]}"
-                        )
+                        logger.debug(f"[CUTMIX_TARGET_DEBUG] Task {k} AFTER mixing (hard labels):")
+                        logger.debug(f"  - First {sample_size} mixed samples: {mixed_targets[k][:sample_size]}")
 
                 # Add critical NULL_MASKING debug logging that respects the NULL_MASKING flag
                 if (
@@ -352,70 +305,44 @@ class GPUSelectiveCutMix(SelectiveCutMix):
                     idx0_vals_mixed = mixed_targets[k][valid_indices, 0]
 
                     # Count nulls before and after
-                    nulls_before_orig = (
-                        (targets[k][valid_indices, 0] > 0.5).sum().item()
-                    )
-                    nulls_before_perm = (
-                        (targets[k][valid_perm_indices, 0] > 0.5).sum().item()
-                    )
+                    nulls_before_orig = (targets[k][valid_indices, 0] > 0.5).sum().item()
+                    nulls_before_perm = (targets[k][valid_perm_indices, 0] > 0.5).sum().item()
                     nulls_after = (idx0_vals_mixed > 0.5).sum().item()
 
                     # Calculate near-threshold values
-                    near_half = (
-                        ((idx0_vals_mixed > 0.4) & (idx0_vals_mixed < 0.6)).sum().item()
-                    )
+                    near_half = ((idx0_vals_mixed > 0.4) & (idx0_vals_mixed < 0.6)).sum().item()
 
                     # If we lost nulls, log this explicitly
                     logger.debug(
                         f"[NULL_MASKING_CUTMIX] Task {k}: nulls BEFORE mixing: {nulls_before_orig} (original), {nulls_before_perm} (permuted)"
                     )
-                    logger.debug(
-                        f"[NULL_MASKING_CUTMIX] Task {k}: nulls AFTER mixing: {nulls_after}"
-                    )
+                    logger.debug(f"[NULL_MASKING_CUTMIX] Task {k}: nulls AFTER mixing: {nulls_after}")
 
                     if nulls_before_orig > 0 or nulls_before_perm > 0:
                         # Calculate expected nulls vs. actual
-                        lost_nulls = (
-                            nulls_before_orig + nulls_before_perm
-                        ) - nulls_after
+                        lost_nulls = (nulls_before_orig + nulls_before_perm) - nulls_after
                         if lost_nulls > 0:
-                            logger.debug(
-                                f"[NULL_MASKING_CUTMIX] Task {k}: LOST {lost_nulls} nulls due to mixing (became < 0.5)"
-                            )
-                            logger.debug(
-                                f"[NULL_MASKING_CUTMIX] Task {k}: Values near threshold (0.4-0.6): {near_half}"
-                            )
+                            logger.debug(f"[NULL_MASKING_CUTMIX] Task {k}: LOST {lost_nulls} nulls due to mixing (became < 0.5)")
+                            logger.debug(f"[NULL_MASKING_CUTMIX] Task {k}: Values near threshold (0.4-0.6): {near_half}")
 
                             # Show distribution of values from important ranges
-                            below_threshold = (
-                                ((idx0_vals_mixed > 0.3) & (idx0_vals_mixed <= 0.5))
-                                .sum()
-                                .item()
-                            )
-                            logger.debug(
-                                f"[NULL_MASKING_CUTMIX] Task {k}: Values just below threshold (0.3-0.5): {below_threshold}"
-                            )
+                            below_threshold = ((idx0_vals_mixed > 0.3) & (idx0_vals_mixed <= 0.5)).sum().item()
+                            logger.debug(f"[NULL_MASKING_CUTMIX] Task {k}: Values just below threshold (0.3-0.5): {below_threshold}")
 
                             # Find examples where mixing caused nulls to be lost
                             orig_nulls = targets[k][valid_indices, 0] > 0.5
                             perm_nulls = targets[k][valid_perm_indices, 0] > 0.5
                             either_null = orig_nulls | perm_nulls
                             result_not_null = ~(idx0_vals_mixed > 0.5)
-                            lost_null_indices = (either_null & result_not_null).nonzero(
-                                as_tuple=True
-                            )[0]
+                            lost_null_indices = (either_null & result_not_null).nonzero(as_tuple=True)[0]
 
                             # Show examples of lost nulls
                             if len(lost_null_indices) > 0:
-                                logger.debug(
-                                    "[NULL_MASKING_CUTMIX] Examples of lost nulls:"
-                                )
+                                logger.debug("[NULL_MASKING_CUTMIX] Examples of lost nulls:")
                                 for i in range(min(3, len(lost_null_indices))):
                                     local_idx = lost_null_indices[i].item()
                                     global_idx = valid_indices[local_idx].item()
-                                    perm_global_idx = valid_perm_indices[
-                                        local_idx
-                                    ].item()
+                                    perm_global_idx = valid_perm_indices[local_idx].item()
                                     orig_val = targets[k][global_idx, 0].item()
                                     perm_val = targets[k][perm_global_idx, 0].item()
                                     mixed_val = idx0_vals_mixed[local_idx].item()
@@ -431,9 +358,7 @@ class GPUSelectiveCutMix(SelectiveCutMix):
         self._enforce_all_or_nothing(aux_info[perm], meta_masks[perm])
 
         # 7) Hard pick chunk by chunk
-        mixed_aux, mixed_masks = self._mix_aux_info_chunkwise(
-            aux_info, aux_info[perm], meta_masks, meta_masks[perm]
-        )
+        mixed_aux, mixed_masks = self._mix_aux_info_chunkwise(aux_info, aux_info[perm], meta_masks, meta_masks[perm])
 
         return mixed_images, mixed_targets, mixed_aux, mixed_masks
 
@@ -465,9 +390,7 @@ class GPUSelectiveCutMix(SelectiveCutMix):
         # Use precomputed chunk bounds if available, otherwise default to a single chunk
         if self.chunk_bounds is not None:
             chunk_bounds = self.chunk_bounds
-        elif (
-            aux_info.ndim > 1 and aux_info.shape[1] > 0
-        ):  # aux_info has a feature dimension
+        elif aux_info.ndim > 1 and aux_info.shape[1] > 0:  # aux_info has a feature dimension
             chunk_bounds = [(0, aux_info.shape[1])]  # Default to a single chunk
         else:  # aux_info is empty or 1D
             chunk_bounds = []
@@ -482,11 +405,7 @@ class GPUSelectiveCutMix(SelectiveCutMix):
             meta_masks[is_partial, start:end] = False
 
     def _mix_aux_info_chunkwise(
-        self,
-        info1: torch.Tensor,
-        info2: torch.Tensor,
-        mask1: torch.Tensor,
-        mask2: torch.Tensor,
+        self, info1: torch.Tensor, info2: torch.Tensor, mask1: torch.Tensor, mask2: torch.Tensor
     ) -> tuple[torch.Tensor, torch.Tensor]:
         """
         Chunk-level "hard pick" logic:

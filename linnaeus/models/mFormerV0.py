@@ -19,9 +19,7 @@ logger = get_main_logger()
 
 
 def compute_hw_after_stage0_stage1_stage2(
-    input_hw: tuple[int, int],
-    stage1_strides: list[int],
-    stage2_strides: list[int],
+    input_hw: tuple[int, int], stage1_strides: list[int], stage2_strides: list[int]
 ) -> tuple[int, int]:
     """
     Compute the spatial (H,W) after:
@@ -47,10 +45,7 @@ def compute_hw_after_stage0_stage1_stage2(
     return (max(H, 1), max(W, 1))
 
 
-def compute_hw_after_stageN(
-    hw_in: tuple[int, int],
-    stride_seq: list[int],
-) -> tuple[int, int]:
+def compute_hw_after_stageN(hw_in: tuple[int, int], stride_seq: list[int]) -> tuple[int, int]:
     """
     Given an (H, W) after some previous stage, apply the stride_seq
     for a new stage's blocks to see the new resolution.
@@ -147,9 +142,7 @@ class mFormerV0(BaseModel):
                 self.meta_components[comp_name] = {"dim": dim, "offset": offset}
                 offset += dim
 
-            logger.info(
-                f"Using metadata components: {list(self.meta_components.keys())}"
-            )
+            logger.info(f"Using metadata components: {list(self.meta_components.keys())}")
         else:
             # Legacy behavior: use META_DIMS
             self.meta_dims = config.MODEL.get("META_DIMS", [])
@@ -173,29 +166,13 @@ class mFormerV0(BaseModel):
         # final conv => conv_embed_dims[0]
         stem_chs = (3 * (self.conv_embed_dims[0] // 4), self.conv_embed_dims[0])
         self.stage_0 = nn.Sequential(
-            nn.Conv2d(
-                self.in_chans,
-                stem_chs[0],
-                kernel_size=3,
-                stride=2,
-                padding=1,
-                bias=False,
-            ),
+            nn.Conv2d(self.in_chans, stem_chs[0], kernel_size=3, stride=2, padding=1, bias=False),
             nn.BatchNorm2d(stem_chs[0]),
             nn.ReLU(inplace=True),
-            nn.Conv2d(
-                stem_chs[0], stem_chs[1], kernel_size=3, stride=1, padding=1, bias=False
-            ),
+            nn.Conv2d(stem_chs[0], stem_chs[1], kernel_size=3, stride=1, padding=1, bias=False),
             nn.BatchNorm2d(stem_chs[1]),
             nn.ReLU(inplace=True),
-            nn.Conv2d(
-                stem_chs[1],
-                self.conv_embed_dims[0],
-                kernel_size=3,
-                stride=1,
-                padding=1,
-                bias=False,
-            ),
+            nn.Conv2d(stem_chs[1], self.conv_embed_dims[0], kernel_size=3, stride=1, padding=1, bias=False),
         )
         self.bn1 = nn.BatchNorm2d(self.conv_embed_dims[0])
         self.act1 = nn.ReLU(inplace=True)
@@ -260,11 +237,7 @@ class mFormerV0(BaseModel):
                     setattr(self, head_name, layer)
 
         # compute (H,W) after stage0->1->2 for the input resolution
-        hw_after_s2 = compute_hw_after_stage0_stage1_stage2(
-            self.img_size,
-            self.conv_stride_seqs[0],
-            self.conv_stride_seqs[1],
-        )
+        hw_after_s2 = compute_hw_after_stage0_stage1_stage2(self.img_size, self.conv_stride_seqs[0], self.conv_stride_seqs[1])
         # apply the stride seq of stage3 to find the patch size
         stage3_hw = compute_hw_after_stageN(hw_after_s2, self.attn_stride_seqs[0])
 
@@ -383,14 +356,8 @@ class mFormerV0(BaseModel):
     @property
     def parameter_groups_metadata(self) -> dict[str, Any]:
         return {
-            "stages": {
-                "conv_stages": ["stage_0", "stage_1", "stage_2"],
-                "transformer_stages": ["stage_3", "stage_4"],
-            },
-            "heads": {
-                "classification_heads": ["head.taxa_L"],
-                "meta_heads": ["meta_"],
-            },
+            "stages": {"conv_stages": ["stage_0", "stage_1", "stage_2"], "transformer_stages": ["stage_3", "stage_4"]},
+            "heads": {"classification_heads": ["head.taxa_L"], "meta_heads": ["meta_"]},
             "embeddings": ["cls_token"],
             "norm_layers": ["norm", "bn"],
         }
@@ -404,9 +371,7 @@ class mFormerV0(BaseModel):
             "supports_module_prefix": True,
         }
 
-    def _build_mbconv_stage(
-        self, idx: int, in_ch: int, out_ch: int, depth: int, stride_seq: list[int]
-    ) -> nn.ModuleList:
+    def _build_mbconv_stage(self, idx: int, in_ch: int, out_ch: int, depth: int, stride_seq: list[int]) -> nn.ModuleList:
         blocks = nn.ModuleList()
         for i in range(depth):
             s = stride_seq[i]
@@ -482,10 +447,7 @@ class mFormerV0(BaseModel):
                 nn.init.constant_(m.bias, 0)
 
     def forward(
-        self,
-        x: torch.Tensor,
-        meta: torch.Tensor | None = None,
-        force_checkpointing: bool | None = None,
+        self, x: torch.Tensor, meta: torch.Tensor | None = None, force_checkpointing: bool | None = None
     ) -> dict[str, torch.Tensor]:
         """
         Main forward returns a dict of {task_name -> logits}.
@@ -496,12 +458,7 @@ class mFormerV0(BaseModel):
         out = {t: head(feats) for (t, head) in self.head.items()}
         return out
 
-    def forward_features(
-        self,
-        x: torch.Tensor,
-        meta: torch.Tensor | None = None,
-        force_checkpointing: bool | None = None,
-    ) -> torch.Tensor:
+    def forward_features(self, x: torch.Tensor, meta: torch.Tensor | None = None, force_checkpointing: bool | None = None) -> torch.Tensor:
         """
         Main feature extraction path, passing the `use_checkpoint` flag to blocks.
         Uses force_checkpointing if provided (for GradNorm), otherwise uses config.
@@ -511,17 +468,11 @@ class mFormerV0(BaseModel):
         if force_checkpointing is not None:
             # Use the flag passed explicitly (likely from GradNorm)
             use_checkpoint_for_this_pass = force_checkpointing
-            logger.debug(
-                f"[GC CHECK mFormerV0] forward_features using force_checkpointing={use_checkpoint_for_this_pass}"
-            )
+            logger.debug(f"[GC CHECK mFormerV0] forward_features using force_checkpointing={use_checkpoint_for_this_pass}")
         else:
             # Use the flag based on normal training config
-            use_checkpoint_for_this_pass = bool(
-                self.config.TRAIN.GRADIENT_CHECKPOINTING.ENABLED_NORMAL_STEPS
-            )
-            logger.debug(
-                f"[GC CHECK mFormerV0] forward_features using normal config flag={use_checkpoint_for_this_pass}"
-            )
+            use_checkpoint_for_this_pass = bool(self.config.TRAIN.GRADIENT_CHECKPOINTING.ENABLED_NORMAL_STEPS)
+            logger.debug(f"[GC CHECK mFormerV0] forward_features using normal config flag={use_checkpoint_for_this_pass}")
         # -----------------------------------------
 
         # --- Stage0 (stem) ---
@@ -550,10 +501,7 @@ class mFormerV0(BaseModel):
         if self.use_meta and meta is not None:
             if hasattr(self, "meta_components") and self.meta_components:
                 for comp_name, comp_info in self.meta_components.items():
-                    start, end = (
-                        comp_info["offset"],
-                        comp_info["offset"] + comp_info["dim"],
-                    )
+                    start, end = (comp_info["offset"], comp_info["offset"] + comp_info["dim"])
                     comp_data = meta[:, start:end]
                     meta_head = getattr(self, f"meta_{comp_name.lower()}_head_1")
                     h1 = meta_head(comp_data)
@@ -570,24 +518,12 @@ class mFormerV0(BaseModel):
         for i, blk in enumerate(self.stage_3):
             if i == 0:
                 # ---> Pass the determined flag <---
-                y3 = blk(
-                    y3,
-                    H=current_H,
-                    W=current_W,
-                    extra_tokens=extras_1,
-                    use_checkpoint=use_checkpoint_for_this_pass,
-                )
+                y3 = blk(y3, H=current_H, W=current_W, extra_tokens=extras_1, use_checkpoint=use_checkpoint_for_this_pass)
                 if blk.stride == 2:
                     current_H, current_W = current_H // 2, current_W // 2
             else:
                 # ---> Pass the determined flag <---
-                y3 = blk(
-                    y3,
-                    H=current_H,
-                    W=current_W,
-                    extra_tokens=None,
-                    use_checkpoint=use_checkpoint_for_this_pass,
-                )
+                y3 = blk(y3, H=current_H, W=current_W, extra_tokens=None, use_checkpoint=use_checkpoint_for_this_pass)
         y3 = self.norm_1(y3)
 
         # Handle cls_1 path
@@ -607,10 +543,7 @@ class mFormerV0(BaseModel):
         if self.use_meta and meta is not None:
             if hasattr(self, "meta_components") and self.meta_components:
                 for comp_name, comp_info in self.meta_components.items():
-                    start, end = (
-                        comp_info["offset"],
-                        comp_info["offset"] + comp_info["dim"],
-                    )
+                    start, end = (comp_info["offset"], comp_info["offset"] + comp_info["dim"])
                     comp_data = meta[:, start:end]
                     meta_head = getattr(self, f"meta_{comp_name.lower()}_head_2")
                     h2 = meta_head(comp_data)
@@ -626,24 +559,12 @@ class mFormerV0(BaseModel):
         for i, blk in enumerate(self.stage_4):
             if i == 0:
                 # ---> Pass the determined flag <---
-                x = blk(
-                    x,
-                    H=current_H,
-                    W=current_W,
-                    extra_tokens=extras_2,
-                    use_checkpoint=use_checkpoint_for_this_pass,
-                )
+                x = blk(x, H=current_H, W=current_W, extra_tokens=extras_2, use_checkpoint=use_checkpoint_for_this_pass)
                 if blk.stride == 2:
                     current_H, current_W = current_H // 2, current_W // 2
             else:
                 # ---> Pass the determined flag <---
-                x = blk(
-                    x,
-                    H=current_H,
-                    W=current_W,
-                    extra_tokens=None,
-                    use_checkpoint=use_checkpoint_for_this_pass,
-                )
+                x = blk(x, H=current_H, W=current_W, extra_tokens=None, use_checkpoint=use_checkpoint_for_this_pass)
 
         # Final processing
         x = self.norm_2(x)

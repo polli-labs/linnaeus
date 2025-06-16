@@ -83,9 +83,7 @@ class BaseModel(nn.Module):
         self.meta_dims = self.config.MODEL.get("META_DIMS", [])
 
         if check_debug_flag(self.config, "DEBUG.MODEL_BUILD"):
-            logger.debug(
-                "[BaseModel._init_common_parameters] Common parameters initialized:"
-            )
+            logger.debug("[BaseModel._init_common_parameters] Common parameters initialized:")
             logger.debug(f"  - drop_rate: {self.drop_rate}")
             logger.debug(f"  - drop_path_rate: {self.drop_path_rate}")
             logger.debug(f"  - attn_drop_rate: {self.attn_drop_rate}")
@@ -115,9 +113,7 @@ class BaseModel(nn.Module):
             "norm_layers": ["norm", "bn"],
         }
         """
-        raise NotImplementedError(
-            "Each model architecture must explicitly implement `parameter_groups_metadata`."
-        )
+        raise NotImplementedError("Each model architecture must explicitly implement `parameter_groups_metadata`.")
 
     @property
     def pretrained_ckpt_handling_metadata(self) -> dict[str, Any]:
@@ -132,9 +128,7 @@ class BaseModel(nn.Module):
             "supports_module_prefix": True
         }
         """
-        raise NotImplementedError(
-            "Each model architecture must explicitly implement `pretrained_ckpt_handling_metadata`."
-        )
+        raise NotImplementedError("Each model architecture must explicitly implement `pretrained_ckpt_handling_metadata`.")
 
     def init_pretrained(self, pretrained_path: str):
         """

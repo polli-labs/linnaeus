@@ -8,7 +8,8 @@ import torch.nn as nn
 try:
     from linnaeus.models.base_model import BaseModel
 except ImportError:
-    BaseModel = Any # Fallback for isolated testing or if path issues occur
+    BaseModel = Any  # Fallback for isolated testing or if path issues occur
+
 
 class LinnaeusPolicyWrapper(nn.Module):
     """
@@ -57,16 +58,18 @@ class LinnaeusPolicyWrapper(nn.Module):
         """
         super().__init__()
 
-        if BaseModel is not Any and not isinstance(linnaeus_model, BaseModel): # Only check if BaseModel imported correctly
+        if BaseModel is not Any and not isinstance(linnaeus_model, BaseModel):  # Only check if BaseModel imported correctly
             raise TypeError(f"linnaeus_model must be an instance of BaseModel, got {type(linnaeus_model)}")
 
         self.linnaeus_model = linnaeus_model
         self.mode = mode.lower()
 
         if rank_order is None:
-            if hasattr(self.linnaeus_model, 'config') and \
-               hasattr(self.linnaeus_model.config, 'MODEL') and \
-               hasattr(self.linnaeus_model.config.MODEL, 'TASK_KEYS'):
+            if (
+                hasattr(self.linnaeus_model, "config")
+                and hasattr(self.linnaeus_model.config, "MODEL")
+                and hasattr(self.linnaeus_model.config.MODEL, "TASK_KEYS")
+            ):
                 self.rank_order = self.linnaeus_model.config.MODEL.TASK_KEYS
                 if not self.rank_order:
                     raise ValueError("rank_order derived from model.config.MODEL.TASK_KEYS is empty.")
@@ -76,16 +79,18 @@ class LinnaeusPolicyWrapper(nn.Module):
             self.rank_order = rank_order
 
         if not self.rank_order:
-             raise ValueError("rank_order is empty or not properly set.")
+            raise ValueError("rank_order is empty or not properly set.")
 
         if not num_classes_at_rank:
             raise ValueError("num_classes_at_rank must be provided and non-empty.")
         self.num_classes_at_rank = num_classes_at_rank
 
         self.value_head = nn.Linear(backbone_features_dim, 1)
-        self.backbone_features_dim = backbone_features_dim # Store for reference, used by value_head
+        self.backbone_features_dim = backbone_features_dim  # Store for reference, used by value_head
 
-    def forward(self, observation: dict[str, Any]) -> tuple[Union[torch.distributions.Distribution, list[torch.distributions.Distribution]], torch.Tensor]:
+    def forward(
+        self, observation: dict[str, Any]
+    ) -> tuple[Union[torch.distributions.Distribution, list[torch.distributions.Distribution]], torch.Tensor]:
         """
         Performs a forward pass through the policy wrapper.
 
@@ -121,32 +126,36 @@ class LinnaeusPolicyWrapper(nn.Module):
         if not isinstance(image_tensor, torch.Tensor):
             image_tensor = torch.as_tensor(image_tensor, dtype=torch.float32)
 
-        if image_tensor.ndim == 3 :
-             image_tensor = image_tensor.unsqueeze(0)
+        if image_tensor.ndim == 3:
+            image_tensor = image_tensor.unsqueeze(0)
         elif image_tensor.ndim != 4:
-             raise ValueError(f"Expected image_tensor to be 3D (C,H,W) or 4D (B,C,H,W), got {image_tensor.ndim}D")
+            raise ValueError(f"Expected image_tensor to be 3D (C,H,W) or 4D (B,C,H,W), got {image_tensor.ndim}D")
 
         backbone_features: torch.Tensor
-        if hasattr(self.linnaeus_model, 'extract_features') and callable(self.linnaeus_model.extract_features):
-             backbone_features = self.linnaeus_model.extract_features(image_tensor)
-        elif hasattr(self.linnaeus_model, 'backbone') and isinstance(self.linnaeus_model.backbone, nn.Module):
-             backbone_output = self.linnaeus_model.backbone(image_tensor)
-             if backbone_output.ndim == 3 and backbone_output.shape[0] == image_tensor.shape[0]:
-                 backbone_features = backbone_output[:, 0, :]
-             elif backbone_output.ndim == 2 and backbone_output.shape[0] == image_tensor.shape[0]:
-                 backbone_features = backbone_output
-             else:
-                 raise RuntimeError(f"Unsupported backbone output shape: {backbone_output.shape}. Expected (B, D) or (B, N, D).")
+        if hasattr(self.linnaeus_model, "extract_features") and callable(self.linnaeus_model.extract_features):
+            backbone_features = self.linnaeus_model.extract_features(image_tensor)
+        elif hasattr(self.linnaeus_model, "backbone") and isinstance(self.linnaeus_model.backbone, nn.Module):
+            backbone_output = self.linnaeus_model.backbone(image_tensor)
+            if backbone_output.ndim == 3 and backbone_output.shape[0] == image_tensor.shape[0]:
+                backbone_features = backbone_output[:, 0, :]
+            elif backbone_output.ndim == 2 and backbone_output.shape[0] == image_tensor.shape[0]:
+                backbone_features = backbone_output
+            else:
+                raise RuntimeError(f"Unsupported backbone output shape: {backbone_output.shape}. Expected (B, D) or (B, N, D).")
         else:
-            raise RuntimeError("Linnaeus model for policy wrapper must have an 'extract_features' method or a 'backbone' attribute that is an nn.Module.")
+            raise RuntimeError(
+                "Linnaeus model for policy wrapper must have an 'extract_features' method or a 'backbone' attribute that is an nn.Module."
+            )
 
         if backbone_features.shape[-1] != self.backbone_features_dim:
-            raise RuntimeError(f"Extracted backbone_features dim ({backbone_features.shape[-1]}) does not match "
-                               f"expected backbone_features_dim ({self.backbone_features_dim}) for value head.")
+            raise RuntimeError(
+                f"Extracted backbone_features dim ({backbone_features.shape[-1]}) does not match "
+                f"expected backbone_features_dim ({self.backbone_features_dim}) for value head."
+            )
 
         value_estimate = self.value_head(backbone_features)
 
-        all_rank_logits = self.linnaeus_model(image_tensor) # Assumes model(img) returns dict of logits
+        all_rank_logits = self.linnaeus_model(image_tensor)  # Assumes model(img) returns dict of logits
         if not isinstance(all_rank_logits, dict):
             raise RuntimeError("Linnaeus model's forward pass should return a dictionary of logits for RL policy use.")
 
@@ -154,14 +163,18 @@ class LinnaeusPolicyWrapper(nn.Module):
 
         if self.mode == "sequential":
             current_rank_index_any = observation["current_rank_index"]
-            current_rank_index = int(current_rank_index_any.item()) if isinstance(current_rank_index_any, torch.Tensor) else int(current_rank_index_any)
+            current_rank_index = (
+                int(current_rank_index_any.item()) if isinstance(current_rank_index_any, torch.Tensor) else int(current_rank_index_any)
+            )
 
             if current_rank_index >= len(self.rank_order):
-                 raise ValueError(f"current_rank_index {current_rank_index} is out of bounds for rank_order length {len(self.rank_order)}")
+                raise ValueError(f"current_rank_index {current_rank_index} is out of bounds for rank_order length {len(self.rank_order)}")
             current_rank_name = self.rank_order[current_rank_index]
 
             if current_rank_name not in all_rank_logits:
-                raise ValueError(f"Logits for current rank '{current_rank_name}' not found in model output. Available: {list(all_rank_logits.keys())}")
+                raise ValueError(
+                    f"Logits for current rank '{current_rank_name}' not found in model output. Available: {list(all_rank_logits.keys())}"
+                )
 
             action_logits = all_rank_logits[current_rank_name]
 
@@ -169,8 +182,10 @@ class LinnaeusPolicyWrapper(nn.Module):
             if expected_num_actions is None:
                 raise ValueError(f"num_classes_at_rank not defined for {current_rank_name}")
             if action_logits.shape[-1] != expected_num_actions:
-                raise ValueError(f"Logits for rank '{current_rank_name}' have shape {action_logits.shape[-1]}, "
-                                 f"but num_classes_at_rank expects {expected_num_actions} (incl. abstain slot).")
+                raise ValueError(
+                    f"Logits for rank '{current_rank_name}' have shape {action_logits.shape[-1]}, "
+                    f"but num_classes_at_rank expects {expected_num_actions} (incl. abstain slot)."
+                )
 
             action_distribution = torch.distributions.Categorical(logits=action_logits)
 
@@ -178,15 +193,19 @@ class LinnaeusPolicyWrapper(nn.Module):
             distributions = []
             for rank_name in self.rank_order:
                 if rank_name not in all_rank_logits:
-                    raise ValueError(f"Logits for rank '{rank_name}' not found in model output for multitask. Available: {list(all_rank_logits.keys())}")
+                    raise ValueError(
+                        f"Logits for rank '{rank_name}' not found in model output for multitask. Available: {list(all_rank_logits.keys())}"
+                    )
 
                 rank_logits = all_rank_logits[rank_name]
                 expected_num_actions_multi = self.num_classes_at_rank.get(rank_name)
                 if expected_num_actions_multi is None:
-                     raise ValueError(f"num_classes_at_rank not defined for {rank_name} in multitask.")
+                    raise ValueError(f"num_classes_at_rank not defined for {rank_name} in multitask.")
                 if rank_logits.shape[-1] != expected_num_actions_multi:
-                    raise ValueError(f"Multitask logits for rank '{rank_name}' have shape {rank_logits.shape[-1]}, "
-                                     f"but num_classes_at_rank expects {expected_num_actions_multi} (incl. abstain slot).")
+                    raise ValueError(
+                        f"Multitask logits for rank '{rank_name}' have shape {rank_logits.shape[-1]}, "
+                        f"but num_classes_at_rank expects {expected_num_actions_multi} (incl. abstain slot)."
+                    )
 
                 distributions.append(torch.distributions.Categorical(logits=rank_logits))
             action_distribution = distributions
@@ -198,7 +217,7 @@ class LinnaeusPolicyWrapper(nn.Module):
     def evaluate_actions(
         self,
         observation: dict[str, Any],
-        actions_taken: Union[torch.Tensor, list[torch.Tensor]] # For multitask, List[Tensor] or stacked Tensor(B, NumRanks)
+        actions_taken: Union[torch.Tensor, list[torch.Tensor]],  # For multitask, List[Tensor] or stacked Tensor(B, NumRanks)
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """
         Evaluates actions taken in given observations, returning their
@@ -228,14 +247,14 @@ class LinnaeusPolicyWrapper(nn.Module):
 
         # 1. Get backbone features (consistent with forward method)
         backbone_features: torch.Tensor
-        if hasattr(self.linnaeus_model, 'extract_features') and callable(self.linnaeus_model.extract_features):
+        if hasattr(self.linnaeus_model, "extract_features") and callable(self.linnaeus_model.extract_features):
             backbone_features = self.linnaeus_model.extract_features(image_tensor)
-        elif hasattr(self.linnaeus_model, 'backbone') and isinstance(self.linnaeus_model.backbone, nn.Module):
+        elif hasattr(self.linnaeus_model, "backbone") and isinstance(self.linnaeus_model.backbone, nn.Module):
             backbone_output = self.linnaeus_model.backbone(image_tensor)
             if backbone_output.ndim == 3 and backbone_output.shape[0] == image_tensor.shape[0]:
-                 backbone_features = backbone_output[:, 0, :]
+                backbone_features = backbone_output[:, 0, :]
             elif backbone_output.ndim == 2 and backbone_output.shape[0] == image_tensor.shape[0]:
-                 backbone_features = backbone_output
+                backbone_features = backbone_output
             else:
                 raise RuntimeError(f"Unsupported backbone output shape for eval: {backbone_output.shape}. Expected (B,D) or (B,N,D)")
 
@@ -244,7 +263,7 @@ class LinnaeusPolicyWrapper(nn.Module):
         else:
             raise RuntimeError("Model must have 'extract_features' method or 'backbone' attribute (nn.Module) for eval.")
 
-        value_estimates = self.value_head(backbone_features).squeeze(-1) # (B,)
+        value_estimates = self.value_head(backbone_features).squeeze(-1)  # (B,)
 
         # 2. Get action logits (consistent with forward method)
         all_rank_logits = self.linnaeus_model(image_tensor)
@@ -269,7 +288,7 @@ class LinnaeusPolicyWrapper(nn.Module):
             current_action_dist = torch.distributions.Categorical(logits=action_logits)
 
             if not isinstance(actions_taken, torch.Tensor):
-                 actions_taken = torch.as_tensor(actions_taken, dtype=torch.long, device=action_logits.device)
+                actions_taken = torch.as_tensor(actions_taken, dtype=torch.long, device=action_logits.device)
 
             new_log_probs = current_action_dist.log_prob(actions_taken)
             entropy = current_action_dist.entropy()
@@ -284,7 +303,9 @@ class LinnaeusPolicyWrapper(nn.Module):
             elif isinstance(actions_taken, torch.Tensor) and actions_taken.ndim == 2 and actions_taken.shape[1] == len(self.rank_order):
                 actions_taken_per_rank = list(actions_taken.unbind(dim=1))
             else:
-                raise ValueError("actions_taken for multitask mode should be a list of tensors (one per rank, shape (B,)) or a stacked tensor (B, NumRanks).")
+                raise ValueError(
+                    "actions_taken for multitask mode should be a list of tensors (one per rank, shape (B,)) or a stacked tensor (B, NumRanks)."
+                )
 
             for i, rank_name in enumerate(self.rank_order):
                 rank_logits = all_rank_logits[rank_name]
@@ -297,16 +318,16 @@ class LinnaeusPolicyWrapper(nn.Module):
                 elif action_for_this_rank.device != rank_logits.device:
                     action_for_this_rank = action_for_this_rank.to(rank_logits.device)
 
-
                 log_probs_list.append(rank_dist.log_prob(action_for_this_rank))
                 entropy_list.append(rank_dist.entropy())
 
-            new_log_probs = torch.stack(log_probs_list, dim=1).sum(dim=1) # Sum log_probs across ranks: (B,)
-            entropy = torch.stack(entropy_list, dim=1).sum(dim=1)       # Sum entropies across ranks: (B,)
+            new_log_probs = torch.stack(log_probs_list, dim=1).sum(dim=1)  # Sum log_probs across ranks: (B,)
+            entropy = torch.stack(entropy_list, dim=1).sum(dim=1)  # Sum entropies across ranks: (B,)
         else:
             raise ValueError(f"Invalid mode: {self.mode}")
 
         return value_estimates, new_log_probs, entropy
+
 
 if __name__ == "__main__":
     from typing import Any  # Required if BaseModel falls back to Any
@@ -315,12 +336,11 @@ if __name__ == "__main__":
     batch_size = 2
     backbone_feat_dim = 64
     rank_names = ["family", "genus", "species"]
-    num_classes_config = {"family": 3+1, "genus": 5+1, "species": 10+1}
+    num_classes_config = {"family": 3 + 1, "genus": 5 + 1, "species": 10 + 1}
 
     mock_model = MagicMock(spec=BaseModel if BaseModel is not Any else object)
-    if BaseModel is Any: # If BaseModel could not be imported, spec against a generic object
+    if BaseModel is Any:  # If BaseModel could not be imported, spec against a generic object
         mock_model = MagicMock()
-
 
     mock_model.config = MagicMock()
     mock_model.config.MODEL = MagicMock()
@@ -329,10 +349,9 @@ if __name__ == "__main__":
     # Mocking self.linnaeus_model.backbone behavior
     # Create a dummy nn.Module instance for the backbone, then mock its forward method.
     # This allows the policy to treat `self.linnaeus_model.backbone` as a callable nn.Module.
-    dummy_backbone_nn_module = nn.Linear(1,1) # Actual layers don't matter, it's a mock target
+    dummy_backbone_nn_module = nn.Linear(1, 1)  # Actual layers don't matter, it's a mock target
     dummy_backbone_nn_module.forward = MagicMock(return_value=torch.randn(batch_size, backbone_feat_dim))
     mock_model.backbone = dummy_backbone_nn_module
-
 
     mock_model_output_logits = {
         "family": torch.randn(batch_size, num_classes_config["family"]),
@@ -347,34 +366,33 @@ if __name__ == "__main__":
     policy_seq = LinnaeusPolicyWrapper(
         linnaeus_model=mock_model,
         backbone_features_dim=backbone_feat_dim,
-        num_classes_at_rank=num_classes_config, # Argument order updated
+        num_classes_at_rank=num_classes_config,  # Argument order updated
         mode="sequential",
-        rank_order=rank_names
+        rank_order=rank_names,
     )
 
     dummy_image_obs_seq = torch.randn(batch_size, 3, 224, 224)
-    observation_seq_genus = { "image": dummy_image_obs_seq, "current_rank_index": 1 }
+    observation_seq_genus = {"image": dummy_image_obs_seq, "current_rank_index": 1}
 
     action_dist_seq, value_seq = policy_seq(observation_seq_genus)
 
     print(f"Sequential Mode - Action Distribution type: {type(action_dist_seq)}")
     print(f"  Logits shape for genus: {action_dist_seq.logits.shape}")
-    assert action_dist_seq.logits.shape == (batch_size, num_classes_config['genus'])
+    assert action_dist_seq.logits.shape == (batch_size, num_classes_config["genus"])
     print(f"Sequential Mode - Value Estimate shape: {value_seq.shape}")
     assert value_seq.shape == (batch_size,)
     sampled_action_seq = action_dist_seq.sample()
     print(f"  Sampled action shape for genus: {sampled_action_seq.shape}")
     assert sampled_action_seq.shape == (batch_size,)
 
-
     # --- Test Multitask Policy ---
     print("\n--- Testing Multitask Policy Wrapper (with mocked Linnaeus Model) ---")
     policy_multi = LinnaeusPolicyWrapper(
         linnaeus_model=mock_model,
         backbone_features_dim=backbone_feat_dim,
-        num_classes_at_rank=num_classes_config, # Argument order updated
+        num_classes_at_rank=num_classes_config,  # Argument order updated
         mode="multitask",
-        rank_order=rank_names
+        rank_order=rank_names,
     )
 
     dummy_image_obs_multi = torch.randn(batch_size, 3, 224, 224)

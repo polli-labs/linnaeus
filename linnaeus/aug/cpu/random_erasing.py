@@ -76,15 +76,11 @@ class CPURandomErasing(RandomErasing):
                     if self.config["MODE"] == "const":
                         images[i, :, y : y + h, x : x + w] = np.random.uniform(0, 1)
                     elif self.config["MODE"] == "rand":
-                        images[i, :, y : y + h, x : x + w] = np.random.uniform(
-                            0, 1, size=(channels, h, w)
-                        )
+                        images[i, :, y : y + h, x : x + w] = np.random.uniform(0, 1, size=(channels, h, w))
                     else:  # 'pixel' mode
                         mean = np.mean(images[i], axis=(1, 2), keepdims=True)
                         std = np.std(images[i], axis=(1, 2), keepdims=True)
-                        images[i, :, y : y + h, x : x + w] = np.clip(
-                            np.random.normal(mean, std, size=(channels, h, w)), 0, 1
-                        )
+                        images[i, :, y : y + h, x : x + w] = np.clip(np.random.normal(mean, std, size=(channels, h, w)), 0, 1)
 
         # Ensure output is float32 and clipped to valid range
         np.clip(images, 0, 1, out=images)

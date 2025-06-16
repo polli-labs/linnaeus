@@ -5,7 +5,8 @@ from typing import Any
 try:
     from linnaeus.utils.taxonomy.taxonomy_tree import TaxonomyTree
 except ImportError:
-    TaxonomyTree = Any # Fallback to Any if not found, for placeholder/dummy runs
+    TaxonomyTree = Any  # Fallback to Any if not found, for placeholder/dummy runs
+
 
 class AbstentionRewardFunction(abc.ABC):
     """
@@ -43,6 +44,7 @@ class AbstentionRewardFunction(abc.ABC):
             A scalar reward value.
         """
         pass
+
 
 class SimpleAbstentionReward(AbstentionRewardFunction):
     """
@@ -85,7 +87,7 @@ class SimpleAbstentionReward(AbstentionRewardFunction):
         predictions: dict[str, list[int | None]],
         ground_truth: dict[str, list[int | None]],
         confidences: dict[str, list[float | None]] | None = None,
-        taxonomy_tree: TaxonomyTree | None = None, # Matches base class
+        taxonomy_tree: TaxonomyTree | None = None,  # Matches base class
     ) -> float:
         """
         Computes the total reward based on per-rank evaluation.
@@ -140,6 +142,7 @@ class SimpleAbstentionReward(AbstentionRewardFunction):
                     total_reward += self.penalty_misclassification
         return total_reward
 
+
 class EpisodeOutcomeReward(AbstentionRewardFunction):
     """
     A sparse reward function that gives a single reward based on the overall episode outcome.
@@ -150,11 +153,7 @@ class EpisodeOutcomeReward(AbstentionRewardFunction):
     correctly. Any deviation results in a suboptimal outcome.
     """
 
-    def __init__(
-        self,
-        reward_optimal_outcome: float = 1.0,
-        penalty_suboptimal_outcome: float = -1.0,
-    ):
+    def __init__(self, reward_optimal_outcome: float = 1.0, penalty_suboptimal_outcome: float = -1.0):
         """
         Initializes the EpisodeOutcomeReward function.
 
@@ -172,7 +171,7 @@ class EpisodeOutcomeReward(AbstentionRewardFunction):
         predictions: dict[str, list[int | None]],
         ground_truth: dict[str, list[int | None]],
         confidences: dict[str, list[float | None]] | None = None,
-        taxonomy_tree: TaxonomyTree | None = None, # Matches base class
+        taxonomy_tree: TaxonomyTree | None = None,  # Matches base class
     ) -> float:
         """
         Computes the reward based on the overall episode outcome.
@@ -184,7 +183,7 @@ class EpisodeOutcomeReward(AbstentionRewardFunction):
         """
         # Similar to SimpleAbstentionReward, this is a simplified iteration.
         # It assumes a single task or consistent processing.
-        if not predictions: # Empty predictions considered suboptimal
+        if not predictions:  # Empty predictions considered suboptimal
             return self.penalty_suboptimal_outcome
 
         first_task_key = next(iter(predictions))
@@ -195,21 +194,21 @@ class EpisodeOutcomeReward(AbstentionRewardFunction):
             pred_label_at_rank = predictions[first_task_key][i]
             gt_label_at_rank = ground_truth[first_task_key][i]
 
-            if gt_label_at_rank is None: # Ground truth is null
-                if pred_label_at_rank is None: # Correctly abstained
+            if gt_label_at_rank is None:  # Ground truth is null
+                if pred_label_at_rank is None:  # Correctly abstained
                     # This is the optimal stopping point if all previous were correct
                     # Any further predictions by the agent (if the list is longer) are ignored
                     # or could be penalized if the structure implies termination.
                     # For this definition, we assume this is the end of relevant GT.
                     break
-                else: # Predicted a class when should have abstained
+                else:  # Predicted a class when should have abstained
                     is_optimal = False
                     break
-            else: # Ground truth is a valid class
-                if pred_label_at_rank is None: # Unnecessarily abstained
+            else:  # Ground truth is a valid class
+                if pred_label_at_rank is None:  # Unnecessarily abstained
                     is_optimal = False
                     break
-                elif pred_label_at_rank != gt_label_at_rank: # Misclassified
+                elif pred_label_at_rank != gt_label_at_rank:  # Misclassified
                     is_optimal = False
                     break
                 # If pred_label_at_rank == gt_label_at_rank, it's correct, continue

@@ -63,9 +63,7 @@ class StableDecayScheduler(_LRScheduler):
     def get_lr(self):
         """Calculates the learning rate based on the current step (self.last_epoch)."""
         # self.last_epoch tracks steps *after* warmup
-        current_step_post_warmup = (
-            self.last_epoch + 1
-        )  # Use 0-based indexing internally
+        current_step_post_warmup = self.last_epoch + 1  # Use 0-based indexing internally
 
         lrs = []
         # Use self.base_lrs which we set to stable_lr in __init__
@@ -76,23 +74,15 @@ class StableDecayScheduler(_LRScheduler):
             elif current_step_post_warmup <= self.stable_steps + self.decay_steps:
                 # Decay phase
                 # Calculate progress within the decay phase (0 to 1)
-                decay_progress = (current_step_post_warmup - self.stable_steps) / float(
-                    self.decay_steps
-                )
-                decay_progress = min(
-                    1.0, max(0.0, decay_progress)
-                )  # Clamp progress [0, 1]
+                decay_progress = (current_step_post_warmup - self.stable_steps) / float(self.decay_steps)
+                decay_progress = min(1.0, max(0.0, decay_progress))  # Clamp progress [0, 1]
 
                 if self.decay_type == "cosine":
                     # Cosine decay from stable_lr down to min_lr
-                    lr = self.min_lr + 0.5 * (base_stable_lr - self.min_lr) * (
-                        1 + math.cos(math.pi * decay_progress)
-                    )
+                    lr = self.min_lr + 0.5 * (base_stable_lr - self.min_lr) * (1 + math.cos(math.pi * decay_progress))
                 elif self.decay_type == "linear":
                     # Linear decay from stable_lr down to min_lr
-                    lr = (
-                        base_stable_lr - (base_stable_lr - self.min_lr) * decay_progress
-                    )
+                    lr = base_stable_lr - (base_stable_lr - self.min_lr) * decay_progress
             else:
                 # After decay phase: Stay at min_lr
                 lr = self.min_lr
@@ -112,9 +102,7 @@ class StableDecayScheduler(_LRScheduler):
         for _i, data in enumerate(zip(self.optimizer.param_groups, values, strict=False)):
             param_group, lr = data
             param_group["lr"] = lr
-            self.print_lr(
-                self.verbose, _i, lr, current_iteration
-            )  # Use internal verbose flag
+            self.print_lr(self.verbose, _i, lr, current_iteration)  # Use internal verbose flag
 
         self._last_lr = [group["lr"] for group in self.optimizer.param_groups]
 
@@ -148,7 +136,5 @@ class StableDecayScheduler(_LRScheduler):
             for _i, data in enumerate(zip(self.optimizer.param_groups, values, strict=False)):
                 param_group, lr = data
                 param_group["lr"] = lr
-                self.print_lr(
-                    self.verbose, _i, lr, epoch
-                )  # Print only when called directly
+                self.print_lr(self.verbose, _i, lr, epoch)  # Print only when called directly
             self._last_lr = [group["lr"] for group in self.optimizer.param_groups]

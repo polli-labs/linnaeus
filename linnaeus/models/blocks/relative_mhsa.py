@@ -32,11 +32,7 @@ from linnaeus.utils.logging.logger import get_main_logger
 # ---> ADD LOGGER <---
 logger = get_main_logger()
 
-__all__ = [
-    "OverlapPatchEmbed",
-    "RelativeAttention",
-    "RelativeMHSABlock",
-]
+__all__ = ["OverlapPatchEmbed", "RelativeAttention", "RelativeMHSABlock"]
 
 
 class OverlapPatchEmbed(nn.Module):
@@ -57,13 +53,7 @@ class OverlapPatchEmbed(nn.Module):
     def __init__(self, patch_size=3, stride=2, in_chans=192, embed_dim=384):
         super().__init__()
         patch_size = to_2tuple(patch_size)
-        self.proj = nn.Conv2d(
-            in_chans,
-            embed_dim,
-            kernel_size=patch_size,
-            stride=stride,
-            padding=(patch_size[0] // 2, patch_size[1] // 2),
-        )
+        self.proj = nn.Conv2d(in_chans, embed_dim, kernel_size=patch_size, stride=stride, padding=(patch_size[0] // 2, patch_size[1] // 2))
         self.norm = nn.LayerNorm(embed_dim)
 
         # Init
@@ -150,22 +140,16 @@ class RelativeAttention(nn.Module):
         h, w = img_size
         num_rel_positions = (2 * h - 1) * (2 * w - 1) + 1
 
-        self.relative_position_bias_table = nn.Parameter(
-            torch.zeros(num_rel_positions, num_heads)
-        )
+        self.relative_position_bias_table = nn.Parameter(torch.zeros(num_rel_positions, num_heads))
 
         # Build the “relative_position_index” buffer => shape (patch_count+extra, patch_count+extra)
         # We'll pad with (num_rel_positions-1) for the extra tokens, so they all share the last offset row
         coords_h = torch.arange(h)
         coords_w = torch.arange(w)
-        coords = torch.stack(
-            torch.meshgrid([coords_h, coords_w], indexing="ij")
-        )  # (2,h,w)
+        coords = torch.stack(torch.meshgrid([coords_h, coords_w], indexing="ij"))  # (2,h,w)
         coords_flat = coords.reshape(2, -1)  # => (2, h*w)
 
-        rel_coords = (
-            coords_flat[:, :, None] - coords_flat[:, None, :]
-        )  # => (2, h*w, h*w)
+        rel_coords = coords_flat[:, :, None] - coords_flat[:, None, :]  # => (2, h*w, h*w)
         rel_coords = rel_coords.permute(1, 2, 0).contiguous()  # => (h*w, h*w, 2)
         # shift so that (0,0) => center
         rel_coords[:, :, 0] += h - 1
@@ -177,9 +161,7 @@ class RelativeAttention(nn.Module):
 
         # Now pad => (extra,0, extra,0) => fill with “num_rel_positions-1”
         pad_val = num_rel_positions - 1
-        rel_idx = F.pad(
-            rel_idx, (extra_token_num, 0, extra_token_num, 0), value=pad_val
-        )
+        rel_idx = F.pad(rel_idx, (extra_token_num, 0, extra_token_num, 0), value=pad_val)
 
         # Register as buffer so it doesn’t appear in .parameters().
         self.register_buffer("relative_position_index", rel_idx.long())
@@ -213,9 +195,7 @@ class RelativeAttention(nn.Module):
         attn = q @ k.transpose(-2, -1)  # => (B, heads, N, N)
 
         # 3) add relative position bias
-        rel_bias = self.relative_position_bias_table[
-            self.relative_position_index.view(-1)
-        ]
+        rel_bias = self.relative_position_bias_table[self.relative_position_index.view(-1)]
         # => shape (N*N, heads)
         rel_bias = rel_bias.view(-1, self.num_heads)  # => (N*N, heads)
         rel_bias = rel_bias.view(N, N, self.num_heads)  # => (N, N, heads)
@@ -293,9 +273,7 @@ class RelativeMHSABlock(nn.Module):
         # If stride=2 => OverlapPatchEmbed => we project input_dim -> output_dim
         # else if stride=1 => we treat x as (B, N, input_dim), so dimension stays input_dim
         if stride == 2:
-            self.patch_embed = OverlapPatchEmbed(
-                patch_size=3, stride=2, in_chans=input_dim, embed_dim=output_dim
-            )
+            self.patch_embed = OverlapPatchEmbed(patch_size=3, stride=2, in_chans=input_dim, embed_dim=output_dim)
             self.dim = output_dim
         else:
             self.patch_embed = None
@@ -330,22 +308,14 @@ class RelativeMHSABlock(nn.Module):
 
         # MLP
         hidden_dim = int(self.dim * mlp_ratio)
-        self.mlp = Mlp(
-            in_features=self.dim,
-            hidden_features=hidden_dim,
-            out_features=self.dim,
-            act_layer=act_layer,
-            drop=proj_drop,
-        )
+        self.mlp = Mlp(in_features=self.dim, hidden_features=hidden_dim, out_features=self.dim, act_layer=act_layer, drop=proj_drop)
 
     # ---> Helper function for attention part <---
     def _attn_impl(self, x_norm: torch.Tensor) -> torch.Tensor:
         return self.attn(x_norm)
 
     # ---> Helper function for MLP part <---
-    def _mlp_impl(
-        self, x_norm: torch.Tensor, H: int | None, W: int | None
-    ) -> torch.Tensor:
+    def _mlp_impl(self, x_norm: torch.Tensor, H: int | None, W: int | None) -> torch.Tensor:
         # Note: MLP in this implementation doesn't use H, W, but pass them if needed in future
         return self.mlp(x_norm, H, W)
 
@@ -389,12 +359,8 @@ class RelativeMHSABlock(nn.Module):
                         # Or if meta head output dim != stage3 dim.
                         # For mFormerV0, these should match based on its construction.
                         # If they didn't, a projection would be needed here.
-                        logger.warning(
-                            f"Extra token dim {t.shape[-1]} != block dim {self.dim}. Check model construction."
-                        )
-                    processed_extra.append(
-                        t.expand(tokens.shape[0], -1, -1)
-                    )  # Expand batch dim
+                        logger.warning(f"Extra token dim {t.shape[-1]} != block dim {self.dim}. Check model construction.")
+                    processed_extra.append(t.expand(tokens.shape[0], -1, -1))  # Expand batch dim
                 tokens = torch.cat([*processed_extra, tokens], dim=1)
             x = tokens  # Now x is (B, N_total, C_out)
             # Identity for residual needs careful handling if dims change
@@ -415,20 +381,14 @@ class RelativeMHSABlock(nn.Module):
         x_norm1 = self.norm1(x)
         if use_checkpoint and self.training:
             # ---> ADDED CHECKPOINTING <---
-            logger.debug(
-                "[GC_INTERNAL RelativeMHSABlock] Applying CHECKPOINT to Attention"
-            )
-            attn_output = torch.utils.checkpoint.checkpoint(
-                self._attn_impl, x_norm1, use_reentrant=False, preserve_rng_state=True
-            )
+            logger.debug("[GC_INTERNAL RelativeMHSABlock] Applying CHECKPOINT to Attention")
+            attn_output = torch.utils.checkpoint.checkpoint(self._attn_impl, x_norm1, use_reentrant=False, preserve_rng_state=True)
         else:
             attn_output = self._attn_impl(x_norm1)
 
         # Apply residual connection AFTER potential checkpointing
         # DropPath is applied to the output of the attention/MLP module
-        x = identity + self.drop_path(
-            attn_output
-        )  # Use identity from *after* patch embed if stride=2
+        x = identity + self.drop_path(attn_output)  # Use identity from *after* patch embed if stride=2
 
         # 3. MLP + Residual
         identity_mlp = x  # Store identity for the MLP residual

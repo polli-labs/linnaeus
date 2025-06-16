@@ -28,10 +28,7 @@ class SubsetMetricWrapper:
         self.subset_results = {subset_type: {} for subset_type in subset_types}
 
     def __call__(
-        self,
-        outputs: dict[str, torch.Tensor],
-        targets: dict[str, torch.Tensor],
-        subset_ids: dict[str, torch.Tensor],
+        self, outputs: dict[str, torch.Tensor], targets: dict[str, torch.Tensor], subset_ids: dict[str, torch.Tensor]
     ) -> dict[str, Any]:
         """
         Compute the metric for all samples and aggregate results per subset.
@@ -57,14 +54,9 @@ class SubsetMetricWrapper:
                 subset_scores = all_scores[mask]
                 # Only aggregate if there are samples in the subset.
                 if subset_scores.numel() > 0:
-                    self.subset_results[subset_type][uid.item()] = (
-                        subset_scores.mean().item()
-                    )
+                    self.subset_results[subset_type][uid.item()] = subset_scores.mean().item()
 
-        return {
-            "overall": all_scores.mean().item(),
-            "subset_results": self.subset_results,
-        }
+        return {"overall": all_scores.mean().item(), "subset_results": self.subset_results}
 
     def finalize(self):
         """

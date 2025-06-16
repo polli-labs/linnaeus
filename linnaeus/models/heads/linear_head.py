@@ -26,9 +26,7 @@ class LinearHead(nn.Module):
     def __init__(self, in_features: int, out_features: int, bias: bool = True):
         super().__init__()
         self.fc = nn.Linear(in_features, out_features, bias=bias)
-        logger.debug(
-            f"Initialized LinearHead with in_features={in_features}, out_features={out_features}, bias={bias}"
-        )
+        logger.debug(f"Initialized LinearHead with in_features={in_features}, out_features={out_features}, bias={bias}")
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """

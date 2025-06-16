@@ -30,9 +30,7 @@ class ConcatenationResolver(nn.Module):
         if kwargs:
             logger.debug(f"ConcatenationResolver received unused kwargs: {kwargs}")
 
-    def forward(
-        self, lower_level: torch.Tensor, higher_level: torch.Tensor
-    ) -> torch.Tensor:
+    def forward(self, lower_level: torch.Tensor, higher_level: torch.Tensor) -> torch.Tensor:
         """
         Forward pass of ConcatenationResolver.
 
@@ -43,12 +41,8 @@ class ConcatenationResolver(nn.Module):
         Returns:
             torch.Tensor: Concatenated and projected features tensor.
         """
-        logger.debug(
-            f"ConcatenationResolver Input shapes: lower_level={lower_level.shape}, higher_level={higher_level.shape}"
-        )
-        concatenated = torch.cat(
-            (lower_level, higher_level), dim=-1
-        )  # Concatenate along feature dimension
+        logger.debug(f"ConcatenationResolver Input shapes: lower_level={lower_level.shape}, higher_level={higher_level.shape}")
+        concatenated = torch.cat((lower_level, higher_level), dim=-1)  # Concatenate along feature dimension
         projected = self.proj(concatenated)
         logger.debug(f"ConcatenationResolver Output shape: {projected.shape}")
         return projected

@@ -28,13 +28,19 @@ We are excited to announce that Polli Linnaeus is fully open-source and will be 
 ## Installation
 
 ```bash
-# Via pip from GitHub (recommended)
-pip install git+https://github.com/polli-labs/linnaeus.git
+# Create and activate a project-specific virtual environment
+uv venv .venv
+source .venv/bin/activate  # On Unix/macOS
+# or
+.venv\Scripts\activate  # On Windows
+
+# Via uv pip from GitHub (recommended)
+uv pip install git+https://github.com/polli-labs/linnaeus.git
 
 # Development installation
 git clone https://github.com/polli-labs/linnaeus.git
 cd linnaeus
-pip install -e .
+uv pip install -e .
 ```
 
 For detailed installation instructions, see [Installation Guide](docs/installation.md).

@@ -26,13 +26,7 @@ class AverageMeter:
         self.sum = 0
         self.count = 0
 
-    def update(
-        self,
-        val,
-        n: int = 1,
-        owner_info: str = "UNKNOWN_AVG_METER",
-        config: object | None = None,
-    ):
+    def update(self, val, n: int = 1, owner_info: str = "UNKNOWN_AVG_METER", config: object | None = None):
         """
         Update the average meter with a new value.
 
@@ -50,20 +44,18 @@ class AverageMeter:
         else:
             # This case should ideally not be hit if n >= 1, but good for safety
             self.avg = (
-                0.0
-                if isinstance(self.sum, float)
-                else torch.tensor(
-                    0.0, device=self.sum.device if torch.is_tensor(self.sum) else "cpu"
-                )
+                0.0 if isinstance(self.sum, float) else torch.tensor(0.0, device=self.sum.device if torch.is_tensor(self.sum) else "cpu")
             )
 
         # --- Extremely Verbose Logging for actual_meta_stats debugging ---
         # This will log EVERY update to ANY AverageMeter if the flag is on and owner_info matches.
         try:
             cfg = config
-            if cfg is not None and check_debug_flag(
-                cfg, "DEBUG.METRICS.AVG_METER_VERBOSE_ACTUAL_META_STATS"
-            ) and "actual_meta_stats_meter" in owner_info:
+            if (
+                cfg is not None
+                and check_debug_flag(cfg, "DEBUG.METRICS.AVG_METER_VERBOSE_ACTUAL_META_STATS")
+                and "actual_meta_stats_meter" in owner_info
+            ):
                 logger = get_main_logger()
                 logger.debug(
                     f"[AVG_METER_UPDATE] ID: {id(self)}, Owner: {owner_info}, "
@@ -108,9 +100,7 @@ def accuracy(output, target, topk=(1,), ignore_index: int | None = None):
             batch_size = target.size(0)  # Original batch size
 
         # Get predictions
-        _, pred = output.float().topk(
-            maxk, 1, True, True
-        )  # Explicitly cast outputs + predictions to fp32
+        _, pred = output.float().topk(maxk, 1, True, True)  # Explicitly cast outputs + predictions to fp32
         pred = pred.t()  # Shape [maxk, B]
 
         # Filter predictions if necessary

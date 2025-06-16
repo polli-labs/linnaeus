@@ -33,16 +33,7 @@ class TaskSpecificAttention(nn.Module):
                                            the same rate will be used for all tasks.
     """
 
-    def __init__(
-        self,
-        dim,
-        num_tasks,
-        num_heads=8,
-        qkv_bias=False,
-        attn_drop=0.0,
-        proj_drop=0.0,
-        drop_path=0.0,
-    ):
+    def __init__(self, dim, num_tasks, num_heads=8, qkv_bias=False, attn_drop=0.0, proj_drop=0.0, drop_path=0.0):
         super().__init__()
         self.num_tasks = num_tasks
 
@@ -86,13 +77,9 @@ class TaskSpecificAttention(nn.Module):
             torch.Tensor: Output tensor after applying task-specific attention.
         """
         if task_idx < 0 or task_idx >= self.num_tasks:
-            raise IndexError(
-                f"task_idx {task_idx} out of range [0, {self.num_tasks - 1}]"
-            )
+            raise IndexError(f"task_idx {task_idx} out of range [0, {self.num_tasks - 1}]")
 
         logger.debug(f"TaskSpecificAttention: Applying attention for task {task_idx}")
         x = self.attention_layers[task_idx](x)
-        logger.debug(
-            f"TaskSpecificAttention: Output shape after task {task_idx} attention: {x.shape}"
-        )
+        logger.debug(f"TaskSpecificAttention: Output shape after task {task_idx} attention: {x.shape}")
         return x

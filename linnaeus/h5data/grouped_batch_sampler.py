@@ -87,9 +87,7 @@ class GroupedBatchSampler(Sampler):
         # Validate mode
         self.mode = mode.lower()
         if self.mode not in ["strict-group", "mixed-pairs"]:
-            raise ValueError(
-                f"Invalid mode: {mode}. Must be 'strict-group' or 'mixed-pairs'"
-            )
+            raise ValueError(f"Invalid mode: {mode}. Must be 'strict-group' or 'mixed-pairs'")
 
         # Check batch size if using mixed-pairs mode
         if self.mode == "mixed-pairs" and self.batch_size % 2 != 0:
@@ -154,24 +152,18 @@ class GroupedBatchSampler(Sampler):
         """
         # 1) get the chosen array from dataset.group_ids
         if not hasattr(self.dataset, "group_ids"):
-            raise AttributeError(
-                "Dataset has no 'group_ids' dictionary. Cannot switch group rank."
-            )
+            raise AttributeError("Dataset has no 'group_ids' dictionary. Cannot switch group rank.")
         if rank_key not in self.dataset.group_ids:
             raise KeyError(f"rank_key='{rank_key}' not in dataset.group_ids.")
         if subset_key not in self.dataset.group_ids[rank_key]:
-            raise KeyError(
-                f"subset_key='{subset_key}' not in dataset.group_ids['{rank_key}']."
-            )
+            raise KeyError(f"subset_key='{subset_key}' not in dataset.group_ids['{rank_key}'].")
         chosen_arr = self.dataset.group_ids[rank_key][subset_key]
 
         # 2) tell dataset => set_current_group_rank_array(chosen_arr)
         if hasattr(self.dataset, "set_current_group_rank_array"):
             self.dataset.set_current_group_rank_array(chosen_arr)
         else:
-            raise AttributeError(
-                "Dataset lacks set_current_group_rank_array method. Check your dataset implementation."
-            )
+            raise AttributeError("Dataset lacks set_current_group_rank_array method. Check your dataset implementation.")
 
         # 3) build group->samples mapping, generate rank-specific batches
         self.group_to_samples = self._build_group_dict(chosen_arr)
@@ -194,15 +186,11 @@ class GroupedBatchSampler(Sampler):
         """
         # 1) get the chosen array from dataset.group_ids
         if not hasattr(self.dataset, "group_ids"):
-            raise AttributeError(
-                "Dataset has no 'group_ids' dictionary. Cannot switch group level."
-            )
+            raise AttributeError("Dataset has no 'group_ids' dictionary. Cannot switch group level.")
         if group_level not in self.dataset.group_ids:
             raise KeyError(f"group_level='{group_level}' not in dataset.group_ids.")
         if subset_key not in self.dataset.group_ids[group_level]:
-            raise KeyError(
-                f"subset_key='{subset_key}' not in dataset.group_ids['{group_level}']."
-            )
+            raise KeyError(f"subset_key='{subset_key}' not in dataset.group_ids['{group_level}'].")
         chosen_arr = self.dataset.group_ids[group_level][subset_key]
 
         # 2) tell dataset => set_current_group_level_array(chosen_arr)
@@ -250,18 +238,10 @@ class GroupedBatchSampler(Sampler):
             debug_dataloader = check_debug_flag(self.config, "DEBUG.DATALOADER")
 
         if debug_dataloader:
-            self.main_logger.debug(
-                f"[GroupedBatchSampler] Setting up epoch batches using mode: '{self.mode}'"
-            )
-            self.main_logger.debug(
-                f"[GroupedBatchSampler] Number of groups: {len(self.group_to_samples)}"
-            )
-            self.main_logger.debug(
-                f"[GroupedBatchSampler] Distributed: rank={self.rank}, world_size={self.world_size}"
-            )
-            group_sizes = {
-                gid: len(indices) for gid, indices in self.group_to_samples.items()
-            }
+            self.main_logger.debug(f"[GroupedBatchSampler] Setting up epoch batches using mode: '{self.mode}'")
+            self.main_logger.debug(f"[GroupedBatchSampler] Number of groups: {len(self.group_to_samples)}")
+            self.main_logger.debug(f"[GroupedBatchSampler] Distributed: rank={self.rank}, world_size={self.world_size}")
+            group_sizes = {gid: len(indices) for gid, indices in self.group_to_samples.items()}
             self.main_logger.debug(f"[GroupedBatchSampler] Group sizes: {group_sizes}")
 
         # Handle based on mode
@@ -273,18 +253,12 @@ class GroupedBatchSampler(Sampler):
             self._setup_strict_group_mode(debug_dataloader)
 
         if debug_dataloader:
-            self.main_logger.debug(
-                f"[GroupedBatchSampler] Final result: {self.num_batches_this_rank} batches for rank {self.rank}"
-            )
-            self.main_logger.debug(
-                f"[GroupedBatchSampler] Estimated samples for rank {self.rank}: {self.num_samples_this_rank}"
-            )
+            self.main_logger.debug(f"[GroupedBatchSampler] Final result: {self.num_batches_this_rank} batches for rank {self.rank}")
+            self.main_logger.debug(f"[GroupedBatchSampler] Estimated samples for rank {self.rank}: {self.num_samples_this_rank}")
 
             if len(self.epoch_batches) > 0:
                 first_batch = self.epoch_batches[0]
-                self.main_logger.debug(
-                    f"[GroupedBatchSampler] First batch size: {len(first_batch)}"
-                )
+                self.main_logger.debug(f"[GroupedBatchSampler] First batch size: {len(first_batch)}")
 
     def _setup_mixed_pairs_mode(self, debug_dataloader=False):
         """
@@ -306,9 +280,7 @@ class GroupedBatchSampler(Sampler):
             # Need at least 2 samples to form pairs
             if len(idx_arr) < 2:
                 if debug_dataloader:
-                    self.main_logger.debug(
-                        f"[GroupedBatchSampler] Skipping group {gid} with only {len(idx_arr)} samples"
-                    )
+                    self.main_logger.debug(f"[GroupedBatchSampler] Skipping group {gid} with only {len(idx_arr)} samples")
                 continue
 
             # Shuffle indices
@@ -324,9 +296,7 @@ class GroupedBatchSampler(Sampler):
             # Handle odd-sized groups
             if len(idx_arr) % 2 == 1:
                 if debug_dataloader:
-                    self.main_logger.debug(
-                        f"[GroupedBatchSampler] Group {gid} has odd size {len(idx_arr)}, dropping last sample"
-                    )
+                    self.main_logger.debug(f"[GroupedBatchSampler] Group {gid} has odd size {len(idx_arr)}, dropping last sample")
 
             # Track pairs per group for logging
             pairs_per_group[gid] = len(group_pairs)
@@ -335,13 +305,9 @@ class GroupedBatchSampler(Sampler):
             all_pairs.extend(group_pairs)
 
         if debug_dataloader:
-            self.main_logger.debug(
-                f"[GroupedBatchSampler] Created {len(all_pairs)} global pairs from {len(pairs_per_group)} groups"
-            )
+            self.main_logger.debug(f"[GroupedBatchSampler] Created {len(all_pairs)} global pairs from {len(pairs_per_group)} groups")
             if pairs_per_group:
-                self.main_logger.debug(
-                    f"[GroupedBatchSampler] Sample pairs per group: {dict(list(pairs_per_group.items())[:5])}"
-                )
+                self.main_logger.debug(f"[GroupedBatchSampler] Sample pairs per group: {dict(list(pairs_per_group.items())[:5])}")
 
         # 2. Shuffle all pairs
         np.random.shuffle(all_pairs)
@@ -349,9 +315,7 @@ class GroupedBatchSampler(Sampler):
         # 3. Distribute pairs to ranks
         total_pairs = len(all_pairs)
         if total_pairs == 0:
-            self.main_logger.warning(
-                "[GroupedBatchSampler] No valid pairs were created. Check your group sizes."
-            )
+            self.main_logger.warning("[GroupedBatchSampler] No valid pairs were created. Check your group sizes.")
             self.local_pairs = []
             self.num_batches_this_rank = 0
             self.num_samples_this_rank = 0
@@ -394,9 +358,7 @@ class GroupedBatchSampler(Sampler):
             if len(batch_indices) == self.batch_size or not self.drop_last:
                 self.epoch_batches.append(np.array(batch_indices))
             elif debug_dataloader:
-                self.main_logger.debug(
-                    f"[GroupedBatchSampler] Dropping incomplete batch of size {len(batch_indices)}"
-                )
+                self.main_logger.debug(f"[GroupedBatchSampler] Dropping incomplete batch of size {len(batch_indices)}")
 
         # Update num_batches_this_rank to match actual number of batches
         self.num_batches_this_rank = len(self.epoch_batches)
@@ -437,9 +399,7 @@ class GroupedBatchSampler(Sampler):
             # Skip groups that are too small for a batch
             if len(idx_arr) < 2:  # Need at least 2 samples for mixing
                 if debug_dataloader:
-                    self.main_logger.debug(
-                        f"[GroupedBatchSampler] Skipping group {gid} with only {len(idx_arr)} samples"
-                    )
+                    self.main_logger.debug(f"[GroupedBatchSampler] Skipping group {gid} with only {len(idx_arr)} samples")
                 continue
 
             # Skip groups smaller than batch size if drop_last is True
@@ -454,10 +414,7 @@ class GroupedBatchSampler(Sampler):
             np.random.shuffle(idx_arr)
 
             # Partition into batches of batch_size
-            chunk_list = [
-                idx_arr[i : i + self.batch_size]
-                for i in range(0, len(idx_arr), self.batch_size)
-            ]
+            chunk_list = [idx_arr[i : i + self.batch_size] for i in range(0, len(idx_arr), self.batch_size)]
 
             # Drop last incomplete batch if requested
             if self.drop_last and chunk_list and len(chunk_list[-1]) < self.batch_size:
@@ -475,9 +432,7 @@ class GroupedBatchSampler(Sampler):
                 total_samples += sum(len(batch) for batch in chunk_list)
 
             if debug_dataloader:
-                self.main_logger.debug(
-                    f"[GroupedBatchSampler] Rank {self.rank} created {len(chunk_list)} batches for group {gid}"
-                )
+                self.main_logger.debug(f"[GroupedBatchSampler] Rank {self.rank} created {len(chunk_list)} batches for group {gid}")
 
         # 3. Shuffle batch order
         np.random.shuffle(local_batches)
@@ -491,20 +446,14 @@ class GroupedBatchSampler(Sampler):
             self.main_logger.debug(
                 f"[GroupedBatchSampler] Rank {self.rank} created {self.num_batches_this_rank} total batches from {len(my_groups)} groups"
             )
-            self.main_logger.debug(
-                f"[GroupedBatchSampler] Rank {self.rank} has {self.num_samples_this_rank} total samples"
-            )
+            self.main_logger.debug(f"[GroupedBatchSampler] Rank {self.rank} has {self.num_samples_this_rank} total samples")
 
             # Check for imbalance warning in strict-group mode
             if self.is_distributed and self.world_size > 1:
                 # We can only give a rough estimate of imbalance here
                 ideal_groups_per_rank = len(all_group_ids) / self.world_size
                 imbalance_pct = (
-                    abs(len(my_groups) - ideal_groups_per_rank)
-                    / ideal_groups_per_rank
-                    * 100
-                    if ideal_groups_per_rank > 0
-                    else 0
+                    abs(len(my_groups) - ideal_groups_per_rank) / ideal_groups_per_rank * 100 if ideal_groups_per_rank > 0 else 0
                 )
 
                 if imbalance_pct > 20:  # More than 20% deviation from ideal
@@ -568,8 +517,7 @@ class GroupedBatchSampler(Sampler):
                 np.random.shuffle(self.epoch_batches)
 
         self.main_logger.debug(
-            f"[GroupedBatchSampler] set_epoch({epoch}): re-shuffled {self.num_batches_this_rank} "
-            f"batches for rank {self.rank}."
+            f"[GroupedBatchSampler] set_epoch({epoch}): re-shuffled {self.num_batches_this_rank} batches for rank {self.rank}."
         )
 
     def __iter__(self):
@@ -607,49 +555,34 @@ class GroupedBatchSampler(Sampler):
 
         # Truncate group_sizes if there are too many groups
         if len(self.group_to_samples) > 0:
-            group_sizes = {
-                k: len(v) for k, v in self.group_to_samples.items() if k != -1
-            }
+            group_sizes = {k: len(v) for k, v in self.group_to_samples.items() if k != -1}
             if len(group_sizes) > 10:
                 # Show only first 5 and last 5 entries if many groups
                 keys = sorted(group_sizes.keys())
                 first_five = {k: group_sizes[k] for k in keys[:5]}
                 last_five = {k: group_sizes[k] for k in keys[-5:]}
-                stats["group_sizes_sample"] = {
-                    "first_five": first_five,
-                    "last_five": last_five,
-                    "total_groups": len(group_sizes),
-                }
+                stats["group_sizes_sample"] = {"first_five": first_five, "last_five": last_five, "total_groups": len(group_sizes)}
             else:
                 stats["group_sizes"] = group_sizes
 
         # Add mode-specific stats
         if self.mode == "mixed-pairs":
             # Calculate expected pairs per group
-            pairs_per_group = {
-                k: len(v) // 2 for k, v in self.group_to_samples.items() if k != -1
-            }
+            pairs_per_group = {k: len(v) // 2 for k, v in self.group_to_samples.items() if k != -1}
             total_pairs = sum(pairs_per_group.values())
             stats.update(
                 {
                     "total_pairs_global": total_pairs,
-                    "pairs_this_rank": len(self.local_pairs)
-                    if hasattr(self, "local_pairs")
-                    else 0,
+                    "pairs_this_rank": len(self.local_pairs) if hasattr(self, "local_pairs") else 0,
                     "pairs_per_batch": self.batch_size // 2,
-                    "expected_global_batches": total_pairs // (self.batch_size // 2)
-                    if self.batch_size > 0
-                    else 0,
-                    "expected_batches_per_rank": (total_pairs // (self.batch_size // 2))
-                    // self.world_size
+                    "expected_global_batches": total_pairs // (self.batch_size // 2) if self.batch_size > 0 else 0,
+                    "expected_batches_per_rank": (total_pairs // (self.batch_size // 2)) // self.world_size
                     if self.batch_size > 0 and self.world_size > 0
                     else 0,
                 }
             )
         elif self.mode == "strict-group" and self.is_distributed:
             # Add warning about potential imbalance
-            stats["note"] = (
-                "strict-group mode may result in rank imbalances in distributed training"
-            )
+            stats["note"] = "strict-group mode may result in rank imbalances in distributed training"
 
         return stats

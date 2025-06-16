@@ -12,6 +12,7 @@ FLASH_ATTENTION_AVAILABLE = False
 flash_attn_qkvpacked_func = None
 try:
     from flash_attn import flash_attn_qkvpacked_func
+
     FLASH_ATTENTION_AVAILABLE = True
     print("flash_attn library found.")
 except Exception:
@@ -76,23 +77,15 @@ class EfficientSelfAttention(nn.Module):
             torch.Tensor: Output tensor after applying self-attention, shape (B, N, C).
         """
         B, N, C = x.shape
-        qkv = (
-            self.qkv(x)
-            .reshape(B, N, 3, self.num_heads, C // self.num_heads)
-            .permute(2, 0, 3, 1, 4)
-        )  # (3, B, num_heads, N, head_dim)
+        qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4)  # (3, B, num_heads, N, head_dim)
         q, k, v = qkv[0], qkv[1], qkv[2]
 
         # Attempt to use Flash Attention
         try:
-            output = flash_attn_qkvpacked_func(
-                qkv, dropout_p=self.attn_drop.p, softmax_scale=self.scale
-            )
+            output = flash_attn_qkvpacked_func(qkv, dropout_p=self.attn_drop.p, softmax_scale=self.scale)
             logger.debug("EfficientSelfAttention: Flash Attention used.")
         except Exception as e:
-            logger.warning(
-                f"EfficientSelfAttention: Flash Attention failed with error: {e}. Falling back to standard attention."
-            )
+            logger.warning(f"EfficientSelfAttention: Flash Attention failed with error: {e}. Falling back to standard attention.")
             # Standard attention fallback
             attn = (q @ k.transpose(-2, -1)) * self.scale  # (B, num_heads, N, N)
             attn = attn.softmax(dim=-1)

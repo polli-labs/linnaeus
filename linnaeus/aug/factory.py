@@ -39,6 +39,4 @@ class AugmentationPipelineFactory:
             logger.info("Creating CPU AugmentationPipeline for single-image transforms")
             return CPUAugmentationPipeline(config)
         else:
-            raise ValueError(
-                f"Invalid SINGLE_AUG_DEVICE: {device_choice}. Must be 'cpu' or 'gpu'"
-            )
+            raise ValueError(f"Invalid SINGLE_AUG_DEVICE: {device_choice}. Must be 'cpu' or 'gpu'")

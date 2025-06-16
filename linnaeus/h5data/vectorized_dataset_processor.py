@@ -290,10 +290,13 @@ class VectorizedDatasetProcessorOnePass:
                     # Generate report (optionally saves file)
                     # Construct the actual report path
                     actual_report_path = None
-                    if self.config and hasattr(self.config, 'ENV') and \
-                       hasattr(self.config.ENV, 'OUTPUT') and \
-                       hasattr(self.config.ENV.OUTPUT, 'DIRS') and \
-                       hasattr(self.config.ENV.OUTPUT.DIRS, 'ROOT'):
+                    if (
+                        self.config
+                        and hasattr(self.config, "ENV")
+                        and hasattr(self.config.ENV, "OUTPUT")
+                        and hasattr(self.config.ENV.OUTPUT, "DIRS")
+                        and hasattr(self.config.ENV.OUTPUT.DIRS, "ROOT")
+                    ):
                         output_dir = self.config.ENV.OUTPUT.DIRS.ROOT
                         actual_report_path = Path(output_dir) / "assets" / "missing_images_report.json"
                     elif self.main_logger:

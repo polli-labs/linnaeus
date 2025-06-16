@@ -74,19 +74,8 @@ def throughput_test(
         elapsed = time.time() - start
 
         imgs_per_sec = bs * num_iter / elapsed
-        memory_used_gb = (
-            torch.cuda.max_memory_allocated(device) / 1e9
-            if device.type == "cuda"
-            else 0.0
-        )
+        memory_used_gb = torch.cuda.max_memory_allocated(device) / 1e9 if device.type == "cuda" else 0.0
 
-        results.append(
-            {
-                "batch_size": bs,
-                "imgs_per_sec": imgs_per_sec,
-                "memory_used_gb": memory_used_gb,
-                "gpu_utilization": 0.0,
-            }
-        )
+        results.append({"batch_size": bs, "imgs_per_sec": imgs_per_sec, "memory_used_gb": memory_used_gb, "gpu_utilization": 0.0})
 
     return results

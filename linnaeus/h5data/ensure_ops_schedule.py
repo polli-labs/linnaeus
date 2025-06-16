@@ -27,9 +27,7 @@ def ensure_ops_schedule_set(data_loader, ops_schedule, obj_name="unnamed"):
         True if ops_schedule was newly set, False if it was already set correctly
     """
     if data_loader is None or ops_schedule is None:
-        logger.warning(
-            f"Cannot set ops_schedule on {obj_name}: one or both objects are None"
-        )
+        logger.warning(f"Cannot set ops_schedule on {obj_name}: one or both objects are None")
         return False
 
     if not hasattr(data_loader, "ops_schedule"):
@@ -60,9 +58,7 @@ def debug_meta_masking_state(data_loader, obj_name="unnamed"):
         obj_name: Name to use in log messages (e.g., "train_loader", "val_loader")
     """
     if data_loader is None:
-        logger.info(
-            f"Cannot debug meta-masking state on {obj_name}: data_loader is None"
-        )
+        logger.info(f"Cannot debug meta-masking state on {obj_name}: data_loader is None")
         return
 
     if not hasattr(data_loader, "is_training"):
@@ -84,9 +80,7 @@ def debug_meta_masking_state(data_loader, obj_name="unnamed"):
         has_partial_mask = hasattr(data_loader.ops_schedule, "get_partial_mask_enabled")
 
         logger.info(f"  - ops_schedule has get_meta_mask_prob: {has_meta_mask_prob}")
-        logger.info(
-            f"  - ops_schedule has get_partial_mask_enabled: {has_partial_mask}"
-        )
+        logger.info(f"  - ops_schedule has get_partial_mask_enabled: {has_partial_mask}")
 
         # Log actual probability values if methods exist
         if has_meta_mask_prob:

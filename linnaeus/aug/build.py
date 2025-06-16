@@ -27,9 +27,7 @@ def build_augmentation_pipeline(config: dict[str, Any]) -> AugmentationPipeline:
     device_choice = config.AUG.SINGLE_AUG_DEVICE.lower()
 
     if check_debug_flag(config, "DEBUG.AUGMENTATION"):
-        logger.debug(
-            f"[build_augmentation_pipeline] Creating augmentation pipeline with device: {device_choice}"
-        )
+        logger.debug(f"[build_augmentation_pipeline] Creating augmentation pipeline with device: {device_choice}")
         logger.debug("[build_augmentation_pipeline] Configuration settings:")
         logger.debug(f"  - Policy: {config.AUG.AUTOAUG.POLICY}")
         logger.debug(f"  - Color jitter: {config.AUG.AUTOAUG.COLOR_JITTER}")
@@ -43,6 +41,4 @@ def build_augmentation_pipeline(config: dict[str, Any]) -> AugmentationPipeline:
         logger.info("Building CPU AugmentationPipeline for single-image transforms")
         return CPUAugmentationPipeline(config)
     else:
-        raise ValueError(
-            f"Invalid SINGLE_AUG_DEVICE: {device_choice}. Must be 'cpu' or 'gpu'"
-        )
+        raise ValueError(f"Invalid SINGLE_AUG_DEVICE: {device_choice}. Must be 'cpu' or 'gpu'")

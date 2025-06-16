@@ -1,6 +1,7 @@
 """
 Utilities for loading and preparing the Linnaeus PyTorch model for inference.
 """
+
 import logging
 from pathlib import Path
 
@@ -87,21 +88,21 @@ def _convert_pydantic_to_yacs_for_build_model(pydantic_cfg: InferenceConfig) -> 
     yacs_cn.DATA = CN()
     yacs_cn.DATA.META = CN()
     yacs_cn.DATA.META.ACTIVE = (
-        pydantic_cfg.metadata_preprocessing.use_geolocation or
-        pydantic_cfg.metadata_preprocessing.use_temporal or
-        pydantic_cfg.metadata_preprocessing.use_elevation
+        pydantic_cfg.metadata_preprocessing.use_geolocation
+        or pydantic_cfg.metadata_preprocessing.use_temporal
+        or pydantic_cfg.metadata_preprocessing.use_elevation
     )
     yacs_cn.DATA.META.COMPONENTS = CN(new_allowed=True)
     # We need to map our MetaConfig back to the Linnaeus DATA.META.COMPONENTS structure
     # This is simplified; a real mapping would be more robust
     if pydantic_cfg.metadata_preprocessing.use_geolocation:
-        yacs_cn.DATA.META.COMPONENTS.SPATIAL = CN({'ENABLED': True, 'DIM': 3, 'IDX': 0}) # Example mapping
+        yacs_cn.DATA.META.COMPONENTS.SPATIAL = CN({"ENABLED": True, "DIM": 3, "IDX": 0})  # Example mapping
     if pydantic_cfg.metadata_preprocessing.use_temporal:
         dim = 2 + (2 if pydantic_cfg.metadata_preprocessing.temporal_use_hour else 0)
-        yacs_cn.DATA.META.COMPONENTS.TEMPORAL = CN({'ENABLED': True, 'DIM': dim, 'IDX': 1})
+        yacs_cn.DATA.META.COMPONENTS.TEMPORAL = CN({"ENABLED": True, "DIM": dim, "IDX": 1})
     if pydantic_cfg.metadata_preprocessing.use_elevation:
         dim = 2 * len(pydantic_cfg.metadata_preprocessing.elevation_scales)
-        yacs_cn.DATA.META.COMPONENTS.ELEVATION = CN({'ENABLED': True, 'DIM': dim, 'IDX': 2})
+        yacs_cn.DATA.META.COMPONENTS.ELEVATION = CN({"ENABLED": True, "DIM": dim, "IDX": 2})
 
     # Add other necessary fields if build_model crashes
     # For example, if mFormerV0/V1 __init__ reads specific config fields for stages
@@ -109,7 +110,7 @@ def _convert_pydantic_to_yacs_for_build_model(pydantic_cfg: InferenceConfig) -> 
     # MODEL.EXTRA_TOKEN_NUM calculation based on metadata components should likely remain,
     # as it's derived from the *inference config's* metadata settings, not the base model architecture.
     # This assumes EXTRA_TOKEN_NUM is about the input data, not a fixed property of the model arch.
-    if "mFormerV1" in yacs_cn.MODEL.NAME: # Check against the potentially updated MODEL.NAME
+    if "mFormerV1" in yacs_cn.MODEL.NAME:  # Check against the potentially updated MODEL.NAME
         # Ensure DROP_PATH_RATE is set if not provided by variant config, as it's often required.
         if "DROP_PATH_RATE" not in yacs_cn.MODEL:
             yacs_cn.MODEL.DROP_PATH_RATE = 0.0
@@ -117,8 +118,9 @@ def _convert_pydantic_to_yacs_for_build_model(pydantic_cfg: InferenceConfig) -> 
 
         # EXTRA_TOKEN_NUM depends on the metadata inputs configured for this specific inference setup.
         # It is not typically part of a general architecture variant config.
-        yacs_cn.MODEL.EXTRA_TOKEN_NUM = 1 + sum( # Start with 1 for class token
-            1 for comp_name in ["SPATIAL", "TEMPORAL", "ELEVATION"] # Check enabled components
+        yacs_cn.MODEL.EXTRA_TOKEN_NUM = 1 + sum(  # Start with 1 for class token
+            1
+            for comp_name in ["SPATIAL", "TEMPORAL", "ELEVATION"]  # Check enabled components
             if comp_name in yacs_cn.DATA.META.COMPONENTS and yacs_cn.DATA.META.COMPONENTS[comp_name].get("ENABLED", False)
         )
         logger.info(f"Calculated MODEL.EXTRA_TOKEN_NUM = {yacs_cn.MODEL.EXTRA_TOKEN_NUM} based on active metadata components.")
@@ -130,14 +132,14 @@ def _convert_pydantic_to_yacs_for_build_model(pydantic_cfg: InferenceConfig) -> 
     yacs_cn.MODEL.CLASSIFICATION = CN()
     yacs_cn.MODEL.CLASSIFICATION.HEADS = CN(new_allowed=True)
     for task_key in pydantic_cfg.model.model_task_keys_ordered:
-        yacs_cn.MODEL.CLASSIFICATION.HEADS[task_key] = CN({'TYPE': 'Linear'}) # Dummy type
+        yacs_cn.MODEL.CLASSIFICATION.HEADS[task_key] = CN({"TYPE": "Linear"})  # Dummy type
 
     return yacs_cn
 
 
 def load_model_for_inference(
-    model_cfg_pydantic: ModelConfig, # Pydantic model config
-    inference_cfg_full_pydantic: InferenceConfig, # Full Pydantic inference config
+    model_cfg_pydantic: ModelConfig,  # Pydantic model config
+    inference_cfg_full_pydantic: InferenceConfig,  # Full Pydantic inference config
     taxonomy_data: TaxonomyData,
     device: torch.device,
 ) -> nn.Module:
@@ -155,11 +157,7 @@ def load_model_for_inference(
         for task_key, count in zip(model_cfg_pydantic.model_task_keys_ordered, model_cfg_pydantic.num_classes_per_task, strict=False)
     }
 
-    model = build_model(
-        config=cfg_for_build_yacs,
-        num_classes=num_classes_for_build,
-        taxonomy_tree=taxonomy_data.taxonomy_tree
-    )
+    model = build_model(config=cfg_for_build_yacs, num_classes=num_classes_for_build, taxonomy_tree=taxonomy_data.taxonomy_tree)
 
     logger.info(f"Model architecture '{model_cfg_pydantic.architecture_name}' built.")
 
@@ -183,29 +181,29 @@ def load_model_for_inference(
         raise FileNotFoundError(f"Model weights file not found: {actual_weights_path}")
 
     logger.info(f"Loading model weights from {actual_weights_path}...")
-    state_dict = torch.load(actual_weights_path, map_location='cpu')
+    state_dict = torch.load(actual_weights_path, map_location="cpu")
 
-    if 'model' in state_dict:
-        state_dict = state_dict['model']
-    elif 'state_dict' in state_dict:
-        state_dict = state_dict['state_dict']
+    if "model" in state_dict:
+        state_dict = state_dict["model"]
+    elif "state_dict" in state_dict:
+        state_dict = state_dict["state_dict"]
 
     cleaned_state_dict = {}
-    has_module_prefix = any(k.startswith('module.') for k in state_dict.keys())
+    has_module_prefix = any(k.startswith("module.") for k in state_dict.keys())
 
     for k, v in state_dict.items():
         name = k
         if isinstance(model, nn.DataParallel) or isinstance(model, nn.parallel.DistributedDataParallel):
-            if not has_module_prefix: # Model is DDP, checkpoint is not
-                 name = 'module.' + k
+            if not has_module_prefix:  # Model is DDP, checkpoint is not
+                name = "module." + k
         else:
-            if has_module_prefix: # Model is not DDP, checkpoint is
+            if has_module_prefix:  # Model is not DDP, checkpoint is
                 name = k[7:]
         cleaned_state_dict[name] = v
 
     state_dict = cleaned_state_dict
     if has_module_prefix != (isinstance(model, nn.DataParallel) or isinstance(model, nn.parallel.DistributedDataParallel)):
-         logger.info("Adjusted 'module.' prefix in state_dict keys to match model type.")
+        logger.info("Adjusted 'module.' prefix in state_dict keys to match model type.")
 
     try:
         missing_keys, unexpected_keys = model.load_state_dict(state_dict, strict=False)

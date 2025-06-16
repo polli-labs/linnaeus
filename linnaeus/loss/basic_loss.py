@@ -18,29 +18,18 @@ class CrossEntropyLoss(nn.Module):
     so that other modules (GradientWeighting) can handle per‐sample weighting.
     """
 
-    def __init__(
-        self,
-        weight: torch.Tensor | None = None,
-        apply_class_weights: bool = False,
-        ignore_index: int | None = None,
-    ):
+    def __init__(self, weight: torch.Tensor | None = None, apply_class_weights: bool = False, ignore_index: int | None = None):
         super().__init__()
         # We use CrossEntropyLoss with reduction='none' to get per‐sample.
         # PyTorch's default ignore_index is -100 if not specified
         self.ignore_index = ignore_index
         self.criterion = nn.CrossEntropyLoss(
-            weight=None,
-            reduction="none",
-            ignore_index=self.ignore_index if self.ignore_index is not None else -100,
+            weight=None, reduction="none", ignore_index=self.ignore_index if self.ignore_index is not None else -100
         )
         # Storing the class_weight tensor (if any):
         self.weight = weight
         self.apply_class_weights = apply_class_weights
-        logger.info(
-            "Initialized CrossEntropyLoss with apply_class_weights=%s, ignore_index=%s",
-            apply_class_weights,
-            ignore_index,
-        )
+        logger.info("Initialized CrossEntropyLoss with apply_class_weights=%s, ignore_index=%s", apply_class_weights, ignore_index)
 
     def forward(self, input, target) -> torch.Tensor:
         """
@@ -53,9 +42,7 @@ class CrossEntropyLoss(nn.Module):
         # --- Target Handling ---
         if target.dim() == 2:
             if target.shape[1] != input.size(1):  # input is logits [B, C]
-                raise ValueError(
-                    f"Target tensor shape {target.shape} incompatible with input shape {input.shape}"
-                )
+                raise ValueError(f"Target tensor shape {target.shape} incompatible with input shape {input.shape}")
             target = target.argmax(dim=1)
         elif target.dim() != 1:
             raise ValueError(
@@ -81,11 +68,7 @@ class CrossEntropyLoss(nn.Module):
             # Apply weights only where loss wasn't zeroed out by ignore_index
             if self.ignore_index is not None:
                 ignore_mask = target == self.ignore_index
-                ce_per_sample = torch.where(
-                    ignore_mask,
-                    torch.tensor(0.0, device=ce_per_sample.device),
-                    ce_per_sample * sample_weights,
-                )
+                ce_per_sample = torch.where(ignore_mask, torch.tensor(0.0, device=ce_per_sample.device), ce_per_sample * sample_weights)
             else:
                 ce_per_sample = ce_per_sample * sample_weights
 
@@ -129,9 +112,7 @@ class LabelSmoothingCrossEntropy(nn.Module):
         # --- Target Handling ---
         if target.dim() == 2:
             if target.shape[1] != x.size(1):  # x is logits [B, C]
-                raise ValueError(
-                    f"Target tensor shape {target.shape} incompatible with logits shape {x.shape}"
-                )
+                raise ValueError(f"Target tensor shape {target.shape} incompatible with logits shape {x.shape}")
             target = target.argmax(dim=1)
             # Optional: log conversion if debugging
         elif target.dim() != 1:
@@ -161,9 +142,7 @@ class LabelSmoothingCrossEntropy(nn.Module):
             # Optional Debug Log (gated by DEBUG.LOSS.NULL_MASKING)
             if check_debug_flag(self.config, "DEBUG.LOSS.NULL_MASKING"):
                 ignored_count = ignore_mask.sum().item()
-                logger.debug(
-                    f"[LabelSmoothingCE] Applied ignore_index={self.ignore_index}, zeroed out {ignored_count} samples."
-                )
+                logger.debug(f"[LabelSmoothingCE] Applied ignore_index={self.ignore_index}, zeroed out {ignored_count} samples.")
 
         # Apply class weighting *after* potential ignoring
         if self.weight is not None and self.apply_class_weights:
@@ -175,9 +154,7 @@ class LabelSmoothingCrossEntropy(nn.Module):
             if self.ignore_index is not None:
                 ignore_mask = target == self.ignore_index
                 per_sample_loss = torch.where(
-                    ignore_mask,
-                    torch.tensor(0.0, device=per_sample_loss.device),
-                    per_sample_loss * sample_weights,
+                    ignore_mask, torch.tensor(0.0, device=per_sample_loss.device), per_sample_loss * sample_weights
                 )
             else:
                 per_sample_loss = per_sample_loss * sample_weights
@@ -191,17 +168,11 @@ class SoftTargetCrossEntropy(nn.Module):
     Returns a per‐sample loss vector shape [B].
     """
 
-    def __init__(
-        self,
-        weight: torch.Tensor | None = None,
-        apply_class_weights: bool = False,
-    ):
+    def __init__(self, weight: torch.Tensor | None = None, apply_class_weights: bool = False):
         super().__init__()
         self.weight = weight  # shape [C], or None
         self.apply_class_weights = apply_class_weights
-        logger.info(
-            f"Initialized SoftTargetCrossEntropy with apply_class_weights={apply_class_weights}"
-        )
+        logger.info(f"Initialized SoftTargetCrossEntropy with apply_class_weights={apply_class_weights}")
 
     def forward(self, x, target) -> torch.Tensor:
         """

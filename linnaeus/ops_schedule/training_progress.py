@@ -20,11 +20,7 @@ class TrainingStage(Enum):
     @classmethod
     def validation_stages(cls) -> set["TrainingStage"]:
         """Return all validation stages."""
-        return {
-            cls.VALIDATION_NORMAL,
-            cls.VALIDATION_MASK_META,
-            cls.VALIDATION_PARTIAL_MASK_META,
-        }
+        return {cls.VALIDATION_NORMAL, cls.VALIDATION_MASK_META, cls.VALIDATION_PARTIAL_MASK_META}
 
     def is_validation(self) -> bool:
         """Check if this stage is any kind of validation."""
@@ -58,9 +54,7 @@ class TrainingProgress:
         self.completed_validations = []
         self.partial_validation_indices = []
 
-    def schedule_validation(
-        self, validation_type: TrainingStage, partial_index: int | None = None
-    ):
+    def schedule_validation(self, validation_type: TrainingStage, partial_index: int | None = None):
         """
         Schedule a validation to be performed after the current epoch.
 
@@ -72,10 +66,7 @@ class TrainingProgress:
             if validation_type not in self.pending_validations:
                 self.pending_validations.append(validation_type)
 
-            if (
-                validation_type == TrainingStage.VALIDATION_PARTIAL_MASK_META
-                and partial_index is not None
-            ):
+            if validation_type == TrainingStage.VALIDATION_PARTIAL_MASK_META and partial_index is not None:
                 if partial_index not in self.partial_validation_indices:
                     self.partial_validation_indices.append(partial_index)
 
@@ -83,9 +74,7 @@ class TrainingProgress:
         """Mark the start of a validation phase."""
         self.current_stage = validation_type
 
-    def complete_validation(
-        self, validation_type: TrainingStage, partial_index: int | None = None
-    ):
+    def complete_validation(self, validation_type: TrainingStage, partial_index: int | None = None):
         """
         Mark the completion of a validation phase.
 
@@ -98,10 +87,7 @@ class TrainingProgress:
 
         # Remove from pending if all related validations are complete
         if validation_type == TrainingStage.VALIDATION_PARTIAL_MASK_META:
-            if (
-                partial_index is not None
-                and partial_index in self.partial_validation_indices
-            ):
+            if partial_index is not None and partial_index in self.partial_validation_indices:
                 self.partial_validation_indices.remove(partial_index)
 
             # Only remove from pending if all partial validations are complete
@@ -152,12 +138,8 @@ class TrainingProgress:
         self.current_epoch = state_dict["current_epoch"]
         self.global_step = state_dict["global_step"]
         self.expected_total_steps = state_dict.get("expected_total_steps", None)
-        self.pending_validations = [
-            TrainingStage[name] for name in state_dict["pending_validations"]
-        ]
-        self.completed_validations = [
-            TrainingStage[name] for name in state_dict["completed_validations"]
-        ]
+        self.pending_validations = [TrainingStage[name] for name in state_dict["pending_validations"]]
+        self.completed_validations = [TrainingStage[name] for name in state_dict["completed_validations"]]
         self.partial_validation_indices = state_dict["partial_validation_indices"]
 
     def __str__(self) -> str:

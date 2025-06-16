@@ -36,8 +36,7 @@ from torch import nn
 
 # Helper functions for PPO (compute_gae_and_returns, ppo_update - assumed to be present from previous step)
 def compute_gae_and_returns(
-    rewards_batch: np.ndarray, values_batch: np.ndarray, dones_batch: np.ndarray,
-    last_value_np: float, gamma: float, gae_lambda: float
+    rewards_batch: np.ndarray, values_batch: np.ndarray, dones_batch: np.ndarray, last_value_np: float, gamma: float, gae_lambda: float
 ) -> tuple[np.ndarray, np.ndarray]:
     num_steps = len(rewards_batch)
     advantages = np.zeros_like(rewards_batch)
@@ -48,24 +47,37 @@ def compute_gae_and_returns(
             next_values = last_value_np
         else:
             next_non_terminal = 1.0 - dones_batch[t]
-            next_values = values_batch[t+1]
+            next_values = values_batch[t + 1]
         delta = rewards_batch[t] + gamma * next_values * next_non_terminal - values_batch[t]
         advantages[t] = last_gae_lam = delta + gamma * gae_lambda * next_non_terminal * last_gae_lam
     returns = advantages + values_batch
     return advantages, returns
 
+
 def ppo_update(
-    policy_wrapper: LinnaeusPolicyWrapper, optimizer: optim.Optimizer, trajectory_data: list[dict[str, Any]],
-    last_value_final_next_obs_np: float, gamma: float, gae_lambda: float, ppo_epochs: int, ppo_batch_size: int,
-    clip_epsilon: float, vf_coef: float, ent_coef: float, max_grad_norm: float, logger: Any, device: torch.device,
-    rl_mode: str, rank_order_for_multitask: list[str] | None = None
+    policy_wrapper: LinnaeusPolicyWrapper,
+    optimizer: optim.Optimizer,
+    trajectory_data: list[dict[str, Any]],
+    last_value_final_next_obs_np: float,
+    gamma: float,
+    gae_lambda: float,
+    ppo_epochs: int,
+    ppo_batch_size: int,
+    clip_epsilon: float,
+    vf_coef: float,
+    ent_coef: float,
+    max_grad_norm: float,
+    logger: Any,
+    device: torch.device,
+    rl_mode: str,
+    rank_order_for_multitask: list[str] | None = None,
 ):
-    obs_list = [t['obs'] for t in trajectory_data]
-    actions_list = [t['action'] for t in trajectory_data]
-    log_probs_old_np = np.array([t['log_prob'] for t in trajectory_data], dtype=np.float32)
-    rewards_np = np.array([t['reward'] for t in trajectory_data], dtype=np.float32)
-    dones_np = np.array([t['done'] for t in trajectory_data], dtype=np.float32)
-    values_np = np.array([t['value'] for t in trajectory_data], dtype=np.float32)
+    obs_list = [t["obs"] for t in trajectory_data]
+    actions_list = [t["action"] for t in trajectory_data]
+    log_probs_old_np = np.array([t["log_prob"] for t in trajectory_data], dtype=np.float32)
+    rewards_np = np.array([t["reward"] for t in trajectory_data], dtype=np.float32)
+    dones_np = np.array([t["done"] for t in trajectory_data], dtype=np.float32)
+    values_np = np.array([t["value"] for t in trajectory_data], dtype=np.float32)
     advantages_np, returns_np = compute_gae_and_returns(rewards_np, values_np, dones_np, last_value_final_next_obs_np, gamma, gae_lambda)
     advantages_np = (advantages_np - advantages_np.mean()) / (advantages_np.std() + 1e-8)
     num_trajectory_steps = len(trajectory_data)
@@ -75,11 +87,11 @@ def ppo_update(
         np.random.shuffle(indices)
         for start_idx in range(0, num_trajectory_steps, ppo_batch_size):
             minibatch_indices = indices[start_idx : start_idx + ppo_batch_size]
-            batch_images_list = [obs_list[i]['image'] for i in minibatch_indices]
+            batch_images_list = [obs_list[i]["image"] for i in minibatch_indices]
             processed_images_list = []
             for img_np in batch_images_list:
                 if img_np.ndim == 3 and img_np.shape[-1] == 3:
-                    processed_images_list.append(np.transpose(img_np, (2,0,1)))
+                    processed_images_list.append(np.transpose(img_np, (2, 0, 1)))
                 elif img_np.ndim == 3 and img_np.shape[0] == 3:
                     processed_images_list.append(img_np)
                 else:
@@ -88,7 +100,7 @@ def ppo_update(
             minibatch_obs_dict = {"image": mb_obs_images}
             mb_actions: torch.Tensor | list[torch.Tensor]
             if rl_mode == "sequential":
-                batch_rank_indices_list = [obs_list[i]['current_rank_index'] for i in minibatch_indices]
+                batch_rank_indices_list = [obs_list[i]["current_rank_index"] for i in minibatch_indices]
                 minibatch_obs_dict["current_rank_index"] = torch.as_tensor(batch_rank_indices_list, dtype=torch.long, device=device)
                 mb_actions = torch.as_tensor(np.array([actions_list[i] for i in minibatch_indices]), dtype=torch.long, device=device)
             elif rl_mode == "multitask":
@@ -100,7 +112,10 @@ def ppo_update(
                     action_sample = actions_list[i]
                     for rank_j in range(num_ranks):
                         actions_per_rank_for_batch[rank_j].append(action_sample[rank_j])
-                mb_actions = [torch.as_tensor(np.array(actions_for_one_rank), dtype=torch.long, device=device) for actions_for_one_rank in actions_per_rank_for_batch]
+                mb_actions = [
+                    torch.as_tensor(np.array(actions_for_one_rank), dtype=torch.long, device=device)
+                    for actions_for_one_rank in actions_per_rank_for_batch
+                ]
             else:
                 raise ValueError(f"Unsupported rl_mode in ppo_update: {rl_mode}")
             mb_log_probs_old = torch.as_tensor(log_probs_old_np[minibatch_indices], dtype=torch.float32, device=device)
@@ -125,33 +140,51 @@ def ppo_update(
             "ppo/policy_loss": policy_loss.item(),
             "ppo/value_loss": value_loss.item(),
             "ppo/entropy": -entropy_loss.item(),
-            "ppo/total_loss": total_loss.item()
+            "ppo/total_loss": total_loss.item(),
         }
-        logger.info(f"PPO Update: Losses - Policy={log_data_ppo['ppo/policy_loss']:.4f}, Value={log_data_ppo['ppo/value_loss']:.4f}, Entropy={log_data_ppo['ppo/entropy']:.4f}")
-        if initialize_wandb.wandb_is_initialized: log_to_wandb(log_data_ppo)
+        logger.info(
+            f"PPO Update: Losses - Policy={log_data_ppo['ppo/policy_loss']:.4f}, Value={log_data_ppo['ppo/value_loss']:.4f}, Entropy={log_data_ppo['ppo/entropy']:.4f}"
+        )
+        if initialize_wandb.wandb_is_initialized:
+            log_to_wandb(log_data_ppo)
+
 
 def evaluate_policy(
-    policy_wrapper: LinnaeusPolicyWrapper, eval_env: TaxonomicClassificationEnv, num_eval_episodes: int,
-    logger: Any, device: torch.device, rl_mode: str, rank_order_for_multitask: list[str] | None = None,
+    policy_wrapper: LinnaeusPolicyWrapper,
+    eval_env: TaxonomicClassificationEnv,
+    num_eval_episodes: int,
+    logger: Any,
+    device: torch.device,
+    rl_mode: str,
+    rank_order_for_multitask: list[str] | None = None,
 ):
     policy_wrapper.eval()
     episode_rewards, episode_lengths = [], []
-    abstention_counts_per_rank = {r: {"abstained":0,"total_decisions":0,"correct_abstain":0,"unnecessary_abstain":0,
-                                      "missed_abstain":0,"correct_classify_non_abstain":0,"misclassify_non_abstain":0}
-                                  for r in eval_env.rank_order}
+    abstention_counts_per_rank = {
+        r: {
+            "abstained": 0,
+            "total_decisions": 0,
+            "correct_abstain": 0,
+            "unnecessary_abstain": 0,
+            "missed_abstain": 0,
+            "correct_classify_non_abstain": 0,
+            "misclassify_non_abstain": 0,
+        }
+        for r in eval_env.rank_order
+    }
     for i_episode in range(num_eval_episodes):
         obs_dict, info_dict = eval_env.reset()
         done, truncated = False, False
         current_eval_episode_reward, current_eval_episode_length = 0.0, 0
         gt_full_sequence = info_dict.get("ground_truth", {})
         while not (done or truncated):
-            img_np = obs_dict['image']
+            img_np = obs_dict["image"]
             if img_np.ndim == 3 and img_np.shape[-1] == 3:
-                img_np = np.transpose(img_np, (2,0,1))
+                img_np = np.transpose(img_np, (2, 0, 1))
             image_tensor = torch.as_tensor(img_np, dtype=torch.float32, device=device).unsqueeze(0)
             policy_input_obs = {"image": image_tensor}
             if rl_mode == "sequential":
-                policy_input_obs["current_rank_index"] = torch.as_tensor([obs_dict['current_rank_index']], dtype=torch.long, device=device)
+                policy_input_obs["current_rank_index"] = torch.as_tensor([obs_dict["current_rank_index"]], dtype=torch.long, device=device)
             with torch.no_grad():
                 action_dist, _ = policy_wrapper(policy_input_obs)
             action_to_env: int | np.ndarray
@@ -163,8 +196,8 @@ def evaluate_policy(
             current_eval_episode_reward += reward
             current_eval_episode_length += 1
             if (rl_mode == "sequential" and done) or (rl_mode == "multitask"):
-                if 'final_predictions' in step_info:
-                    for r_name, p_list in step_info['final_predictions'].items():
+                if "final_predictions" in step_info:
+                    for r_name, p_list in step_info["final_predictions"].items():
                         if r_name not in abstention_counts_per_rank:
                             continue
                         counts = abstention_counts_per_rank[r_name]
@@ -183,28 +216,35 @@ def evaluate_policy(
                             elif pred_label == gt_label:
                                 counts["correct_classify_non_abstain"] += 1
                             else:
-                                counts["misclassify_non_abstain"] +=1
+                                counts["misclassify_non_abstain"] += 1
                 if rl_mode == "sequential":
                     break
         episode_rewards.append(current_eval_episode_reward)
         episode_lengths.append(current_eval_episode_length)
         if is_main_process_safely():
-            logger.debug(f"Eval Ep {i_episode+1}/{num_eval_episodes}: R={current_eval_episode_reward:.2f}, L={current_eval_episode_length}")
+            logger.debug(
+                f"Eval Ep {i_episode + 1}/{num_eval_episodes}: R={current_eval_episode_reward:.2f}, L={current_eval_episode_length}"
+            )
     policy_wrapper.train()
-    eval_results = {"mean_reward": np.mean(episode_rewards) if episode_rewards else 0,
-                    "median_reward": np.median(episode_rewards) if episode_rewards else 0,
-                    "mean_length": np.mean(episode_lengths) if episode_lengths else 0}
+    eval_results = {
+        "mean_reward": np.mean(episode_rewards) if episode_rewards else 0,
+        "median_reward": np.median(episode_rewards) if episode_rewards else 0,
+        "mean_length": np.mean(episode_lengths) if episode_lengths else 0,
+    }
     for r_name, c in abstention_counts_per_rank.items():
         total = c["total_decisions"]
-        eval_results[f"abst_rate/{r_name}"] = (c["abstained"]/total) if total > 0 else 0
-        eval_results[f"corr_abst_rate/{r_name}"]=(c["correct_abstain"]/c["abstained"]) if c["abstained"]>0 else 0
-        eval_results[f"unnec_abst_rate/{r_name}"]=(c["unnecessary_abstain"]/c["abstained"]) if c["abstained"]>0 else 0
-        should_abst = c["correct_abstain"]+c["missed_abstain"]
-        eval_results[f"recall_abst/{r_name}"]=(c["correct_abstain"]/should_abst) if should_abst > 0 else 0
-        did_classify_non_null = c["correct_classify_non_abstain"]+c["misclassify_non_abstain"]
-        eval_results[f"acc_on_non_abst/{r_name}"]=(c["correct_classify_non_abstain"]/did_classify_non_null) if did_classify_non_null > 0 else 0
-        eval_results[f"missed_abst_count/{r_name}"]=c["missed_abstain"]
+        eval_results[f"abst_rate/{r_name}"] = (c["abstained"] / total) if total > 0 else 0
+        eval_results[f"corr_abst_rate/{r_name}"] = (c["correct_abstain"] / c["abstained"]) if c["abstained"] > 0 else 0
+        eval_results[f"unnec_abst_rate/{r_name}"] = (c["unnecessary_abstain"] / c["abstained"]) if c["abstained"] > 0 else 0
+        should_abst = c["correct_abstain"] + c["missed_abstain"]
+        eval_results[f"recall_abst/{r_name}"] = (c["correct_abstain"] / should_abst) if should_abst > 0 else 0
+        did_classify_non_null = c["correct_classify_non_abstain"] + c["misclassify_non_abstain"]
+        eval_results[f"acc_on_non_abst/{r_name}"] = (
+            (c["correct_classify_non_abstain"] / did_classify_non_null) if did_classify_non_null > 0 else 0
+        )
+        eval_results[f"missed_abst_count/{r_name}"] = c["missed_abstain"]
     return eval_results
+
 
 def parse_args(args_list=None):
     parser = argparse.ArgumentParser("Linnaeus RL Abstention Training", add_help=False)
@@ -225,10 +265,12 @@ def parse_args(args_list=None):
     if not config.ENV.OUTPUT.ROOT:
         config.ENV.OUTPUT.ROOT = os.path.join(os.getcwd(), "output", "rl_training")
     if "_RL_Abstention" not in config.ENV.EXPERIMENT_NAME:
-        config.ENV.EXPERIMENT_NAME = config.ENV.EXPERIMENT_NAME + "_RL_Abstention" if config.ENV.EXPERIMENT_NAME else "RL_Abstention_Training"
+        config.ENV.EXPERIMENT_NAME = (
+            config.ENV.EXPERIMENT_NAME + "_RL_Abstention" if config.ENV.EXPERIMENT_NAME else "RL_Abstention_Training"
+        )
 
     # Ensure TRAIN.RL node and its sub-nodes/defaults exist
-    if not hasattr(config.TRAIN, 'RL'):
+    if not hasattr(config.TRAIN, "RL"):
         config.TRAIN.RL = {}
     config.TRAIN.RL.defrost()
     config.TRAIN.RL.MODE = config.TRAIN.RL.get("MODE", "sequential")
@@ -241,7 +283,7 @@ def parse_args(args_list=None):
     config.TRAIN.RL.LEARNING_RATE = config.TRAIN.RL.get("LEARNING_RATE", 3e-4)
     config.TRAIN.RL.FINETUNE_STRATEGY = config.TRAIN.RL.get("FINETUNE_STRATEGY", "heads_only")
     config.TRAIN.RL.NUM_UNFROZEN_BACKBONE_BLOCKS = config.TRAIN.RL.get("NUM_UNFROZEN_BACKBONE_BLOCKS", 2)
-    if not hasattr(config.TRAIN.RL, 'PPO'):
+    if not hasattr(config.TRAIN.RL, "PPO"):
         config.TRAIN.RL.PPO = {}
     config.TRAIN.RL.PPO.defrost()
     config.TRAIN.RL.PPO.EPOCHS = config.TRAIN.RL.PPO.get("EPOCHS", 4)
@@ -253,23 +295,23 @@ def parse_args(args_list=None):
     config.TRAIN.RL.PPO.ENT_COEF = config.TRAIN.RL.PPO.get("ENT_COEF", 0.01)
     config.TRAIN.RL.PPO.MAX_GRAD_NORM = config.TRAIN.RL.PPO.get("MAX_GRAD_NORM", 0.5)
     config.TRAIN.RL.PPO.freeze()
-    if not hasattr(config.TRAIN.RL, 'REWARD_FUNCTION'):
+    if not hasattr(config.TRAIN.RL, "REWARD_FUNCTION"):
         config.TRAIN.RL.REWARD_FUNCTION = {}
     config.TRAIN.RL.REWARD_FUNCTION.defrost()
     config.TRAIN.RL.REWARD_FUNCTION.TYPE = config.TRAIN.RL.REWARD_FUNCTION.get("TYPE", "SimpleAbstentionReward")
-    if not hasattr(config.TRAIN.RL.REWARD_FUNCTION, 'PARAMS'):
+    if not hasattr(config.TRAIN.RL.REWARD_FUNCTION, "PARAMS"):
         config.TRAIN.RL.REWARD_FUNCTION.PARAMS = {}
     sar_params = config.TRAIN.RL.REWARD_FUNCTION.PARAMS
     sar_params.defrost()
-    sar_params["reward_correct_classification"]=sar_params.get("reward_correct_classification",1.0)
-    sar_params["reward_correct_abstention"]=sar_params.get("reward_correct_abstention",0.5)
-    sar_params["penalty_misclassification"]=sar_params.get("penalty_misclassification",-1.0)
-    sar_params["penalty_unnecessary_abstention"]=sar_params.get("penalty_unnecessary_abstention",-0.5)
-    sar_params["penalty_incorrect_prediction_at_null_rank"]=sar_params.get("penalty_incorrect_prediction_at_null_rank",-1.0)
+    sar_params["reward_correct_classification"] = sar_params.get("reward_correct_classification", 1.0)
+    sar_params["reward_correct_abstention"] = sar_params.get("reward_correct_abstention", 0.5)
+    sar_params["penalty_misclassification"] = sar_params.get("penalty_misclassification", -1.0)
+    sar_params["penalty_unnecessary_abstention"] = sar_params.get("penalty_unnecessary_abstention", -0.5)
+    sar_params["penalty_incorrect_prediction_at_null_rank"] = sar_params.get("penalty_incorrect_prediction_at_null_rank", -1.0)
     sar_params.freeze()
     config.TRAIN.RL.REWARD_FUNCTION.freeze()
     config.TRAIN.RL.freeze()
-    if not hasattr(config.MODEL, 'RL_POLICY'):
+    if not hasattr(config.MODEL, "RL_POLICY"):
         config.MODEL.RL_POLICY = {}
     config.MODEL.RL_POLICY.defrost()
     config.MODEL.RL_POLICY.BACKBONE_FEATURES_DIM = config.MODEL.RL_POLICY.get("BACKBONE_FEATURES_DIM", 512)
@@ -279,10 +321,12 @@ def parse_args(args_list=None):
     config = setup_output_dirs(config, args=args)
     return config, args
 
+
 def main():
-    config, cmd_args = parse_args() # cmd_args now simpler
+    config, cmd_args = parse_args()  # cmd_args now simpler
     init_distributed_mode(config)
-    rank = get_rank_safely(); world_size = get_world_size()
+    rank = get_rank_safely()
+    world_size = get_world_size()
     create_logger(output_dir=config.ENV.OUTPUT.DIRS.LOGS, dist_rank=rank, name="", log_level=config.EXPERIMENT.LOG_LEVEL_MAIN)
     create_h5data_logger(output_dir=config.ENV.OUTPUT.DIRS.LOGS, dist_rank=rank, log_level=config.EXPERIMENT.LOG_LEVEL_H5DATA)
     logger = get_main_logger()
@@ -300,11 +344,11 @@ def main():
 
     logger.info("Building data components...")
     h5_logger = get_h5data_logger()
-    dataset_train,_,num_classes_supervised,_,_,taxonomy_tree,_,_,_,_,_ = build_datasets(config,h5_logger,monitor_enabled=False)
+    dataset_train, _, num_classes_supervised, _, _, taxonomy_tree, _, _, _, _, _ = build_datasets(config, h5_logger, monitor_enabled=False)
     if dataset_train is None or taxonomy_tree is None:
         logger.error("Dataset/TaxonomyTree build failed.")
         sys.exit(1)
-    train_loader,_=build_loaders(config,dataset_train,None,h5_logger)
+    train_loader, _ = build_loaders(config, dataset_train, None, h5_logger)
     logger.info("Data components built.")
 
     logger.info(f"Loading Phase 1 model from: {cmd_args.phase1_model_path}")
@@ -315,12 +359,14 @@ def main():
     else:
         phase1_cfg_for_build.merge_from_other_cfg(config)  # Fallback to current config structure
     phase1_cfg_for_build.defrost()
-    phase1_cfg_for_build.MODEL.PRETRAINED=None
-    phase1_cfg_for_build.MODEL.RESUME=None
+    phase1_cfg_for_build.MODEL.PRETRAINED = None
+    phase1_cfg_for_build.MODEL.RESUME = None
     phase1_cfg_for_build.freeze()
-    phase1_model:BaseModel=build_model(config=phase1_cfg_for_build,num_classes=num_classes_supervised,taxonomy_tree=taxonomy_tree)
-    load_checkpoint(phase1_cfg_for_build,phase1_model,logger,ckpt_path=cmd_args.phase1_model_path,strict=False)
-    policy_device=torch.device(config.TRAIN.RL.POLICY_DEVICE if torch.cuda.is_available() and config.TRAIN.RL.POLICY_DEVICE=="cuda" else "cpu")
+    phase1_model: BaseModel = build_model(config=phase1_cfg_for_build, num_classes=num_classes_supervised, taxonomy_tree=taxonomy_tree)
+    load_checkpoint(phase1_cfg_for_build, phase1_model, logger, ckpt_path=cmd_args.phase1_model_path, strict=False)
+    policy_device = torch.device(
+        config.TRAIN.RL.POLICY_DEVICE if torch.cuda.is_available() and config.TRAIN.RL.POLICY_DEVICE == "cuda" else "cpu"
+    )
     phase1_model.to(policy_device)
     phase1_model.eval()
     logger.info(f"Phase 1 model loaded to {policy_device}")
@@ -336,29 +382,37 @@ def main():
         raise ValueError(f"Unsupported reward function: {reward_fn_type}")
     logger.info(f"Using reward function: {reward_fn_type} with params: {reward_fn_params}")
 
-    verifier_instance = TaxonomicRLVerifier(taxonomy_tree=taxonomy_tree, reward_function=reward_function_instance, rank_order=taxonomy_tree.task_keys)
+    verifier_instance = TaxonomicRLVerifier(
+        taxonomy_tree=taxonomy_tree, reward_function=reward_function_instance, rank_order=taxonomy_tree.task_keys
+    )
     rl_env_mode = config.TRAIN.RL.MODE
     rl_env = TaxonomicClassificationEnv(
-        dataloader=train_loader, taxonomy_tree=taxonomy_tree, verifier=verifier_instance, mode=rl_env_mode,
-        image_shape=tuple(config.DATA.get("IMAGE_SHAPE", (3,224,224)))
+        dataloader=train_loader,
+        taxonomy_tree=taxonomy_tree,
+        verifier=verifier_instance,
+        mode=rl_env_mode,
+        image_shape=tuple(config.DATA.get("IMAGE_SHAPE", (3, 224, 224))),
     )
     logger.info(f"RL Env '{rl_env_mode}' mode initialized.")
 
     backbone_feat_dim = config.MODEL.RL_POLICY.BACKBONE_FEATURES_DIM
     if backbone_feat_dim is None:
-        if hasattr(phase1_model,'backbone_feat_dim'):
+        if hasattr(phase1_model, "backbone_feat_dim"):
             backbone_feat_dim = phase1_model.backbone_feat_dim
         else:
             logger.error("BACKBONE_FEATURES_DIM not set/inferable.")
             sys.exit(1)
-    policy_num_classes = {name: count+1 for name,count in taxonomy_tree.num_classes.items()}
+    policy_num_classes = {name: count + 1 for name, count in taxonomy_tree.num_classes.items()}
     policy_wrapper = LinnaeusPolicyWrapper(
-        linnaeus_model=phase1_model, backbone_features_dim=backbone_feat_dim,
-        num_classes_at_rank=policy_num_classes, mode=rl_env_mode, rank_order=taxonomy_tree.task_keys
+        linnaeus_model=phase1_model,
+        backbone_features_dim=backbone_feat_dim,
+        num_classes_at_rank=policy_num_classes,
+        mode=rl_env_mode,
+        rank_order=taxonomy_tree.task_keys,
     )
     policy_wrapper.to(policy_device)
     logger.info(f"Policy wrapper on {policy_device}")
-    if rank == 0 and config.EXPERIMENT.WANDB.ENABLED and not getattr(initialize_wandb, 'wandb_is_initialized', False):
+    if rank == 0 and config.EXPERIMENT.WANDB.ENABLED and not getattr(initialize_wandb, "wandb_is_initialized", False):
         initialize_wandb(config=config, model=policy_wrapper)
 
     finetune_strat = config.TRAIN.RL.FINETUNE_STRATEGY
@@ -368,28 +422,32 @@ def main():
             param.requires_grad = False
         logger.info("Frozen Linnaeus model. Training value_head only.")
     elif finetune_strat == "heads_only":
-        if hasattr(policy_wrapper.linnaeus_model, 'backbone') and policy_wrapper.linnaeus_model.backbone:
+        if hasattr(policy_wrapper.linnaeus_model, "backbone") and policy_wrapper.linnaeus_model.backbone:
             for param in policy_wrapper.linnaeus_model.backbone.parameters():
                 param.requires_grad = False
             logger.info("Frozen Linnaeus backbone.")
         else:
             logger.warning("No 'backbone' on Linnaeus model for 'heads_only'.")
-        for attr in ['heads','head','classification_heads']:
-            if hasattr(policy_wrapper.linnaeus_model,attr):
-                module=getattr(policy_wrapper.linnaeus_model,attr)
-                if isinstance(module,nn.Module):
+        for attr in ["heads", "head", "classification_heads"]:
+            if hasattr(policy_wrapper.linnaeus_model, attr):
+                module = getattr(policy_wrapper.linnaeus_model, attr)
+                if isinstance(module, nn.Module):
                     [p.requires_grad_(True) for p in module.parameters()]
                     logger.info(f"Ensured '{attr}' trainable.")
                     break
     elif finetune_strat == "last_n_blocks":
         num_unfrozen = config.TRAIN.RL.NUM_UNFROZEN_BACKBONE_BLOCKS
-        if hasattr(policy_wrapper.linnaeus_model,'backbone') and hasattr(policy_wrapper.linnaeus_model.backbone,'blocks') \
-           and isinstance(policy_wrapper.linnaeus_model.backbone.blocks,nn.ModuleList) and len(policy_wrapper.linnaeus_model.backbone.blocks)>0:
+        if (
+            hasattr(policy_wrapper.linnaeus_model, "backbone")
+            and hasattr(policy_wrapper.linnaeus_model.backbone, "blocks")
+            and isinstance(policy_wrapper.linnaeus_model.backbone.blocks, nn.ModuleList)
+            and len(policy_wrapper.linnaeus_model.backbone.blocks) > 0
+        ):
             total_blocks = len(policy_wrapper.linnaeus_model.backbone.blocks)
             for param in policy_wrapper.linnaeus_model.backbone.parameters():
                 param.requires_grad = False
             if 0 < num_unfrozen <= total_blocks:
-                for i in range(total_blocks-num_unfrozen,total_blocks):
+                for i in range(total_blocks - num_unfrozen, total_blocks):
                     [p.requires_grad_(True) for p in policy_wrapper.linnaeus_model.backbone.blocks[i].parameters()]
                 logger.info(f"Froze backbone, unfroze last {num_unfrozen} blocks.")
             elif num_unfrozen > total_blocks:
@@ -399,14 +457,14 @@ def main():
                 logger.info("All backbone blocks frozen.")
         else:
             logger.warning("'last_n_blocks' failed. Defaulting to 'heads_only'.")
-            if hasattr(policy_wrapper.linnaeus_model,'backbone') and policy_wrapper.linnaeus_model.backbone:
+            if hasattr(policy_wrapper.linnaeus_model, "backbone") and policy_wrapper.linnaeus_model.backbone:
                 [p.requires_grad_(False) for p in policy_wrapper.linnaeus_model.backbone.parameters()]
     elif finetune_strat == "full":
         [p.requires_grad_(True) for p in policy_wrapper.linnaeus_model.parameters()]
         logger.info("Full fine-tuning enabled.")
     else:
         logger.warning(f"Unknown strategy: {finetune_strat}. Defaulting to 'heads_only'.")
-        if hasattr(policy_wrapper.linnaeus_model,'backbone') and policy_wrapper.linnaeus_model.backbone:
+        if hasattr(policy_wrapper.linnaeus_model, "backbone") and policy_wrapper.linnaeus_model.backbone:
             [p.requires_grad_(False) for p in policy_wrapper.linnaeus_model.backbone.parameters()]
 
     trainable_params = filter(lambda p: p.requires_grad, policy_wrapper.parameters())
@@ -415,102 +473,136 @@ def main():
     if is_main_process_safely():
         total_p = sum(p.numel() for p in policy_wrapper.parameters())
         train_p = sum(p.numel() for p in policy_wrapper.parameters() if p.requires_grad)
-        logger.info(f"Policy Wrapper Params: Total={total_p}, Trainable={train_p} ({train_p/total_p*100:.2f}%)")
+        logger.info(f"Policy Wrapper Params: Total={total_p}, Trainable={train_p} ({train_p / total_p * 100:.2f}%)")
 
     logger.info("Starting PPO training loop...")
     traj_batch, ep_rewards, ep_lengths = [], [], []
     obs_dict, _ = rl_env.reset()
-    current_ep_reward, current_ep_length, ep_this_batch = 0.0,0,0
+    current_ep_reward, current_ep_length, ep_this_batch = 0.0, 0, 0
     ppo_updates_done = 0
 
     for overall_ts in range(1, config.TRAIN.RL.TOTAL_TIMESTEPS + 1):
-        img_np = obs_dict['image']
+        img_np = obs_dict["image"]
         if img_np.ndim == 3 and img_np.shape[-1] == 3:
-            img_np = np.transpose(img_np, (2,0,1))
-        img_tensor = torch.as_tensor(img_np,dtype=torch.float32,device=policy_device).unsqueeze(0)
-        pol_input_obs = {"image":img_tensor}
+            img_np = np.transpose(img_np, (2, 0, 1))
+        img_tensor = torch.as_tensor(img_np, dtype=torch.float32, device=policy_device).unsqueeze(0)
+        pol_input_obs = {"image": img_tensor}
         if rl_env_mode == "sequential":
-            pol_input_obs["current_rank_index"]=torch.as_tensor([obs_dict['current_rank_index']],dtype=torch.long,device=policy_device)
+            pol_input_obs["current_rank_index"] = torch.as_tensor([obs_dict["current_rank_index"]], dtype=torch.long, device=policy_device)
         with torch.no_grad():
             action_dist, val_tensor = policy_wrapper(pol_input_obs)
-        action_env:int | np.ndarray
+        action_env: int | np.ndarray
         if rl_env_mode == "sequential":
-            action_t=action_dist.sample()
-            log_prob_t=action_dist.log_prob(action_t)
-            action_env=action_t.item()
-        elif rl_env_mode=="multitask":
-            if not isinstance(action_dist,list):
+            action_t = action_dist.sample()
+            log_prob_t = action_dist.log_prob(action_t)
+            action_env = action_t.item()
+        elif rl_env_mode == "multitask":
+            if not isinstance(action_dist, list):
                 raise TypeError(f"Expected list of dists, got {type(action_dist)}")
-            s_actions=[d.sample() for d in action_dist]
-            action_t=torch.stack(s_actions,dim=0).T
-            log_probs_r=[d.log_prob(a) for d,a in zip(action_dist,s_actions, strict=False)]
-            log_prob_t=torch.stack(log_probs_r,dim=1).sum(dim=1)
-            action_env=action_t.squeeze(0).cpu().numpy()
+            s_actions = [d.sample() for d in action_dist]
+            action_t = torch.stack(s_actions, dim=0).T
+            log_probs_r = [d.log_prob(a) for d, a in zip(action_dist, s_actions, strict=False)]
+            log_prob_t = torch.stack(log_probs_r, dim=1).sum(dim=1)
+            action_env = action_t.squeeze(0).cpu().numpy()
         else:
             raise ValueError(f"Unsupported RL mode: {rl_env_mode}")
-        next_obs_dict,rew,done,trunc,info_step=rl_env.step(action_env)
-        traj_batch.append({"obs":obs_dict,"action":action_env,"reward":rew,"done":float(done),
-                           "log_prob":log_prob_t.detach().cpu().numpy().item(),
-                           "value":val_tensor.detach().cpu().numpy().item(),"next_obs":next_obs_dict})
-        obs_dict=next_obs_dict
-        current_ep_reward+=rew
-        current_ep_length+=1
+        next_obs_dict, rew, done, trunc, info_step = rl_env.step(action_env)
+        traj_batch.append(
+            {
+                "obs": obs_dict,
+                "action": action_env,
+                "reward": rew,
+                "done": float(done),
+                "log_prob": log_prob_t.detach().cpu().numpy().item(),
+                "value": val_tensor.detach().cpu().numpy().item(),
+                "next_obs": next_obs_dict,
+            }
+        )
+        obs_dict = next_obs_dict
+        current_ep_reward += rew
+        current_ep_length += 1
         if done or trunc:
-            reason="trunc" if trunc and not done else info_step.get('reason_for_done','end')
+            reason = "trunc" if trunc and not done else info_step.get("reason_for_done", "end")
             if is_main_process_safely():
                 logger.debug(f"T{overall_ts}: Ep end R={current_ep_reward:.2f} L={current_ep_length} {reason}")
             ep_rewards.append(current_ep_reward)
             ep_lengths.append(current_ep_length)
-            obs_dict,_=rl_env.reset()
-            current_ep_reward=0.0
-            current_ep_length=0
-            ep_this_batch+=1
+            obs_dict, _ = rl_env.reset()
+            current_ep_reward = 0.0
+            current_ep_length = 0
+            ep_this_batch += 1
         if len(traj_batch) >= config.TRAIN.RL.STEPS_PER_BATCH:
-            last_val=0.0
+            last_val = 0.0
             if not (done or trunc):
-                img_f_np=obs_dict['image']
-                if img_f_np.ndim==3 and img_f_np.shape[-1]==3:
-                    img_f_np=np.transpose(img_f_np,(2,0,1))
-                img_f_tensor=torch.as_tensor(img_f_np,dtype=torch.float32,device=policy_device).unsqueeze(0)
-                obs_f_pol={"image":img_f_tensor}
-                if rl_env_mode=="sequential":
-                    obs_f_pol["current_rank_index"]=torch.as_tensor([obs_dict['current_rank_index']],dtype=torch.long,device=policy_device)
+                img_f_np = obs_dict["image"]
+                if img_f_np.ndim == 3 and img_f_np.shape[-1] == 3:
+                    img_f_np = np.transpose(img_f_np, (2, 0, 1))
+                img_f_tensor = torch.as_tensor(img_f_np, dtype=torch.float32, device=policy_device).unsqueeze(0)
+                obs_f_pol = {"image": img_f_tensor}
+                if rl_env_mode == "sequential":
+                    obs_f_pol["current_rank_index"] = torch.as_tensor(
+                        [obs_dict["current_rank_index"]], dtype=torch.long, device=policy_device
+                    )
                 with torch.no_grad():
-                    _,last_val_t=policy_wrapper(obs_f_pol)
-                    last_val=last_val_t.detach().cpu().numpy().item()
+                    _, last_val_t = policy_wrapper(obs_f_pol)
+                    last_val = last_val_t.detach().cpu().numpy().item()
             if is_main_process_safely():
                 logger.info(f"Collected {len(traj_batch)} steps. Last GAE val: {last_val:.3f}. Updating PPO...")
-            ppo_update(policy_wrapper,optimizer,traj_batch,last_val,
-                       config.TRAIN.RL.PPO.GAMMA,config.TRAIN.RL.PPO.GAE_LAMBDA,config.TRAIN.RL.PPO.EPOCHS,config.TRAIN.RL.PPO.BATCH_SIZE,
-                       config.TRAIN.RL.PPO.CLIP_EPSILON,config.TRAIN.RL.PPO.VF_COEF,config.TRAIN.RL.PPO.ENT_COEF,config.TRAIN.RL.PPO.MAX_GRAD_NORM,
-                       logger,policy_device,rl_env_mode,taxonomy_tree.task_keys if rl_env_mode=="multitask" else None)
-            traj_batch=[]
-            ep_this_batch=0
-            ppo_updates_done+=1
-            if rank==0 and config.EXPERIMENT.WANDB.ENABLED and getattr(initialize_wandb,'wandb_is_initialized',False):
-                log_data={"rl_train/mean_episode_reward":np.mean(ep_rewards) if ep_rewards else 0,
-                          "rl_train/median_episode_reward":np.median(ep_rewards) if ep_rewards else 0,
-                          "rl_train/mean_episode_length":np.mean(ep_lengths) if ep_lengths else 0,
-                          "rl_train/ppo_update_count":ppo_updates_done,
-                          "rl_train/learning_rate":optimizer.param_groups[0]['lr']}
-                log_to_wandb(log_data,step=overall_ts)
+            ppo_update(
+                policy_wrapper,
+                optimizer,
+                traj_batch,
+                last_val,
+                config.TRAIN.RL.PPO.GAMMA,
+                config.TRAIN.RL.PPO.GAE_LAMBDA,
+                config.TRAIN.RL.PPO.EPOCHS,
+                config.TRAIN.RL.PPO.BATCH_SIZE,
+                config.TRAIN.RL.PPO.CLIP_EPSILON,
+                config.TRAIN.RL.PPO.VF_COEF,
+                config.TRAIN.RL.PPO.ENT_COEF,
+                config.TRAIN.RL.PPO.MAX_GRAD_NORM,
+                logger,
+                policy_device,
+                rl_env_mode,
+                taxonomy_tree.task_keys if rl_env_mode == "multitask" else None,
+            )
+            traj_batch = []
+            ep_this_batch = 0
+            ppo_updates_done += 1
+            if rank == 0 and config.EXPERIMENT.WANDB.ENABLED and getattr(initialize_wandb, "wandb_is_initialized", False):
+                log_data = {
+                    "rl_train/mean_episode_reward": np.mean(ep_rewards) if ep_rewards else 0,
+                    "rl_train/median_episode_reward": np.median(ep_rewards) if ep_rewards else 0,
+                    "rl_train/mean_episode_length": np.mean(ep_lengths) if ep_lengths else 0,
+                    "rl_train/ppo_update_count": ppo_updates_done,
+                    "rl_train/learning_rate": optimizer.param_groups[0]["lr"],
+                }
+                log_to_wandb(log_data, step=overall_ts)
             if is_main_process_safely() and ep_rewards:
                 logger.info(f"PPO Update #{ppo_updates_done}. Avg R: {np.mean(ep_rewards):.2f}, Avg L: {np.mean(ep_lengths):.2f}")
-            ep_rewards,ep_lengths=[],[]
-            if ppo_updates_done>0 and ppo_updates_done % config.TRAIN.RL.EVAL_INTERVAL_BATCHES == 0:
+            ep_rewards, ep_lengths = [], []
+            if ppo_updates_done > 0 and ppo_updates_done % config.TRAIN.RL.EVAL_INTERVAL_BATCHES == 0:
                 if is_main_process_safely():
                     logger.info(f"Eval at PPO update #{ppo_updates_done} (Timestep {overall_ts})")
-                eval_metrics=evaluate_policy(policy_wrapper,rl_env,config.TRAIN.RL.NUM_EVAL_EPISODES,logger,policy_device,
-                                             rl_env_mode,taxonomy_tree.task_keys if rl_env_mode=="multitask" else None)
+                eval_metrics = evaluate_policy(
+                    policy_wrapper,
+                    rl_env,
+                    config.TRAIN.RL.NUM_EVAL_EPISODES,
+                    logger,
+                    policy_device,
+                    rl_env_mode,
+                    taxonomy_tree.task_keys if rl_env_mode == "multitask" else None,
+                )
                 if is_main_process_safely():
                     logger.info(f"Evaluation results: {eval_metrics}")
-                    if config.EXPERIMENT.WANDB.ENABLED and getattr(initialize_wandb,'wandb_is_initialized',False):
-                        log_to_wandb({f"rl_eval/{k}":v for k,v in eval_metrics.items()},step=overall_ts)
+                    if config.EXPERIMENT.WANDB.ENABLED and getattr(initialize_wandb, "wandb_is_initialized", False):
+                        log_to_wandb({f"rl_eval/{k}": v for k, v in eval_metrics.items()}, step=overall_ts)
     logger.info("RL training loop finished.")
-    if rank==0 and config.EXPERIMENT.WANDB.ENABLED and getattr(initialize_wandb,'wandb_is_initialized',False):
+    if rank == 0 and config.EXPERIMENT.WANDB.ENABLED and getattr(initialize_wandb, "wandb_is_initialized", False):
         finish_wandb()
     rl_env.close()
     logger.info("RL Env closed.")
+
 
 if __name__ == "__main__":
     main_logger = None
@@ -523,6 +615,7 @@ if __name__ == "__main__":
         else:
             print(f"FATAL (logger N/A): {e}")
             import traceback
+
             traceback.print_exc()
         if not isinstance(e, SystemExit) or (isinstance(e, SystemExit) and e.code == 0):
             sys.exit(1)

@@ -25,12 +25,8 @@ def export_model(model_path):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(
-        description="Export Metaformer model to .pt2 format"
-    )
-    parser.add_argument(
-        "model_path", type=str, help="Absolute path to the .pth model file"
-    )
+    parser = argparse.ArgumentParser(description="Export Metaformer model to .pt2 format")
+    parser.add_argument("model_path", type=str, help="Absolute path to the .pth model file")
     args = parser.parse_args()
 
     export_model(args.model_path)

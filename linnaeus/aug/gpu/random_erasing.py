@@ -58,31 +58,18 @@ class GPURandomErasing(RandomErasing):
                 continue
 
             # Generate random positions for valid indices
-            x = torch.randint(
-                0, width - w[valid_idx], (valid_idx.sum(),), device=device
-            )
-            y = torch.randint(
-                0, height - h[valid_idx], (valid_idx.sum(),), device=device
-            )
+            x = torch.randint(0, width - w[valid_idx], (valid_idx.sum(),), device=device)
+            y = torch.randint(0, height - h[valid_idx], (valid_idx.sum(),), device=device)
 
             # Apply erasing based on mode - ensure values are in [0, 1] range
             if self.config["MODE"] == "const":
-                values = torch.empty(
-                    (valid_idx.sum(), channels, 1, 1), device=device
-                ).uniform_(0, 1)
+                values = torch.empty((valid_idx.sum(), channels, 1, 1), device=device).uniform_(0, 1)
             elif self.config["MODE"] == "rand":
-                values = torch.empty(
-                    (valid_idx.sum(), channels, 1, 1), device=device
-                ).uniform_(0, 1)
+                values = torch.empty((valid_idx.sum(), channels, 1, 1), device=device).uniform_(0, 1)
             else:  # 'pixel' mode
                 means = images[valid_idx].mean(dim=(2, 3), keepdim=True)
                 stds = images[valid_idx].std(dim=(2, 3), keepdim=True)
-                values = torch.clamp(
-                    torch.randn((valid_idx.sum(), channels, 1, 1), device=device) * stds
-                    + means,
-                    0,
-                    1,
-                )
+                values = torch.clamp(torch.randn((valid_idx.sum(), channels, 1, 1), device=device) * stds + means, 0, 1)
 
             # Apply erasing for each valid sample
             for _i, (orig_idx, x_i, y_i, h_i, w_i, v) in enumerate(

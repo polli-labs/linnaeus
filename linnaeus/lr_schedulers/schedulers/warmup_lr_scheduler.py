@@ -36,11 +36,7 @@ class WarmupLRScheduler(_LRScheduler):
         if self.last_epoch < self.warmup_steps:
             # Linear ramp from warmup_lr_init to base_lr
             return [
-                float(
-                    self.warmup_lr_init
-                    + (base_lr - self.warmup_lr_init)
-                    * (self.last_epoch / self.warmup_steps)
-                )
+                float(self.warmup_lr_init + (base_lr - self.warmup_lr_init) * (self.last_epoch / self.warmup_steps))
                 for base_lr in self.base_lrs
             ]
         return self.base_scheduler.get_lr()
@@ -54,11 +50,7 @@ class WarmupLRScheduler(_LRScheduler):
         """
         # Check if we should log based on config
         should_log = False
-        if (
-            hasattr(self.optimizer, "param_groups")
-            and self.optimizer.param_groups
-            and "config" in self.optimizer.param_groups[0]
-        ):
+        if hasattr(self.optimizer, "param_groups") and self.optimizer.param_groups and "config" in self.optimizer.param_groups[0]:
             config = self.optimizer.param_groups[0]["config"]
             should_log = check_debug_flag(config, "DEBUG.SCHEDULING")
 
@@ -71,9 +63,7 @@ class WarmupLRScheduler(_LRScheduler):
             self._last_lr = new_lrs
 
             if should_log:
-                logger.debug(
-                    f"WarmupLR in warmup phase: {current_iteration}/{self.warmup_steps}. LRs: {self._last_lr}"
-                )
+                logger.debug(f"WarmupLR in warmup phase: {current_iteration}/{self.warmup_steps}. LRs: {self._last_lr}")
         else:
             # After warmup, delegate to base scheduler
             if hasattr(self.base_scheduler, "step_update"):
@@ -82,18 +72,14 @@ class WarmupLRScheduler(_LRScheduler):
                 # For traditional PyTorch schedulers, we just do step()
                 # but we must set base_scheduler.last_epoch properly.
                 if isinstance(self.base_scheduler, _LRScheduler):
-                    self.base_scheduler.last_epoch = (
-                        current_iteration - self.warmup_steps
-                    )
+                    self.base_scheduler.last_epoch = current_iteration - self.warmup_steps
                 self.base_scheduler.step()
 
             self.last_epoch = current_iteration
             self._last_lr = self.base_scheduler._last_lr
 
             if should_log:
-                logger.debug(
-                    f"WarmupLR delegated to base scheduler at step {current_iteration} (past warmup). LRs: {self._last_lr}"
-                )
+                logger.debug(f"WarmupLR delegated to base scheduler at step {current_iteration} (past warmup). LRs: {self._last_lr}")
 
     def step(self, epoch=None):
         """

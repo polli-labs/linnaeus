@@ -30,9 +30,7 @@ class IdentityResolver(nn.Module):
         if kwargs:
             logger.debug(f"IdentityResolver received unused kwargs: {kwargs}")
 
-    def forward(
-        self, lower_level: torch.Tensor, higher_level: torch.Tensor
-    ) -> torch.Tensor:
+    def forward(self, lower_level: torch.Tensor, higher_level: torch.Tensor) -> torch.Tensor:
         """
         Forward pass of IdentityResolver.
 
@@ -43,7 +41,5 @@ class IdentityResolver(nn.Module):
         Returns:
             torch.Tensor: Unmodified higher-level features tensor.
         """
-        logger.debug(
-            f"IdentityResolver passing through higher_level shape: {higher_level.shape}"
-        )
+        logger.debug(f"IdentityResolver passing through higher_level shape: {higher_level.shape}")
         return higher_level

@@ -32,9 +32,7 @@ class RMSNorm(nn.Module):
             self.weight = nn.Parameter(torch.ones(dim))
         else:
             self.register_parameter("weight", None)
-        logger.debug(
-            f"RMSNorm initialized with dim={dim}, eps={eps}, elementwise_affine={elementwise_affine}"
-        )
+        logger.debug(f"RMSNorm initialized with dim={dim}, eps={eps}, elementwise_affine={elementwise_affine}")
 
     def _norm(self, x):
         return x * torch.rsqrt(x.pow(2).mean(-1, keepdim=True) + self.eps)

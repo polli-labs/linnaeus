@@ -39,9 +39,7 @@ class ParameterFilter:
         """
         raise NotImplementedError("Subclasses must implement matches()")
 
-    def filter_parameters(
-        self, named_parameters: list[tuple[str, torch.nn.Parameter]]
-    ) -> list[tuple[str, torch.nn.Parameter]]:
+    def filter_parameters(self, named_parameters: list[tuple[str, torch.nn.Parameter]]) -> list[tuple[str, torch.nn.Parameter]]:
         """
         Filter parameters based on this filter's criteria.
 
@@ -51,11 +49,7 @@ class ParameterFilter:
         Returns:
             List of (name, parameter) tuples that match this filter
         """
-        return [
-            (name, param)
-            for name, param in named_parameters
-            if self.matches(name, param)
-        ]
+        return [(name, param) for name, param in named_parameters if self.matches(name, param)]
 
 
 class DimensionFilter(ParameterFilter):
@@ -84,12 +78,7 @@ class ConvolutionalFilter(ParameterFilter):
     It can optionally check for specific layer types or name patterns.
     """
 
-    def __init__(
-        self,
-        name_patterns: list[str] | None = None,
-        layer_types: list[str] | None = None,
-        model: nn.Module | None = None,
-    ):
+    def __init__(self, name_patterns: list[str] | None = None, layer_types: list[str] | None = None, model: nn.Module | None = None):
         """
         Initialize a convolutional filter.
 
@@ -189,7 +178,7 @@ class LayerTypeFilter(ParameterFilter):
         self.param_to_layer_type = {}
         for name, module in model.named_modules():
             module_type = module.__class__.__name__
-            for param_name, _param in module.named_parameters(recurse=False): # param renamed to _param
+            for param_name, _param in module.named_parameters(recurse=False):  # param renamed to _param
                 full_param_name = f"{name}.{param_name}" if name else param_name
                 self.param_to_layer_type[full_param_name] = module_type
 
@@ -299,9 +288,7 @@ class AllExceptFilter(ParameterFilter):
         return not self.except_filter.matches(name, param)
 
 
-def create_filter_from_config(
-    config: dict, model: nn.Module = None, checkpoint_state_dict: dict = None
-) -> ParameterFilter:
+def create_filter_from_config(config: dict, model: nn.Module = None, checkpoint_state_dict: dict = None) -> ParameterFilter:
     """
     Create a parameter filter from a configuration dictionary.
 
@@ -337,9 +324,7 @@ def create_filter_from_config(
 
     elif filter_type == "initialization":
         if checkpoint_state_dict is None:
-            logger.warning(
-                "No checkpoint state dict provided for initialization filter"
-            )
+            logger.warning("No checkpoint state dict provided for initialization filter")
         return InitializationFilter(checkpoint_state_dict)
 
     elif filter_type == "stage_based":
@@ -352,38 +337,26 @@ def create_filter_from_config(
         return StagedParamFilter(model, stages)
 
     elif filter_type == "and":
-        sub_filters = [
-            create_filter_from_config(f, model, checkpoint_state_dict)
-            for f in config.get("FILTERS", [])
-        ]
+        sub_filters = [create_filter_from_config(f, model, checkpoint_state_dict) for f in config.get("FILTERS", [])]
         return AndFilter(sub_filters)
 
     elif filter_type == "or":
-        sub_filters = [
-            create_filter_from_config(f, model, checkpoint_state_dict)
-            for f in config.get("FILTERS", [])
-        ]
+        sub_filters = [create_filter_from_config(f, model, checkpoint_state_dict) for f in config.get("FILTERS", [])]
         return OrFilter(sub_filters)
 
     elif filter_type == "not":
-        sub_filter = create_filter_from_config(
-            config.get("FILTER", {}), model, checkpoint_state_dict
-        )
+        sub_filter = create_filter_from_config(config.get("FILTER", {}), model, checkpoint_state_dict)
         return NotFilter(sub_filter)
 
     elif filter_type == "all_except":
-        except_filter = create_filter_from_config(
-            config.get("EXCEPT", {}), model, checkpoint_state_dict
-        )
+        except_filter = create_filter_from_config(config.get("EXCEPT", {}), model, checkpoint_state_dict)
         return AllExceptFilter(except_filter)
 
     else:
         raise ValueError(f"Unknown filter type: {filter_type}")
 
 
-def flatten_conv_parameters(
-    params: list[torch.nn.Parameter],
-) -> list[torch.nn.Parameter]:
+def flatten_conv_parameters(params: list[torch.nn.Parameter]) -> list[torch.nn.Parameter]:
     """
     Flatten 4D convolutional parameters to 2D for Muon optimizer.
 
@@ -447,17 +420,13 @@ def group_parameters(
             continue
 
         # Create filter and apply it
-        param_filter = create_filter_from_config(
-            filter_config, model, checkpoint_state_dict
-        )
+        param_filter = create_filter_from_config(filter_config, model, checkpoint_state_dict)
         matched_params = param_filter.filter_parameters(named_params)
 
         # Store parameters for this group
         result[group_name] = [param for _, param in matched_params]
 
         # Log the number of parameters matched
-        logger.info(
-            f"Parameter group '{group_name}' matched {len(matched_params)} parameters"
-        )
+        logger.info(f"Parameter group '{group_name}' matched {len(matched_params)} parameters")
 
     return result

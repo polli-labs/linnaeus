@@ -64,9 +64,7 @@ class HierarchicalAttention(nn.Module):
         Returns:
             torch.Tensor: Output tensor after applying attention and drop path.
         """
-        logger.debug(
-            f"HierarchicalAttention ({self.attention.__class__.__name__}) Input shape: {x.shape}"
-        )
+        logger.debug(f"HierarchicalAttention ({self.attention.__class__.__name__}) Input shape: {x.shape}")
         x = self.attention(x)
         x = self.drop_path(x)
         logger.debug(f"HierarchicalAttention Output shape: {x.shape}")

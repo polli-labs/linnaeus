@@ -127,15 +127,8 @@ def main() -> None:
     Parses command line arguments, runs pipreqs to generate the requirements file,
     and then de-duplicates its contents.
     """
-    parser = argparse.ArgumentParser(
-        description="Generate and deduplicate requirements.txt using pipreqs."
-    )
-    parser.add_argument(
-        "target",
-        nargs="?",
-        default=".",
-        help="Target directory to scan for dependencies (default: current directory).",
-    )
+    parser = argparse.ArgumentParser(description="Generate and deduplicate requirements.txt using pipreqs.")
+    parser.add_argument("target", nargs="?", default=".", help="Target directory to scan for dependencies (default: current directory).")
     args = parser.parse_args()
     target_dir = os.path.abspath(args.target)
 

@@ -175,16 +175,7 @@ class PrefetchingHybridDataset(BasePrefetchingDataset):
         """Number of samples as per 'img_identifiers' in labels_h5."""
         return len(self.labels_h5["img_identifiers"])
 
-    def _read_raw_item(
-        self, idx: int
-    ) -> tuple[
-        torch.Tensor,
-        dict[str, torch.Tensor],
-        torch.Tensor,
-        int,
-        dict[str, int],
-        torch.Tensor,
-    ]:
+    def _read_raw_item(self, idx: int) -> tuple[torch.Tensor, dict[str, torch.Tensor], torch.Tensor, int, dict[str, int], torch.Tensor]:
         """
         Reads a single sample from disk (image) and the label HDF5.
 
@@ -212,9 +203,7 @@ class PrefetchingHybridDataset(BasePrefetchingDataset):
         if hasattr(self, "config") and self.config is not None:
             from linnaeus.utils.debug_utils import check_debug_flag
 
-            debug_read_item_verbose = check_debug_flag(
-                self.config, "DEBUG.DATASET.READ_ITEM_VERBOSE"
-            )
+            debug_read_item_verbose = check_debug_flag(self.config, "DEBUG.DATASET.READ_ITEM_VERBOSE")
 
         # Simple condition: log if debug flag is enabled (no idx condition)
         # This way we'll see logs for any index processed when the flag is on
@@ -230,9 +219,7 @@ class PrefetchingHybridDataset(BasePrefetchingDataset):
             raw_id = raw_id.decode("utf-8", errors="replace")
 
         # Append extension only if needed (if raw_id doesn't already include it)
-        if self.file_extension and not raw_id.lower().endswith(
-            self.file_extension.lower()
-        ):
+        if self.file_extension and not raw_id.lower().endswith(self.file_extension.lower()):
             img_id_with_ext = raw_id + self.file_extension
         else:
             img_id_with_ext = raw_id
@@ -254,25 +241,16 @@ class PrefetchingHybridDataset(BasePrefetchingDataset):
                 if not hasattr(self, "_runtime_missing_count"):
                     self._runtime_missing_count = 0
                 self._runtime_missing_count += 1
-                if (
-                    self._runtime_missing_count <= 10
-                    or self._runtime_missing_count % 100 == 0
-                ):
+                if self._runtime_missing_count <= 10 or self._runtime_missing_count % 100 == 0:
                     h5data_logger.warning(
                         f"[RUNTIME] Image not found (count: {self._runtime_missing_count}): {img_path}. ALLOW_MISSING=True, returning placeholder."
                     )
 
                 # --- Generate Placeholder Image ---
                 # Get channel/dim info from config
-                img_channels = (
-                    getattr(self.config.MODEL, "IN_CHANS", 3)
-                    if hasattr(self.config, "MODEL")
-                    else 3
-                )
+                img_channels = getattr(self.config.MODEL, "IN_CHANS", 3) if hasattr(self.config, "MODEL") else 3
                 img_size = self.target_img_size
-                image_tensor = torch.zeros(
-                    (img_channels, img_size, img_size), dtype=torch.float32
-                )
+                image_tensor = torch.zeros((img_channels, img_size, img_size), dtype=torch.float32)
             else:
                 # Standard behavior: fail
                 self.main_logger.error(f"Image not found: {img_path}")
@@ -286,53 +264,27 @@ class PrefetchingHybridDataset(BasePrefetchingDataset):
                 if bgr is None:
                     # Handle case where file exists but cv2 fails to read it
                     if allow_missing_runtime:
-                        h5data_logger.warning(
-                            f"[RUNTIME] Failed to read existing image: {img_path}. Returning placeholder."
-                        )
+                        h5data_logger.warning(f"[RUNTIME] Failed to read existing image: {img_path}. Returning placeholder.")
                         # Create placeholder image
-                        img_channels = (
-                            getattr(self.config.MODEL, "IN_CHANS", 3)
-                            if hasattr(self.config, "MODEL")
-                            else 3
-                        )
+                        img_channels = getattr(self.config.MODEL, "IN_CHANS", 3) if hasattr(self.config, "MODEL") else 3
                         img_size = self.target_img_size
-                        image_tensor = torch.zeros(
-                            (img_channels, img_size, img_size), dtype=torch.float32
-                        )
+                        image_tensor = torch.zeros((img_channels, img_size, img_size), dtype=torch.float32)
                     else:
-                        raise OSError(
-                            f"Failed to read image file (cv2.imread returned None): {img_path}"
-                        )
+                        raise OSError(f"Failed to read image file (cv2.imread returned None): {img_path}")
                 else:
                     rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
-                    resized = cv2.resize(
-                        rgb,
-                        (self.target_img_size, self.target_img_size),
-                        interpolation=cv2.INTER_AREA,
-                    )
-                    image_tensor = (
-                        torch.from_numpy(resized).permute(2, 0, 1).float() / 255.0
-                    )
+                    resized = cv2.resize(rgb, (self.target_img_size, self.target_img_size), interpolation=cv2.INTER_AREA)
+                    image_tensor = torch.from_numpy(resized).permute(2, 0, 1).float() / 255.0
             except Exception as read_err:
                 # Catch other potential read errors
                 if allow_missing_runtime:
-                    h5data_logger.warning(
-                        f"[RUNTIME] Error reading image {img_path}: {read_err}. Returning placeholder."
-                    )
+                    h5data_logger.warning(f"[RUNTIME] Error reading image {img_path}: {read_err}. Returning placeholder.")
                     # Create placeholder image
-                    img_channels = (
-                        getattr(self.config.MODEL, "IN_CHANS", 3)
-                        if hasattr(self.config, "MODEL")
-                        else 3
-                    )
+                    img_channels = getattr(self.config.MODEL, "IN_CHANS", 3) if hasattr(self.config, "MODEL") else 3
                     img_size = self.target_img_size
-                    image_tensor = torch.zeros(
-                        (img_channels, img_size, img_size), dtype=torch.float32
-                    )
+                    image_tensor = torch.zeros((img_channels, img_size, img_size), dtype=torch.float32)
                 else:
-                    self.main_logger.error(
-                        f"Error reading image {img_path}: {read_err}"
-                    )
+                    self.main_logger.error(f"Error reading image {img_path}: {read_err}")
                     raise read_err  # Re-raise original error
 
         # 3) Build one-hot targets.
@@ -348,17 +300,14 @@ class PrefetchingHybridDataset(BasePrefetchingDataset):
                 # Check if this dataset supports partial levels and has a "null" class
                 partial_levels = (
                     getattr(self.config.DATA.PARTIAL, "LEVELS", False)
-                    if hasattr(self.config, "DATA")
-                    and hasattr(self.config.DATA, "PARTIAL")
+                    if hasattr(self.config, "DATA") and hasattr(self.config.DATA, "PARTIAL")
                     else False
                 )
                 if partial_levels and "null" in self.class_to_idx[tk]:
                     class_idx = self.class_to_idx[tk]["null"]
                     # Validation check to confirm null is index 0
                     if class_idx != 0:
-                        self.main_logger.error(
-                            f"FATAL: Null mapped to index {class_idx} != 0 for task {tk}"
-                        )
+                        self.main_logger.error(f"FATAL: Null mapped to index {class_idx} != 0 for task {tk}")
             # For non-null labels
             elif tid in self.class_to_idx[tk]:
                 class_idx = self.class_to_idx[tk][tid]
@@ -374,11 +323,7 @@ class PrefetchingHybridDataset(BasePrefetchingDataset):
         validity_masks = []
         meta_colnames = []
 
-        if (
-            hasattr(self.config, "DATA")
-            and hasattr(self.config.DATA, "META")
-            and hasattr(self.config.DATA.META, "COMPONENTS")
-        ):
+        if hasattr(self.config, "DATA") and hasattr(self.config.DATA, "META") and hasattr(self.config.DATA.META, "COMPONENTS"):
             # Get all enabled components and sort by IDX
             components_list = []
             for comp_name, comp_cfg in self.config.DATA.META.COMPONENTS.items():
@@ -396,24 +341,14 @@ class PrefetchingHybridDataset(BasePrefetchingDataset):
                 if source in self.labels_h5:
                     data_np = np.array(self.labels_h5[source][idx])
                     # Determine validity based on component type using new helpers
-                    if (
-                        comp_name.upper() == "SPATIAL"
-                    ):  # Use .upper() for case-insensitivity
-                        is_valid = not PrefetchingHybridDataset._is_null_spatial_np(
-                            data_np
-                        )
+                    if comp_name.upper() == "SPATIAL":  # Use .upper() for case-insensitivity
+                        is_valid = not PrefetchingHybridDataset._is_null_spatial_np(data_np)
                     elif comp_name.upper() == "TEMPORAL":
-                        is_valid = not PrefetchingHybridDataset._is_null_temporal_np(
-                            data_np
-                        )
+                        is_valid = not PrefetchingHybridDataset._is_null_temporal_np(data_np)
                     elif comp_name.upper() == "ELEVATION":
-                        is_valid = not PrefetchingHybridDataset._is_null_elevation_np(
-                            data_np
-                        )
+                        is_valid = not PrefetchingHybridDataset._is_null_elevation_np(data_np)
                     else:  # Default for other/custom components
-                        is_valid = not np.all(
-                            data_np == 0.0
-                        )  # Use isclose for float comparison
+                        is_valid = not np.all(data_np == 0.0)  # Use isclose for float comparison
                     validity_masks.append(is_valid)  # is_valid is already a boolean
 
                     # Create a working copy of the data for this component
@@ -430,19 +365,10 @@ class PrefetchingHybridDataset(BasePrefetchingDataset):
                         if "column_names" in self.labels_h5[source].attrs:
                             col_names = self.labels_h5[source].attrs["column_names"]
                             if isinstance(col_names[0], bytes):
-                                col_names = [
-                                    name.decode("utf-8", errors="replace")
-                                    for name in col_names
-                                ]
-                            col_indices = [
-                                i
-                                for i, name in enumerate(col_names)
-                                if name in comp_cfg.COLUMNS
-                            ]
+                                col_names = [name.decode("utf-8", errors="replace") for name in col_names]
+                            col_indices = [i for i, name in enumerate(col_names) if name in comp_cfg.COLUMNS]
                             if col_indices:
-                                processed_component_data_np = (
-                                    processed_component_data_np[col_indices]
-                                )
+                                processed_component_data_np = processed_component_data_np[col_indices]
                             else:
                                 self.main_logger.warning(
                                     f"No matching columns found for component {comp_name}. "
@@ -453,10 +379,7 @@ class PrefetchingHybridDataset(BasePrefetchingDataset):
                     if "column_names" in self.labels_h5[source].attrs:
                         col_names = self.labels_h5[source].attrs["column_names"]
                         if isinstance(col_names[0], bytes):
-                            col_names = [
-                                name.decode("utf-8", errors="replace")
-                                for name in col_names
-                            ]
+                            col_names = [name.decode("utf-8", errors="replace") for name in col_names]
                         if comp_cfg.COLUMNS:
                             meta_colnames.extend(comp_cfg.COLUMNS)
                         else:
@@ -490,24 +413,10 @@ class PrefetchingHybridDataset(BasePrefetchingDataset):
                 offset += comp_len
 
             if log_this_specific_item:
-                mvm_shape_str = (
-                    str(meta_validity_mask.shape)
-                    if meta_validity_mask.numel() > 0
-                    else "[]"
-                )
-                mvm_ptr_str = (
-                    str(meta_validity_mask.data_ptr())
-                    if meta_validity_mask.numel() > 0
-                    else "N/A"
-                )
+                mvm_shape_str = str(meta_validity_mask.shape) if meta_validity_mask.numel() > 0 else "[]"
+                mvm_ptr_str = str(meta_validity_mask.data_ptr()) if meta_validity_mask.numel() > 0 else "N/A"
                 mvm_content_sample = meta_validity_mask[
-                    : min(
-                        10,
-                        meta_validity_mask.shape[0]
-                        if meta_validity_mask.ndim > 0
-                        and meta_validity_mask.shape[0] > 0
-                        else 0,
-                    )
+                    : min(10, meta_validity_mask.shape[0] if meta_validity_mask.ndim > 0 and meta_validity_mask.shape[0] > 0 else 0)
                 ].tolist()
                 h5data_logger.info(
                     f"[READ_ITEM_DEBUG] idx={idx} :: meta_validity_mask AFTER POPULATION (from aux_list): "
@@ -519,16 +428,8 @@ class PrefetchingHybridDataset(BasePrefetchingDataset):
             aux_info = torch.tensor([], dtype=torch.float32)
             meta_validity_mask = torch.tensor([], dtype=torch.bool)
             if log_this_specific_item:
-                mvm_shape_str = (
-                    str(meta_validity_mask.shape)
-                    if meta_validity_mask.numel() > 0
-                    else "[]"
-                )
-                mvm_ptr_str = (
-                    str(meta_validity_mask.data_ptr())
-                    if meta_validity_mask.numel() > 0
-                    else "N/A"
-                )
+                mvm_shape_str = str(meta_validity_mask.shape) if meta_validity_mask.numel() > 0 else "[]"
+                mvm_ptr_str = str(meta_validity_mask.data_ptr()) if meta_validity_mask.numel() > 0 else "N/A"
                 h5data_logger.info(
                     f"[READ_ITEM_DEBUG] idx={idx} :: meta_validity_mask INITIALIZED AS EMPTY TENSOR: "
                     f"id={id(meta_validity_mask)}, data_ptr={mvm_ptr_str}, "
@@ -540,9 +441,7 @@ class PrefetchingHybridDataset(BasePrefetchingDataset):
         if self._active_group_array is None:
             group_id = -1
             if log_this_specific_item:
-                h5data_logger.info(
-                    f"[READ_ITEM_DEBUG] idx={idx} :: group_id set to -1 (_active_group_array is None)"
-                )
+                h5data_logger.info(f"[READ_ITEM_DEBUG] idx={idx} :: group_id set to -1 (_active_group_array is None)")
         else:
             group_id = self._active_group_array[idx]
 
@@ -553,23 +452,10 @@ class PrefetchingHybridDataset(BasePrefetchingDataset):
 
         # --- Log final state before return ---
         if log_this_specific_item:
-            mvm_shape_str = (
-                str(meta_validity_mask.shape)
-                if meta_validity_mask.numel() > 0
-                else "[]"
-            )
-            mvm_ptr_str = (
-                str(meta_validity_mask.data_ptr())
-                if meta_validity_mask.numel() > 0
-                else "N/A"
-            )
+            mvm_shape_str = str(meta_validity_mask.shape) if meta_validity_mask.numel() > 0 else "[]"
+            mvm_ptr_str = str(meta_validity_mask.data_ptr()) if meta_validity_mask.numel() > 0 else "N/A"
             mvm_content_sample = meta_validity_mask[
-                : min(
-                    10,
-                    meta_validity_mask.shape[0]
-                    if meta_validity_mask.ndim > 0 and meta_validity_mask.shape[0] > 0
-                    else 0,
-                )
+                : min(10, meta_validity_mask.shape[0] if meta_validity_mask.ndim > 0 and meta_validity_mask.shape[0] > 0 else 0)
             ].tolist()
             h5data_logger.info(
                 f"[READ_ITEM_DEBUG] idx={idx} :: meta_validity_mask BEFORE RETURN: "

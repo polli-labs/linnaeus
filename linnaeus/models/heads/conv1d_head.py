@@ -25,17 +25,9 @@ class Conv1dHead(nn.Module):
         bias (bool, optional): If set to False, the layer will not learn an additive bias. Default: True.
     """
 
-    def __init__(
-        self,
-        in_channels: int,
-        out_features: int,
-        kernel_size: int = 1,
-        bias: bool = True,
-    ):
+    def __init__(self, in_channels: int, out_features: int, kernel_size: int = 1, bias: bool = True):
         super().__init__()
-        self.conv = nn.Conv1d(
-            in_channels, out_features, kernel_size=kernel_size, bias=bias
-        )
+        self.conv = nn.Conv1d(in_channels, out_features, kernel_size=kernel_size, bias=bias)
         self.global_avg_pool = nn.AdaptiveAvgPool1d(1)
         logger.debug(
             f"Initialized Conv1dHead with in_channels={in_channels}, out_features={out_features}, kernel_size={kernel_size}, bias={bias}"

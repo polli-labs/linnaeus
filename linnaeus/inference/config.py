@@ -2,6 +2,7 @@
 Configuration for the Linnaeus Inference Handler.
 Uses Pydantic for typed configuration.
 """
+
 from pathlib import Path
 from typing import Any
 
@@ -10,8 +11,13 @@ from pydantic import BaseModel, Field, HttpUrl, validator
 
 
 class ModelConfig(BaseModel):
-    architecture_name: str = Field(description="Name of the model architecture (e.g., mFormerV1_sm). Corresponds to MODEL.NAME in Linnaeus training config.")
-    architecture_variant_config_path: str | None = Field(None, description="Optional path to the specific model architecture variant YAML file (e.g., relative to configs/ path, like 'model/archs/mFormerV1/mFormerV1_sm.yaml'). If provided, these settings are used to configure the model variant.")
+    architecture_name: str = Field(
+        description="Name of the model architecture (e.g., mFormerV1_sm). Corresponds to MODEL.NAME in Linnaeus training config."
+    )
+    architecture_variant_config_path: str | None = Field(
+        None,
+        description="Optional path to the specific model architecture variant YAML file (e.g., relative to configs/ path, like 'model/archs/mFormerV1/mFormerV1_sm.yaml'). If provided, these settings are used to configure the model variant.",
+    )
     # Path can be local or 'hf://org/repo/path/to/weights.bin'
     weights_path: str = Field(description="Path or HuggingFace Hub ID for model weights (e.g., pytorch_model.bin).")
 
@@ -19,7 +25,9 @@ class ModelConfig(BaseModel):
     # These are internal keys used by the Linnaeus model heads.
     # Order MUST match the order of model_num_classes_per_task.
     # This order is typically from highest rank (e.g. Kingdom) to lowest (e.g. Species).
-    model_task_keys_ordered: list[str] = Field(description="Ordered list of internal task keys the model predicts (e.g., ['taxa_L70', 'taxa_L60']).")
+    model_task_keys_ordered: list[str] = Field(
+        description="Ordered list of internal task keys the model predicts (e.g., ['taxa_L70', 'taxa_L60'])."
+    )
 
     # Corresponds to model_task_keys_ordered. Each entry is num_classes for that task head.
     num_classes_per_task: list[int] = Field(description="Number of classes (including null) for each task in model_task_keys_ordered.")
@@ -28,18 +36,22 @@ class ModelConfig(BaseModel):
     # This is the index output by the model that signifies "unknown" for that task.
     null_class_indices: dict[str, int] = Field(description="Mapping of Linnaeus task key to its null class index used by the model.")
 
-    expected_aux_vector_length: int | None = Field(None, description="Expected length of the concatenated auxiliary feature vector. If None, derived from MetaConfig.")
+    expected_aux_vector_length: int | None = Field(
+        None, description="Expected length of the concatenated auxiliary feature vector. If None, derived from MetaConfig."
+    )
 
 
 class InputConfig(BaseModel):
     image_size: list[int] = Field(default=[3, 224, 224], description="Expected image input dimensions [C, H, W]. C must be first.")
     image_mean: list[float] = Field(default=[0.485, 0.456, 0.406], description="Mean values for image normalization.")
     image_std: list[float] = Field(default=[0.229, 0.224, 0.225], description="Standard deviation values for image normalization.")
-    image_interpolation: str = Field(default="bilinear", description="Interpolation method for resizing (e.g., 'bilinear', 'bicubic', 'nearest_exact').")
+    image_interpolation: str = Field(
+        default="bilinear", description="Interpolation method for resizing (e.g., 'bilinear', 'bicubic', 'nearest_exact')."
+    )
 
-    @validator('image_size')
+    @validator("image_size")
     def check_image_size_format(cls, v):
-        if not (len(v) == 3 and v[0] in [1, 3]): # C, H, W and C is 1 or 3
+        if not (len(v) == 3 and v[0] in [1, 3]):  # C, H, W and C is 1 or 3
             raise ValueError("image_size must be a list of 3 integers [C, H, W] where C is 1 or 3.")
         return v
 
@@ -48,11 +60,19 @@ class MetaConfig(BaseModel):
     use_geolocation: bool = Field(True, description="Whether geographic location (lat/lon) is used.")
 
     use_temporal: bool = Field(True, description="Whether date/time is used.")
-    temporal_use_julian_day: bool = Field(False, description="If True, use day-of-year for temporal encoding; else use month-of-year. Passed to typus.datetime_to_temporal_sinusoids as use_jd.")
-    temporal_use_hour: bool = Field(False, description="If True, include hour-of-day sinusoidal features. Passed to typus.datetime_to_temporal_sinusoids as use_hour.")
+    temporal_use_julian_day: bool = Field(
+        False,
+        description="If True, use day-of-year for temporal encoding; else use month-of-year. Passed to typus.datetime_to_temporal_sinusoids as use_jd.",
+    )
+    temporal_use_hour: bool = Field(
+        False, description="If True, include hour-of-day sinusoidal features. Passed to typus.datetime_to_temporal_sinusoids as use_hour."
+    )
 
     use_elevation: bool = Field(True, description="Whether elevation is used.")
-    elevation_scales: list[float] = Field(default=[100.0, 1000.0, 5000.0], description="Scale values (in meters) for elevation sinusoidal encoding. Passed to typus.elevation_to_sinusoids as scales.")
+    elevation_scales: list[float] = Field(
+        default=[100.0, 1000.0, 5000.0],
+        description="Scale values (in meters) for elevation sinusoidal encoding. Passed to typus.elevation_to_sinusoids as scales.",
+    )
 
 
 class TaxonomyConfig(BaseModel):
@@ -60,7 +80,9 @@ class TaxonomyConfig(BaseModel):
     version: str | None = Field(None, description="Version or revision of the taxonomy. For typus.TaxonomyContext.")
     # Root identifier for the *entire taxonomy the model was trained on*. Used for context.
     # This could be a taxon_id (int) or a string name like "Animalia".
-    root_identifier: Any | None = Field(None, description="Root taxon name or ID that the model's taxonomy covers (e.g., 'Animalia' or an integer ID).")
+    root_identifier: Any | None = Field(
+        None, description="Root taxon name or ID that the model's taxonomy covers (e.g., 'Animalia' or an integer ID)."
+    )
 
     # Path to the JSON file saved by linnaeus.utils.taxonomy.TaxonomyTree.save()
     taxonomy_tree_path: str = Field(description="Path to the TaxonomyTree artifact file (e.g., taxonomy.json).")
@@ -77,18 +99,23 @@ class InferenceOptionsConfig(BaseModel):
     enable_hierarchical_consistency_check: bool = Field(True, description="Enable/disable hierarchical consistency post-processing.")
     handler_version: str = Field("0.1.0", description="Version of the LinnaeusInferenceHandler itself.")
     # Source of all artifacts (model, config, taxonomy). Can be a HF Hub repo ID (e.g. "org/repo") or a local directory.
-    artifacts_source_uri: HttpUrl | str | None = Field(None, description="URI for model artifacts (e.g., HuggingFace Hub ID or local path).")
+    artifacts_source_uri: HttpUrl | str | None = Field(
+        None, description="URI for model artifacts (e.g., HuggingFace Hub ID or local path)."
+    )
 
 
 class InferenceConfig(BaseModel):
     """Root configuration model for Linnaeus Inference Handler."""
+
     model: ModelConfig
     input_preprocessing: InputConfig
     metadata_preprocessing: MetaConfig
     taxonomy_data: TaxonomyConfig
     inference_options: InferenceOptionsConfig
     # Optional field for a brief description of the model setup
-    model_description: str | None = Field(None, description="A brief description of this model configuration (e.g., 'mFormerV1-small trained on iNat2021 full').")
+    model_description: str | None = Field(
+        None, description="A brief description of this model configuration (e.g., 'mFormerV1-small trained on iNat2021 full')."
+    )
 
     class Config:
         # For YACS CfgNode compatibility when converting

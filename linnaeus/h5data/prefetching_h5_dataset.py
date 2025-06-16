@@ -182,16 +182,7 @@ class PrefetchingH5Dataset(BasePrefetchingDataset):
         """Number of samples determined by 'img_identifiers' in labels_file."""
         return len(self.labels_file["img_identifiers"])
 
-    def _read_raw_item(
-        self, idx: int
-    ) -> tuple[
-        torch.Tensor,
-        dict[str, torch.Tensor],
-        torch.Tensor,
-        int,
-        dict[str, int],
-        torch.Tensor,
-    ]:
+    def _read_raw_item(self, idx: int) -> tuple[torch.Tensor, dict[str, torch.Tensor], torch.Tensor, int, dict[str, int], torch.Tensor]:
         """
         Reads a single sample from HDF5.
 
@@ -212,11 +203,7 @@ class PrefetchingH5Dataset(BasePrefetchingDataset):
 
         # 1) Read and resize image.
         img_data = self.images_file["images"][idx]
-        img_resized = cv2.resize(
-            img_data,
-            (self.target_img_size, self.target_img_size),
-            interpolation=cv2.INTER_AREA,
-        )
+        img_resized = cv2.resize(img_data, (self.target_img_size, self.target_img_size), interpolation=cv2.INTER_AREA)
         image_tensor = torch.from_numpy(img_resized).permute(2, 0, 1).float() / 255.0
 
         # 2) Build targets for each task.
@@ -232,17 +219,14 @@ class PrefetchingH5Dataset(BasePrefetchingDataset):
                 # Check if this dataset supports partial levels and has a "null" class
                 partial_levels = (
                     getattr(self.config.DATA.PARTIAL, "LEVELS", False)
-                    if hasattr(self.config, "DATA")
-                    and hasattr(self.config.DATA, "PARTIAL")
+                    if hasattr(self.config, "DATA") and hasattr(self.config.DATA, "PARTIAL")
                     else False
                 )
                 if partial_levels and "null" in self.class_to_idx[task_key]:
                     class_idx = self.class_to_idx[task_key]["null"]
                     # Validation check to confirm null is index 0
                     if class_idx != 0:
-                        self.main_logger.error(
-                            f"FATAL: Null mapped to index {class_idx} != 0 for task {task_key}"
-                        )
+                        self.main_logger.error(f"FATAL: Null mapped to index {class_idx} != 0 for task {task_key}")
             # For non-null labels
             elif label_val in self.class_to_idx[task_key]:
                 class_idx = self.class_to_idx[task_key][label_val]
@@ -258,11 +242,7 @@ class PrefetchingH5Dataset(BasePrefetchingDataset):
         validity_masks = []  # List of booleans, one per component.
         meta_colnames = []
 
-        if (
-            hasattr(self.config, "DATA")
-            and hasattr(self.config.DATA, "META")
-            and hasattr(self.config.DATA.META, "COMPONENTS")
-        ):
+        if hasattr(self.config, "DATA") and hasattr(self.config.DATA, "META") and hasattr(self.config.DATA.META, "COMPONENTS"):
             # Get all enabled components and sort by IDX
             components_list = []
             for comp_name, comp_cfg in self.config.DATA.META.COMPONENTS.items():
@@ -280,22 +260,14 @@ class PrefetchingH5Dataset(BasePrefetchingDataset):
                 if source in self.labels_file:
                     data_np = np.array(self.labels_file[source][idx])
                     # Determine validity based on component type using new helpers
-                    if (
-                        comp_name.upper() == "SPATIAL"
-                    ):  # Use .upper() for case-insensitivity
+                    if comp_name.upper() == "SPATIAL":  # Use .upper() for case-insensitivity
                         is_valid = not PrefetchingH5Dataset._is_null_spatial_np(data_np)
                     elif comp_name.upper() == "TEMPORAL":
-                        is_valid = not PrefetchingH5Dataset._is_null_temporal_np(
-                            data_np
-                        )
+                        is_valid = not PrefetchingH5Dataset._is_null_temporal_np(data_np)
                     elif comp_name.upper() == "ELEVATION":
-                        is_valid = not PrefetchingH5Dataset._is_null_elevation_np(
-                            data_np
-                        )
+                        is_valid = not PrefetchingH5Dataset._is_null_elevation_np(data_np)
                     else:  # Default for other/custom components
-                        is_valid = not np.all(
-                            data_np == 0.0
-                        )  # Use isclose for float comparison
+                        is_valid = not np.all(data_np == 0.0)  # Use isclose for float comparison
                     validity_masks.append(is_valid)  # is_valid is already a boolean
 
                     # Create a working copy of the data for this component
@@ -313,19 +285,10 @@ class PrefetchingH5Dataset(BasePrefetchingDataset):
                         if "column_names" in self.labels_file[source].attrs:
                             col_names = self.labels_file[source].attrs["column_names"]
                             if isinstance(col_names[0], bytes):
-                                col_names = [
-                                    name.decode("utf-8", errors="replace")
-                                    for name in col_names
-                                ]
-                            col_indices = [
-                                i
-                                for i, name in enumerate(col_names)
-                                if name in comp_cfg.COLUMNS
-                            ]
+                                col_names = [name.decode("utf-8", errors="replace") for name in col_names]
+                            col_indices = [i for i, name in enumerate(col_names) if name in comp_cfg.COLUMNS]
                             if col_indices:
-                                processed_component_data_np = (
-                                    processed_component_data_np[col_indices]
-                                )
+                                processed_component_data_np = processed_component_data_np[col_indices]
                             else:
                                 self.main_logger.warning(
                                     f"No matching columns found for component {comp_name}. "
@@ -336,10 +299,7 @@ class PrefetchingH5Dataset(BasePrefetchingDataset):
                     if "column_names" in self.labels_file[source].attrs:
                         col_names = self.labels_file[source].attrs["column_names"]
                         if isinstance(col_names[0], bytes):
-                            col_names = [
-                                name.decode("utf-8", errors="replace")
-                                for name in col_names
-                            ]
+                            col_names = [name.decode("utf-8", errors="replace") for name in col_names]
                         if comp_cfg.COLUMNS:
                             meta_colnames.extend(comp_cfg.COLUMNS)
                         else:

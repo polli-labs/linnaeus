@@ -2,6 +2,7 @@
 Utilities for loading and managing model artifacts required for inference.
 This includes taxonomy data (TaxonomyTree) and class index mappings.
 """
+
 import json
 import logging
 from pathlib import Path
@@ -17,10 +18,11 @@ logger = logging.getLogger("linnaeus.inference")
 
 class TaxonomyData(BaseModel):
     """Container for loaded taxonomy tree and related information."""
+
     taxonomy_tree: TaxonomyTree
     source: str
     version: str | None = None
-    root_id: Any | None = None # Root taxon ID (e.g., int or str) for the taxonomy tree
+    root_id: Any | None = None  # Root taxon ID (e.g., int or str) for the taxonomy tree
     # Linnaeus internal task keys, e.g. ["taxa_L70", "taxa_L60", ...]
     # Stored to ensure alignment when using the tree.
     linnaeus_task_keys: list[str]
@@ -36,19 +38,20 @@ class ClassIndexMapData(BaseModel):
     And a reverse mapping for convenience: {typus.RankLevel: {taxon_id: class_idx}}
     Also includes the null_taxon_id for each rank.
     """
+
     idx_to_taxon_id: dict[RankLevel, dict[int, int]]
     taxon_id_to_idx: dict[RankLevel, dict[int, int]]
-    null_taxon_ids: dict[RankLevel, int] # Maps RankLevel to its null taxon_id
-    num_classes_per_rank: dict[RankLevel, int] # Maps RankLevel to num_classes for that rank
+    null_taxon_ids: dict[RankLevel, int]  # Maps RankLevel to its null taxon_id
+    num_classes_per_rank: dict[RankLevel, int]  # Maps RankLevel to num_classes for that rank
 
 
 def _get_rank_level_from_linnaeus_task_key(linnaeus_task_key: str) -> RankLevel:
     """Converts Linnaeus task key (e.g., 'taxa_L10') to typus.RankLevel."""
     try:
-        numeric_part_str = linnaeus_task_key.split('_L')[-1]
+        numeric_part_str = linnaeus_task_key.split("_L")[-1]
         # Handle potential float-like keys e.g. L33_5 from typus
-        if '.' in numeric_part_str or '_' in numeric_part_str: # e.g. L33.5 or L33_5
-            numeric_part_str = numeric_part_str.replace('_', '') # L335
+        if "." in numeric_part_str or "_" in numeric_part_str:  # e.g. L33.5 or L33_5
+            numeric_part_str = numeric_part_str.replace("_", "")  # L335
             # No direct float enum values in typus.RankLevel, they are scaled by 10
             # Example: RankLevel.L335 = 335. This logic needs to match enum def.
             # For now, assume simple integer conversion after removing non-digits.
@@ -89,7 +92,7 @@ def load_taxonomy_tree_artifact(
         source=taxonomy_source_name,
         version=taxonomy_version_name,
         root_id=taxonomy_root_identifier,
-        linnaeus_task_keys=tree.task_keys # Store the Linnaeus keys from the tree
+        linnaeus_task_keys=tree.task_keys,  # Store the Linnaeus keys from the tree
     )
 
 
@@ -98,8 +101,8 @@ def load_class_index_maps_artifact(
     # Linnaeus internal task keys, e.g., ["taxa_L70", "taxa_L60"]
     # This order must match the order of model_num_classes_per_task
     model_linnaeus_task_keys_ordered: list[str],
-    model_num_classes_per_task: list[int], # Corresponding number of classes for each task_key
-    model_null_class_indices: dict[str, int] # Linnaeus internal task_key -> null_class_idx for that task_key
+    model_num_classes_per_task: list[int],  # Corresponding number of classes for each task_key
+    model_null_class_indices: dict[str, int],  # Linnaeus internal task_key -> null_class_idx for that task_key
 ) -> ClassIndexMapData:
     """
     Loads class index to taxon_id mappings from a JSON artifact.
@@ -148,7 +151,7 @@ def load_class_index_maps_artifact(
 
         for str_idx, taxon_id_val in task_map_raw.items():
             model_class_idx = int(str_idx)
-            taxon_id = int(taxon_id_val) # This is the typus-compatible taxon_id
+            taxon_id = int(taxon_id_val)  # This is the typus-compatible taxon_id
             current_task_idx_to_tid[model_class_idx] = taxon_id
             current_task_tid_to_idx[taxon_id] = model_class_idx
 
@@ -158,9 +161,7 @@ def load_class_index_maps_artifact(
         # Get the model's internal null class index for this Linnaeus task key
         null_class_idx_for_task = model_null_class_indices.get(linnaeus_task_key)
         if null_class_idx_for_task is None:
-            raise ValueError(
-                f"Null class index not defined for Linnaeus task '{linnaeus_task_key}' in model_null_class_indices."
-            )
+            raise ValueError(f"Null class index not defined for Linnaeus task '{linnaeus_task_key}' in model_null_class_indices.")
 
         # Find the taxon_id corresponding to this null class index
         null_tid = current_task_idx_to_tid.get(null_class_idx_for_task)
@@ -179,5 +180,5 @@ def load_class_index_maps_artifact(
         idx_to_taxon_id=idx_to_taxon_id_map,
         taxon_id_to_idx=taxon_id_to_idx_map,
         null_taxon_ids=null_taxon_ids_map,
-        num_classes_per_rank=num_classes_map
+        num_classes_per_rank=num_classes_map,
     )

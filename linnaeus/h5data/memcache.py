@@ -46,9 +46,7 @@ class MemoryCache:
         self.access_count = 0
         self.h5data_logger = h5data_logger or get_h5data_logger()
         self.main_logger = main_logger or get_main_logger()
-        self.main_logger.info(
-            f"MemoryCache initialized with max size: {max_size} bytes"
-        )
+        self.main_logger.info(f"MemoryCache initialized with max size: {max_size} bytes")
 
     def add(self, key, value):
         """Add an item to the cache, evicting items if necessary.

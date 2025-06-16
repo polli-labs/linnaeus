@@ -77,11 +77,7 @@ class LinformerSelfAttention(nn.Module):
             torch.Tensor: Output tensor after applying Linformer self-attention, shape (B, N, C).
         """
         B, N, C = x.shape
-        qkv = (
-            self.qkv(x)
-            .reshape(B, N, 3, self.num_heads, C // self.num_heads)
-            .permute(2, 0, 3, 1, 4)
-        )
+        qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4)
         q, k, v = qkv[0], self.k_proj(qkv[1]), self.v_proj(qkv[2])
 
         attn = (q @ k.transpose(-2, -1)) * self.scale

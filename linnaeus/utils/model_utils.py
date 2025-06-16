@@ -49,27 +49,14 @@ def relative_bias_interpolate(checkpoint, config):
                 continue
 
             # Interpolate the bias table
-            relative_position_bias_table = relative_position_bias_table.reshape(
-                size, size, -1
-            )
-            relative_position_bias_table = relative_position_bias_table.unsqueeze(
-                0
-            ).permute(0, 3, 1, 2)  # bs,nhead,h,w
+            relative_position_bias_table = relative_position_bias_table.reshape(size, size, -1)
+            relative_position_bias_table = relative_position_bias_table.unsqueeze(0).permute(0, 3, 1, 2)  # bs,nhead,h,w
             relative_position_bias_table = torch.nn.functional.interpolate(
-                relative_position_bias_table,
-                size=(new_size, new_size),
-                mode="bicubic",
-                align_corners=False,
+                relative_position_bias_table, size=(new_size, new_size), mode="bicubic", align_corners=False
             )
-            relative_position_bias_table = relative_position_bias_table.permute(
-                0, 2, 3, 1
-            )
-            relative_position_bias_table = relative_position_bias_table.squeeze(
-                0
-            ).reshape(new_size * new_size, -1)
-            relative_position_bias_table = torch.cat(
-                (cls_bias, relative_position_bias_table), dim=0
-            )
+            relative_position_bias_table = relative_position_bias_table.permute(0, 2, 3, 1)
+            relative_position_bias_table = relative_position_bias_table.squeeze(0).reshape(new_size * new_size, -1)
+            relative_position_bias_table = torch.cat((cls_bias, relative_position_bias_table), dim=0)
             checkpoint["model"][k] = relative_position_bias_table
 
             interpolated_count += 1

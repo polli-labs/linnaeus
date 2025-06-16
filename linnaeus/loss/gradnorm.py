@@ -65,9 +65,7 @@ class GradNormModule(nn.Module):
 
         # Initialize weights based on strategy if not provided
         if init_weights is None:
-            init_weights = self._compute_init_weights(
-                task_keys, label_densities, num_classes, init_strategy
-            )
+            init_weights = self._compute_init_weights(task_keys, label_densities, num_classes, init_strategy)
 
         # Store task weights as buffer (not parameter)
         self.register_buffer("task_weights", init_weights.clone())
@@ -78,9 +76,7 @@ class GradNormModule(nn.Module):
 
         # Log initialization
         if self.rank == 0:
-            logger.info(
-                f"[GradNormModule] alpha={alpha}, init_strategy={init_strategy}"
-            )
+            logger.info(f"[GradNormModule] alpha={alpha}, init_strategy={init_strategy}")
             for i, key in enumerate(task_keys):
                 logger.info(f"  Task {key}: initial weight={init_weights[i].item()}")
 
@@ -106,9 +102,7 @@ class GradNormModule(nn.Module):
         # Default to equal weights if data not provided
         if not label_densities:
             if self.rank == 0:
-                logger.warning(
-                    "[GradNormModule] no label densities => equal init weights"
-                )
+                logger.warning("[GradNormModule] no label densities => equal init weights")
             return torch.ones(len(task_keys), dtype=torch.float32)
 
         densities = [label_densities.get(k, 1.0) for k in task_keys]
@@ -121,9 +115,7 @@ class GradNormModule(nn.Module):
         elif strategy == "class_complexity":
             # Inverse density * class complexity
             if num_classes is None:
-                logger.warning(
-                    "No class counts provided for 'class_complexity' strategy, falling back to 'inverse_density'"
-                )
+                logger.warning("No class counts provided for 'class_complexity' strategy, falling back to 'inverse_density'")
                 weights = [1.0 / max(d, 0.001) for d in densities]
             else:
                 # Extract class counts
@@ -131,15 +123,10 @@ class GradNormModule(nn.Module):
                 max_class = max(class_counts)
 
                 # Calculate class complexity factor (log scale)
-                class_complexity = [
-                    math.log(c) / math.log(max_class) for c in class_counts
-                ]
+                class_complexity = [math.log(c) / math.log(max_class) for c in class_counts]
 
                 # Combined weighting
-                weights = [
-                    1.0 / max(d, 0.001) * compl
-                    for d, compl in zip(densities, class_complexity, strict=False)
-                ]
+                weights = [1.0 / max(d, 0.001) * compl for d, compl in zip(densities, class_complexity, strict=False)]
         else:
             logger.warning(f"Unknown init_strategy '{strategy}', using equal weights")
             weights = [1.0] * self.num_tasks
@@ -183,17 +170,11 @@ class GradNormModule(nn.Module):
             Dictionary of metrics for monitoring/logging
         """
         if self.rank == 0:
-            logger.debug(
-                f"[GradNormModule.measure_and_update] => Called with tasks={list(grad_tensors.keys())}"
-            )
+            logger.debug(f"[GradNormModule.measure_and_update] => Called with tasks={list(grad_tensors.keys())}")
 
         # ensure ordering
         sorted_tasks = sorted(self.task_keys)
-        device = (
-            next(iter(grad_tensors.values())).device
-            if grad_tensors
-            else torch.device("cpu")
-        )
+        device = next(iter(grad_tensors.values())).device if grad_tensors else torch.device("cpu")
         loss_values = torch.zeros(len(sorted_tasks), device=device)
 
         for _i, tk in enumerate(sorted_tasks):
@@ -204,9 +185,7 @@ class GradNormModule(nn.Module):
         # 1) Maybe initialize initial_losses
         if not self.has_initted and self.alpha > 0:
             if self.rank == 0:
-                logger.debug(
-                    "[GradNormModule.measure_and_update] => first time init of initial_losses"
-                )
+                logger.debug("[GradNormModule.measure_and_update] => first time init of initial_losses")
                 logger.debug(
                     f"[GradNormModule.measure_and_update] => device check: loss_values on {loss_values.device}, initial_losses will be on same device"
                 )
@@ -214,9 +193,7 @@ class GradNormModule(nn.Module):
             self.initial_losses.copy_(avg_loss)
             self.has_initted = True
             if self.rank == 0:
-                logger.debug(
-                    f"[GradNormModule.measure_and_update] => initial_losses now on device {self.initial_losses.device}"
-                )
+                logger.debug(f"[GradNormModule.measure_and_update] => initial_losses now on device {self.initial_losses.device}")
 
         # 2) Measure L2 norm of each grad
         grad_norms = torch.zeros(len(sorted_tasks), device=device)
@@ -257,20 +234,14 @@ class GradNormModule(nn.Module):
 
         # Collect metrics for logging with debug output
         # Check if debug flags are set
-        debug_gradnorm_metrics = check_debug_flag(
-            self.config, "DEBUG.LOSS.GRADNORM_METRICS"
-        )
-        debug_verbose = check_debug_flag(
-            self.config, "DEBUG.LOSS.VERBOSE_GRADNORM_LOGGING"
-        )
+        debug_gradnorm_metrics = check_debug_flag(self.config, "DEBUG.LOSS.GRADNORM_METRICS")
+        debug_verbose = check_debug_flag(self.config, "DEBUG.LOSS.VERBOSE_GRADNORM_LOGGING")
 
         # Initialize metrics dictionary
         metrics = {"gradnorm/avg_norm": g_avg.item()}
 
         if self.rank == 0 and debug_gradnorm_metrics:
-            logger.info(
-                f"[GRADNORM_METRICS_DEBUG] Created metrics dict with avg_norm={g_avg.item()}"
-            )
+            logger.info(f"[GRADNORM_METRICS_DEBUG] Created metrics dict with avg_norm={g_avg.item()}")
 
         # Add detailed metrics for each task
         for i, tk in enumerate(sorted_tasks):
@@ -295,9 +266,7 @@ class GradNormModule(nn.Module):
 
         # Add debug log immediately before returning metrics dictionary
         if self.rank == 0 and debug_verbose:
-            logger.debug(
-                f"[DEBUG_GRADNORM_RETURN] Returning metrics dict from measure_and_update: {metrics}"
-            )
+            logger.debug(f"[DEBUG_GRADNORM_RETURN] Returning metrics dict from measure_and_update: {metrics}")
 
         return metrics
 
@@ -305,7 +274,4 @@ class GradNormModule(nn.Module):
         """
         Return task weights as a dictionary {task_key: weight}
         """
-        return {
-            task: self.task_weights[i].item()
-            for i, task in enumerate(sorted(self.task_keys))
-        }
+        return {task: self.task_weights[i].item() for i, task in enumerate(sorted(self.task_keys))}

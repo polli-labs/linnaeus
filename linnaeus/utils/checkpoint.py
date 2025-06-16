@@ -18,9 +18,7 @@ from linnaeus.utils.model_utils import relative_bias_interpolate
 logger = get_main_logger()
 
 
-def _clean_state_dict_keys(
-    sd: dict[str, Any], model_is_ddp: bool, ckpt_has_module_prefix: bool
-) -> dict[str, Any]:
+def _clean_state_dict_keys(sd: dict[str, Any], model_is_ddp: bool, ckpt_has_module_prefix: bool) -> dict[str, Any]:
     """Adds or removes 'module.' prefix to match the target model state."""
     new_sd = {}
     if model_is_ddp and not ckpt_has_module_prefix:
@@ -33,9 +31,7 @@ def _clean_state_dict_keys(
             if k.startswith("module."):
                 new_sd[k[7:]] = v
             else:
-                new_sd[k] = (
-                    v  # Keep keys without prefix as is (shouldn't happen ideally)
-                )
+                new_sd[k] = v  # Keep keys without prefix as is (shouldn't happen ideally)
     else:
         # Prefixes match or neither uses DDP
         new_sd = sd.copy()
@@ -91,9 +87,7 @@ def debug_load_checkpoint(checkpoint_dict: dict, model: torch.nn.Module):
 
     if shape_mismatches:
         logger.info(f"Shape mismatches: {len(shape_mismatches)}")
-        for k, ckpt_shape, model_shape in shape_mismatches[
-            :10
-        ]:  # Show first 10 mismatches
+        for k, ckpt_shape, model_shape in shape_mismatches[:10]:  # Show first 10 mismatches
             logger.info(f"  '{k}': checkpoint={ckpt_shape}, model={model_shape}")
         if len(shape_mismatches) > 10:
             logger.info(f"  ... and {len(shape_mismatches) - 10} more")
@@ -101,11 +95,7 @@ def debug_load_checkpoint(checkpoint_dict: dict, model: torch.nn.Module):
         logger.info("No shape mismatches found.")
 
     # 4) Show a sample of keys that will be loaded correctly
-    matching_keys = [
-        k
-        for k in ckpt_model.keys()
-        if k in model_dict and ckpt_model[k].shape == model_dict[k].shape
-    ]
+    matching_keys = [k for k in ckpt_model.keys() if k in model_dict and ckpt_model[k].shape == model_dict[k].shape]
     if matching_keys:
         logger.info(f"Keys that will be loaded correctly: {len(matching_keys)}")
         for k in matching_keys[:5]:  # Show first 5 matching keys
@@ -114,12 +104,7 @@ def debug_load_checkpoint(checkpoint_dict: dict, model: torch.nn.Module):
             logger.info(f"  ... and {len(matching_keys) - 5} more")
 
 
-def map_metaformer_checkpoint(
-    checkpoint_dict: dict,
-    remove_classifier: bool = True,
-    remove_meta_heads: bool = False,
-    config=None,
-) -> dict:
+def map_metaformer_checkpoint(checkpoint_dict: dict, remove_classifier: bool = True, remove_meta_heads: bool = False, config=None) -> dict:
     """
     Map the dqshuai/metaformer param keys (in `checkpoint_dict['model']`) to
     names that match our linnaeus mFormerV0. Also remove classification head if needed.
@@ -179,16 +164,10 @@ def map_metaformer_checkpoint(
             logger.debug("MetaFormer checkpoint mapping statistics:")
             logger.debug(f"  - Skipped classifier keys: {len(skipped_keys)}")
             logger.debug(f"  - Renamed keys: {len(renamed_keys)}")
-            logger.debug(
-                f"  - Unchanged keys: {len(unchanged_keys) - len(meta_head_keys)}"
-            )
+            logger.debug(f"  - Unchanged keys: {len(unchanged_keys) - len(meta_head_keys)}")
 
     # Log meta head keys
-    if (
-        meta_head_keys
-        and "config" in locals()
-        and check_debug_flag(config, "DEBUG.CHECKPOINT")
-    ):
+    if meta_head_keys and "config" in locals() and check_debug_flag(config, "DEBUG.CHECKPOINT"):
         if remove_meta_heads:
             logger.debug(f"  - Removed meta head keys: {len(meta_head_keys)}")
         else:
@@ -200,11 +179,7 @@ def map_metaformer_checkpoint(
             logger.debug(f"    - ... and {len(meta_head_keys) - 5} more")
 
     # Log some examples of the mappings for verification
-    if (
-        renamed_keys
-        and "config" in locals()
-        and check_debug_flag(config, "DEBUG.CHECKPOINT")
-    ):
+    if renamed_keys and "config" in locals() and check_debug_flag(config, "DEBUG.CHECKPOINT"):
         logger.debug("Example key renamings:")
         for old, new in renamed_keys[:3]:  # Show first 3 examples
             logger.debug(f"  {old} -> {new}")
@@ -230,21 +205,15 @@ def load_stitched_pretrained(config, model: nn.Module, logger) -> dict[str, Any]
     ropevit_path = config.MODEL.PRETRAINED_ROPEVIT
 
     if not convnext_path or not ropevit_path:
-        logger.error(
-            "Both PRETRAINED_CONVNEXT and PRETRAINED_ROPEVIT paths must be specified for stitching."
-        )
+        logger.error("Both PRETRAINED_CONVNEXT and PRETRAINED_ROPEVIT paths must be specified for stitching.")
         return None
 
     # Resolve checkpoint paths
     cache_dir = config.ENV.INPUT.CACHE_DIR
     bucket_config = config.ENV.INPUT.BUCKET
 
-    resolved_convnext_path = resolve_checkpoint_path(
-        convnext_path, cache_dir, bucket_config
-    )
-    resolved_ropevit_path = resolve_checkpoint_path(
-        ropevit_path, cache_dir, bucket_config
-    )
+    resolved_convnext_path = resolve_checkpoint_path(convnext_path, cache_dir, bucket_config)
+    resolved_ropevit_path = resolve_checkpoint_path(ropevit_path, cache_dir, bucket_config)
 
     if not resolved_convnext_path:
         logger.error(f"Could not resolve ConvNeXt checkpoint path: {convnext_path}")
@@ -261,22 +230,14 @@ def load_stitched_pretrained(config, model: nn.Module, logger) -> dict[str, Any]
     try:
         # --- Load Checkpoints ---
         logger.debug("Loading ConvNeXt checkpoint...")
-        ckpt_convnext = torch.load(
-            resolved_convnext_path, map_location="cpu", weights_only=False
-        )
-        sd_convnext_raw = ckpt_convnext.get(
-            "model", ckpt_convnext.get("state_dict_ema", ckpt_convnext)
-        )
+        ckpt_convnext = torch.load(resolved_convnext_path, map_location="cpu", weights_only=False)
+        sd_convnext_raw = ckpt_convnext.get("model", ckpt_convnext.get("state_dict_ema", ckpt_convnext))
         if not sd_convnext_raw:
             raise KeyError("Could not find model state dict in ConvNeXt checkpoint.")
 
         logger.debug("Loading RoPE-ViT checkpoint...")
-        ckpt_rope = torch.load(
-            resolved_ropevit_path, map_location="cpu", weights_only=False
-        )
-        sd_rope_raw = ckpt_rope.get(
-            "model", ckpt_rope.get("state_dict", ckpt_rope)
-        )  # RoPE-ViT repo might use 'state_dict'
+        ckpt_rope = torch.load(resolved_ropevit_path, map_location="cpu", weights_only=False)
+        sd_rope_raw = ckpt_rope.get("model", ckpt_rope.get("state_dict", ckpt_rope))  # RoPE-ViT repo might use 'state_dict'
         if not sd_rope_raw:
             raise KeyError("Could not find model state dict in RoPE-ViT checkpoint.")
 
@@ -286,42 +247,26 @@ def load_stitched_pretrained(config, model: nn.Module, logger) -> dict[str, Any]
         logger.debug(f"Target model is DDP: {model_is_ddp}")
 
         # Check prefixes in loaded checkpoints
-        convnext_has_prefix = any(
-            k.startswith("module.") for k in sd_convnext_raw.keys()
-        )
+        convnext_has_prefix = any(k.startswith("module.") for k in sd_convnext_raw.keys())
         rope_has_prefix = any(k.startswith("module.") for k in sd_rope_raw.keys())
         logger.debug(f"ConvNeXt checkpoint has 'module.' prefix: {convnext_has_prefix}")
         logger.debug(f"RoPE-ViT checkpoint has 'module.' prefix: {rope_has_prefix}")
 
         # Prefix handling happens *after* stitching in load_pretrained.
         # So, here we just remove prefixes if they exist, regardless of target model state.
-        sd_convnext = {
-            k[7:] if k.startswith("module.") else k: v
-            for k, v in sd_convnext_raw.items()
-        }
-        sd_rope = {
-            k[7:] if k.startswith("module.") else k: v for k, v in sd_rope_raw.items()
-        }
-        logger.debug(
-            "Removed 'module.' prefixes from loaded checkpoints for initial mapping."
-        )
+        sd_convnext = {k[7:] if k.startswith("module.") else k: v for k, v in sd_convnext_raw.items()}
+        sd_rope = {k[7:] if k.startswith("module.") else k: v for k, v in sd_rope_raw.items()}
+        logger.debug("Removed 'module.' prefixes from loaded checkpoints for initial mapping.")
 
         # --- Initialize Target State Dict ---
         # Start with an empty dict, we will populate it selectively.
         target_state_dict = {}
-        model_keys = set(
-            model.state_dict().keys()
-        )  # Get keys from the actual model instance
+        model_keys = set(model.state_dict().keys())  # Get keys from the actual model instance
 
-        loaded_keys_sources = {
-            "convnext": set(),
-            "rope": set(),
-        }  # Track source keys loaded
+        loaded_keys_sources = {"convnext": set(), "rope": set()}  # Track source keys loaded
 
         # --- Map ConvNeXt Weights (Stem, Stages 0 & 1, Downsamplers 0, 1) ---
-        logger.info(
-            "Mapping ConvNeXt weights (Stem, Stages 0, 1, Downsamplers 0, 1)..."
-        )
+        logger.info("Mapping ConvNeXt weights (Stem, Stages 0, 1, Downsamplers 0, 1)...")
         convnext_prefix_map = {
             "downsample_layers.0.": "stem.",  # ConvNeXt Stem -> mFormerV1 Stem
             "stages.0.": "stages.0.",  # ConvNeXt Stage 0 -> mFormerV1 Stage 0
@@ -370,10 +315,7 @@ def load_stitched_pretrained(config, model: nn.Module, logger) -> dict[str, Any]
 
             mapped = False
             # --- Map Blocks ---
-            for stage_idx_map, depth_map, rope_start_block in [
-                (2, rope_depths[0], 0),
-                (3, rope_depths[1], rope_depths[0]),
-            ]:
+            for stage_idx_map, depth_map, rope_start_block in [(2, rope_depths[0], 0), (3, rope_depths[1], rope_depths[0])]:
                 for block_i in range(depth_map):
                     rope_block_idx = rope_start_block + block_i
                     target_block_idx = block_i
@@ -405,32 +347,20 @@ def load_stitched_pretrained(config, model: nn.Module, logger) -> dict[str, Any]
             if k_src == "cls_token":
                 cls_token_src = v_src
                 mapped_cls1, mapped_cls2 = False, False
-                if (
-                    "cls_token_1" in model_keys
-                    and cls_token_src.shape == model.state_dict()["cls_token_1"].shape
-                ):
+                if "cls_token_1" in model_keys and cls_token_src.shape == model.state_dict()["cls_token_1"].shape:
                     target_state_dict["cls_token_1"] = cls_token_src
                     loaded_keys_sources["rope"].add(k_src)  # Count source key once
                     mapped_cls1 = True
                 else:
-                    logger.warning(
-                        "Could not map cls_token_1 from RoPE checkpoint (missing/shape mismatch)."
-                    )
+                    logger.warning("Could not map cls_token_1 from RoPE checkpoint (missing/shape mismatch).")
 
-                if (
-                    "cls_token_2" in model_keys
-                    and cls_token_src.shape == model.state_dict()["cls_token_2"].shape
-                ):
+                if "cls_token_2" in model_keys and cls_token_src.shape == model.state_dict()["cls_token_2"].shape:
                     target_state_dict["cls_token_2"] = cls_token_src
                     if not mapped_cls1:
-                        loaded_keys_sources["rope"].add(
-                            k_src
-                        )  # Count source key if not already counted
+                        loaded_keys_sources["rope"].add(k_src)  # Count source key if not already counted
                     mapped_cls2 = True
                 else:
-                    logger.warning(
-                        "Could not map cls_token_2 from RoPE checkpoint (missing/shape mismatch)."
-                    )
+                    logger.warning("Could not map cls_token_2 from RoPE checkpoint (missing/shape mismatch).")
                 if mapped_cls1 or mapped_cls2:
                     mapped = True
 
@@ -449,27 +379,17 @@ def load_stitched_pretrained(config, model: nn.Module, logger) -> dict[str, Any]
                             target_shape = model.state_dict()[target_key].shape
                             if freqs_src.shape == target_shape:
                                 target_state_dict[target_key] = freqs_src.clone()
-                                loaded_keys_sources["rope"].add(
-                                    k_src
-                                )  # Count source key once
+                                loaded_keys_sources["rope"].add(k_src)  # Count source key once
                                 freqs_mapped_count += 1
-                                mapped = (
-                                    True  # Mark as mapped even if only partially used
-                                )
+                                mapped = True  # Mark as mapped even if only partially used
                             else:
                                 logger.warning(
                                     f"  Shape Mismatch (RoPE Freqs): Skipping {target_key}. Source 'freqs' shape {freqs_src.shape} != Target shape {target_shape}"
                                 )
                         # else: logger.debug(f"  Target key {target_key} for RoPE freqs not found.")
-                if freqs_mapped_count == 0 and config.MODEL.ROPE_STAGES.get(
-                    "ROPE_MIXED", False
-                ):
-                    logger.warning(
-                        "RoPE 'freqs' key found but not mapped to any target block."
-                    )
-            elif k_src == "freqs" and not config.MODEL.ROPE_STAGES.get(
-                "ROPE_MIXED", False
-            ):
+                if freqs_mapped_count == 0 and config.MODEL.ROPE_STAGES.get("ROPE_MIXED", False):
+                    logger.warning("RoPE 'freqs' key found but not mapped to any target block.")
+            elif k_src == "freqs" and not config.MODEL.ROPE_STAGES.get("ROPE_MIXED", False):
                 logger.debug("  Skipping RoPE key 'freqs' as ROPE_MIXED is False.")
 
         # --- Log Summary ---
@@ -477,13 +397,9 @@ def load_stitched_pretrained(config, model: nn.Module, logger) -> dict[str, Any]
         logger.info(
             f"Successfully mapped {total_loaded} keys from ConvNeXt ({len(loaded_keys_sources['convnext'])}) and RoPE-ViT ({len(loaded_keys_sources['rope'])}) sources."
         )
-        model_target_keys = set(
-            model.state_dict().keys()
-        )  # Use clean keys for comparison
+        model_target_keys = set(model.state_dict().keys())  # Use clean keys for comparison
         missed_keys = model_target_keys - set(target_state_dict.keys())
-        logger.warning(
-            f"{len(missed_keys)} keys in mFormerV1 model were NOT loaded from pretrained checkpoints:"
-        )
+        logger.warning(f"{len(missed_keys)} keys in mFormerV1 model were NOT loaded from pretrained checkpoints:")
         # Log first few missed keys for debugging
         missed_keys_sorted = sorted(list(missed_keys))
         for i, k in enumerate(missed_keys_sorted):
@@ -493,9 +409,7 @@ def load_stitched_pretrained(config, model: nn.Module, logger) -> dict[str, Any]
                 break
         if len(missed_keys) > 15:
             logger.warning(f"  ... and {len(missed_keys) - 15} more.")
-        logger.warning(
-            "These should typically include heads, meta-heads, aggregation layers."
-        )
+        logger.warning("These should typically include heads, meta-heads, aggregation layers.")
 
         return target_state_dict
 
@@ -541,9 +455,7 @@ def load_pretrained(config, model, logger=None, strict=False):
     is_single_source = bool(pretrained_path)
 
     if is_stitched:
-        logger.info(
-            "Detected PRETRAINED_CONVNEXT and PRETRAINED_ROPEVIT paths. Attempting stitched loading."
-        )
+        logger.info("Detected PRETRAINED_CONVNEXT and PRETRAINED_ROPEVIT paths. Attempting stitched loading.")
         if pretrained_source != "stitched_convnext_ropevit":
             logger.warning(
                 f"PRETRAINED_SOURCE is '{pretrained_source}', but CONVNEXT/ROPEVIT paths suggest stitched loading. Proceeding with stitching."
@@ -554,27 +466,16 @@ def load_pretrained(config, model, logger=None, strict=False):
         # Resolve checkpoint path
         cache_dir = config.ENV.INPUT.CACHE_DIR
         bucket_config = config.ENV.INPUT.BUCKET
-        resolved_path = resolve_checkpoint_path(
-            pretrained_path, cache_dir, bucket_config
-        )
+        resolved_path = resolve_checkpoint_path(pretrained_path, cache_dir, bucket_config)
 
         if not resolved_path:
             logger.error(f"Could not resolve checkpoint path: {pretrained_path}")
             return None
 
-        logger.info(
-            f"Attempting single-source pretrained loading from: {resolved_path} (from {pretrained_path})"
-        )
+        logger.info(f"Attempting single-source pretrained loading from: {resolved_path} (from {pretrained_path})")
         try:
-            checkpoint = torch.load(
-                resolved_path, map_location="cpu", weights_only=False
-            )
-            state_dict_raw = checkpoint.get(
-                "model",
-                checkpoint.get(
-                    "state_dict_ema", checkpoint.get("state_dict", checkpoint)
-                ),
-            )
+            checkpoint = torch.load(resolved_path, map_location="cpu", weights_only=False)
+            state_dict_raw = checkpoint.get("model", checkpoint.get("state_dict_ema", checkpoint.get("state_dict", checkpoint)))
             if not state_dict_raw:
                 raise KeyError("Could not find model state dict in checkpoint.")
 
@@ -583,24 +484,13 @@ def load_pretrained(config, model, logger=None, strict=False):
             if pretrained_source == "metaformer":
                 logger.info("Applying Metaformer checkpoint mapping...")
                 # Interpolate relative bias *before* mapping/dropping if needed by MetaFormer models
-                if hasattr(
-                    model, "pretrained_ckpt_handling_metadata"
-                ) and model.pretrained_ckpt_handling_metadata.get(
+                if hasattr(model, "pretrained_ckpt_handling_metadata") and model.pretrained_ckpt_handling_metadata.get(
                     "interpolate_rel_pos_bias", False
                 ):
-                    logger.info(
-                        "Applying relative position bias interpolation for Metaformer source."
-                    )
-                    checkpoint = relative_bias_interpolate(
-                        checkpoint, config
-                    )  # Pass original checkpoint
+                    logger.info("Applying relative position bias interpolation for Metaformer source.")
+                    checkpoint = relative_bias_interpolate(checkpoint, config)  # Pass original checkpoint
                     # Update state_dict_raw after interpolation
-                    state_dict_raw = checkpoint.get(
-                        "model",
-                        checkpoint.get(
-                            "state_dict_ema", checkpoint.get("state_dict", checkpoint)
-                        ),
-                    )
+                    state_dict_raw = checkpoint.get("model", checkpoint.get("state_dict_ema", checkpoint.get("state_dict", checkpoint)))
 
                 mapped_checkpoint = map_metaformer_checkpoint(
                     {"model": state_dict_raw},  # Pass in expected format
@@ -608,19 +498,13 @@ def load_pretrained(config, model, logger=None, strict=False):
                     remove_meta_heads=True,  # Let metadata handle this ideally? No, map func should handle source specifics.
                     config=config,
                 )
-                state_dict_raw = mapped_checkpoint.get(
-                    "model", {}
-                )  # Use the mapped dict
+                state_dict_raw = mapped_checkpoint.get("model", {})  # Use the mapped dict
 
             # Clean prefix from the raw/mapped state dict
             # Determine if target model is DDP and if checkpoint has module prefix
             model_is_ddp = isinstance(model, torch.nn.parallel.DistributedDataParallel)
-            ckpt_has_module_prefix = any(
-                k.startswith("module.") for k in state_dict_raw.keys()
-            )
-            state_dict_to_load = _clean_state_dict_keys(
-                state_dict_raw, model_is_ddp, ckpt_has_module_prefix
-            )
+            ckpt_has_module_prefix = any(k.startswith("module.") for k in state_dict_raw.keys())
+            state_dict_to_load = _clean_state_dict_keys(state_dict_raw, model_is_ddp, ckpt_has_module_prefix)
 
         except FileNotFoundError:
             logger.error(f"Pretrained file not found: {resolved_path}")
@@ -629,9 +513,7 @@ def load_pretrained(config, model, logger=None, strict=False):
             logger.error(f"Key error loading single-source checkpoint: {e}")
             return None
         except Exception as e:
-            logger.error(
-                f"Error loading single-source pretrained weights: {e}", exc_info=True
-            )
+            logger.error(f"Error loading single-source pretrained weights: {e}", exc_info=True)
             return None
     else:
         logger.warning("No pretrained checkpoint specified.")
@@ -658,20 +540,12 @@ def load_pretrained(config, model, logger=None, strict=False):
             # Example: 'head.' matches 'head.weight' but not 'some_headroom'
             # Example: 'norm.' matches 'norm.weight' but not 'prenorm.weight'
             # If pattern doesn't end with '.', it acts as 'contains'
-            regex_pattern = (
-                pattern if pattern.endswith(".") else pattern + r"\b"
-            )  # Match word boundary if no dot
-            keys_to_drop = {
-                k
-                for k in list(state_dict_to_load.keys())
-                if re.search(regex_pattern, k)
-            }
+            regex_pattern = pattern if pattern.endswith(".") else pattern + r"\b"  # Match word boundary if no dot
+            keys_to_drop = {k for k in list(state_dict_to_load.keys()) if re.search(regex_pattern, k)}
 
             if keys_to_drop:
                 num_dropped += len(keys_to_drop)
-                logger.info(
-                    f"Dropping {len(keys_to_drop)} parameters matching pattern '{pattern}' based on target model metadata"
-                )
+                logger.info(f"Dropping {len(keys_to_drop)} parameters matching pattern '{pattern}' based on target model metadata")
                 for k in keys_to_drop:
                     del state_dict_to_load[k]
         if num_dropped > 0:
@@ -683,15 +557,11 @@ def load_pretrained(config, model, logger=None, strict=False):
             keys_to_drop = {k for k in list(state_dict_to_load.keys()) if pattern in k}
             if keys_to_drop:
                 num_buffers_dropped += len(keys_to_drop)
-                logger.info(
-                    f"Dropping {len(keys_to_drop)} buffers matching pattern '{pattern}' based on target model metadata"
-                )
+                logger.info(f"Dropping {len(keys_to_drop)} buffers matching pattern '{pattern}' based on target model metadata")
                 for k in keys_to_drop:
                     del state_dict_to_load[k]
         if num_buffers_dropped > 0:
-            logger.debug(
-                f"Total buffers dropped based on metadata: {num_buffers_dropped}"
-            )
+            logger.debug(f"Total buffers dropped based on metadata: {num_buffers_dropped}")
 
         # Handle `module.` prefix based on target model state and metadata flag
         # state_dict_to_load currently has clean keys
@@ -701,22 +571,15 @@ def load_pretrained(config, model, logger=None, strict=False):
 
             if model_is_ddp:  # and not ckpt_has_prefix:
                 logger.info("Adding 'module.' prefix to match DDP model.")
-                state_dict_to_load = {
-                    f"module.{k}": v for k, v in state_dict_to_load.items()
-                }
+                state_dict_to_load = {f"module.{k}": v for k, v in state_dict_to_load.items()}
             # No need for the elif case, as state_dict_to_load has clean keys now.
 
     except Exception as e:
-        logger.error(
-            f"Error applying model metadata during checkpoint loading: {e}",
-            exc_info=True,
-        )
+        logger.error(f"Error applying model metadata during checkpoint loading: {e}", exc_info=True)
         # Continue, but loading might fail or be incorrect
 
     # --- Final Load ---
-    final_strict_load = metadata.get(
-        "strict", False
-    )  # Use strict from metadata, default False
+    final_strict_load = metadata.get("strict", False)  # Use strict from metadata, default False
     logger.info(f"Loading final state dict into model (strict={final_strict_load})")
 
     # Debug keys just before final load
@@ -735,15 +598,7 @@ def load_pretrained(config, model, logger=None, strict=False):
     return load_result
 
 
-def load_checkpoint(
-    config,
-    model,
-    optimizer,
-    lr_scheduler,
-    logger,
-    preserve_schedule=True,
-    training_progress=None,
-):
+def load_checkpoint(config, model, optimizer, lr_scheduler, logger, preserve_schedule=True, training_progress=None):
     """
     Load a checkpoint from config.MODEL.RESUME. Returns the entire checkpoint dict.
 
@@ -774,18 +629,12 @@ def load_checkpoint(
             logger.error(f"Could not resolve checkpoint path: {resume_path}")
             return {}
 
-        logger.info(
-            f"==============> Resuming from {resolved_path} (from {resume_path}) ...................."
-        )
+        logger.info(f"==============> Resuming from {resolved_path} (from {resume_path}) ....................")
         checkpoint = torch.load(resolved_path, map_location="cpu", weights_only=False)
     else:
         # Handle URL-based checkpoints
-        logger.info(
-            f"==============> Resuming from URL {resume_path} ...................."
-        )
-        checkpoint = torch.hub.load_state_dict_from_url(
-            resume_path, map_location="cpu", check_hash=True
-        )
+        logger.info(f"==============> Resuming from URL {resume_path} ....................")
+        checkpoint = torch.hub.load_state_dict_from_url(resume_path, map_location="cpu", check_hash=True)
 
     if "model" not in checkpoint:
         # fallback logic
@@ -796,13 +645,9 @@ def load_checkpoint(
 
     # Check if the checkpoint was saved from a DistributedDataParallel model
     # If so, remove the 'module.' prefix from all keys
-    has_module_prefix_in_checkpoint = any(
-        k.startswith("module.") for k in checkpoint["model"].keys()
-    )
+    has_module_prefix_in_checkpoint = any(k.startswith("module.") for k in checkpoint["model"].keys())
     if has_module_prefix_in_checkpoint:
-        logger.info(
-            "[load_checkpoint] => Detected 'module.' prefix in checkpoint keys. Removing prefix."
-        )
+        logger.info("[load_checkpoint] => Detected 'module.' prefix in checkpoint keys. Removing prefix.")
 
         # Create a new state dict without the 'module.' prefix
         new_state_dict = {}
@@ -817,12 +662,8 @@ def load_checkpoint(
     # Check if the model has 'module.' prefix but the checkpoint doesn't
     # This happens when model is wrapped with DDP but the checkpoint is not
     model_state = model.state_dict()
-    if any(k.startswith("module.") for k in model_state.keys()) and not any(
-        k.startswith("module.") for k in checkpoint["model"].keys()
-    ):
-        logger.info(
-            "[load_checkpoint] => Model has 'module.' prefix but checkpoint does not. Adding prefix to checkpoint keys."
-        )
+    if any(k.startswith("module.") for k in model_state.keys()) and not any(k.startswith("module.") for k in checkpoint["model"].keys()):
+        logger.info("[load_checkpoint] => Model has 'module.' prefix but checkpoint does not. Adding prefix to checkpoint keys.")
 
         # Create a new state dict with the 'module.' prefix added to all keys
         new_state_dict = {}
@@ -861,13 +702,7 @@ def load_checkpoint(
             "This is useful when model architecture has changed."
         )
 
-    if (
-        not eval_mode
-        and not skip_optimizer
-        and "optimizer" in checkpoint
-        and "lr_scheduler" in checkpoint
-        and "epoch" in checkpoint
-    ):
+    if not eval_mode and not skip_optimizer and "optimizer" in checkpoint and "lr_scheduler" in checkpoint and "epoch" in checkpoint:
         # Handle different optimizer types (single vs multi)
         if hasattr(optimizer, "optimizers"):
             # For MultiOptimizer
@@ -877,9 +712,7 @@ def load_checkpoint(
                 logger.info("Successfully loaded MultiOptimizer state")
             except Exception as e:
                 logger.warning(f"Error loading MultiOptimizer state: {str(e)}")
-                logger.warning(
-                    "This may happen if optimizer configuration has changed. Continuing with fresh optimizer."
-                )
+                logger.warning("This may happen if optimizer configuration has changed. Continuing with fresh optimizer.")
         else:
             # For standard optimizer
             try:
@@ -887,9 +720,7 @@ def load_checkpoint(
                 logger.info("Successfully loaded optimizer state")
             except Exception as e:
                 logger.warning(f"Error loading optimizer state: {str(e)}")
-                logger.warning(
-                    "This may happen if optimizer configuration has changed. Continuing with fresh optimizer."
-                )
+                logger.warning("This may happen if optimizer configuration has changed. Continuing with fresh optimizer.")
 
         # Handle different LR scheduler types (single vs multi)
         if hasattr(lr_scheduler, "schedulers"):
@@ -900,9 +731,7 @@ def load_checkpoint(
                 logger.info("Successfully loaded MultiLRScheduler state")
             except Exception as e:
                 logger.warning(f"Error loading MultiLRScheduler state: {str(e)}")
-                logger.warning(
-                    "This may happen if scheduler configuration has changed. Continuing with fresh scheduler."
-                )
+                logger.warning("This may happen if scheduler configuration has changed. Continuing with fresh scheduler.")
         else:
             # For standard scheduler
             try:
@@ -910,9 +739,7 @@ def load_checkpoint(
                 logger.info("Successfully loaded LR scheduler state")
             except Exception as e:
                 logger.warning(f"Error loading LR scheduler state: {str(e)}")
-                logger.warning(
-                    "This may happen if scheduler configuration has changed. Continuing with fresh scheduler."
-                )
+                logger.warning("This may happen if scheduler configuration has changed. Continuing with fresh scheduler.")
 
         # Set the current iteration for the scheduler if available
         if "iteration" in checkpoint:
@@ -935,9 +762,7 @@ def load_checkpoint(
         ):
             torch.cuda.amp.load_state_dict(checkpoint["amp"])
 
-        logger.info(
-            f"=> Loaded checkpoint '{resume_path}' (epoch {checkpoint['epoch']})"
-        )
+        logger.info(f"=> Loaded checkpoint '{resume_path}' (epoch {checkpoint['epoch']})")
 
     # If there's a wandb_run_id, store it in config so we can init W&B with the same run ID
     if "wandb_run_id" in checkpoint and checkpoint["wandb_run_id"]:
@@ -945,24 +770,13 @@ def load_checkpoint(
         config.EXPERIMENT.WANDB.RUN_ID = checkpoint["wandb_run_id"]
         config.LOADING_FROM_CHECKPOINT = True
         config.freeze()
-        logger.info(
-            f"=> Found wandb_run_id={checkpoint['wandb_run_id']} in checkpoint."
-        )
+        logger.info(f"=> Found wandb_run_id={checkpoint['wandb_run_id']} in checkpoint.")
 
     torch.cuda.empty_cache()
     return checkpoint  # Return the entire dict so main can load e.g. metrics_tracker state.
 
 
-def save_checkpoint(
-    config,
-    epoch,
-    model,
-    metrics_tracker,
-    optimizer,
-    lr_scheduler,
-    logger,
-    training_progress=None,
-):
+def save_checkpoint(config, epoch, model, metrics_tracker, optimizer, lr_scheduler, logger, training_progress=None):
     """
     Save a checkpoint and optionally sync to Backblaze.
 
@@ -1020,9 +834,7 @@ def save_checkpoint(
 
     # Get the current global step from training_progress if available
     # DO NOT update or recalculate it here - it's managed by TrainingProgress.update_step
-    current_global_step = (
-        training_progress.global_step if training_progress is not None else 0
-    )
+    current_global_step = training_progress.global_step if training_progress is not None else 0
 
     # Gather state
     save_state = {
@@ -1062,67 +874,38 @@ def save_checkpoint(
             # Safely access metric values - first retrieve the nested dictionaries with get
             val_metrics = metrics_tracker.phase_metrics.get("val", {})
             val_task_metrics = metrics_tracker.phase_task_metrics.get("val", {})
-            valmask_task_metrics = metrics_tracker.phase_task_metrics.get(
-                "val_mask_meta", {}
-            )
+            valmask_task_metrics = metrics_tracker.phase_task_metrics.get("val_mask_meta", {})
 
             # Get the specific metrics, with proper fallbacks
-            val_loss_val = val_metrics.get(
-                "loss", Metric("dummy_loss", 1e9, False)
-            ).value
+            val_loss_val = val_metrics.get("loss", Metric("dummy_loss", 1e9, False)).value
 
             # Get taxa_L40 metrics
             val_l40_metrics = val_task_metrics.get("taxa_L40", {})
-            val_l40_acc1_val = val_l40_metrics.get(
-                "acc1", Metric("dummy_acc", 0.0, True)
-            ).value
+            val_l40_acc1_val = val_l40_metrics.get("acc1", Metric("dummy_acc", 0.0, True)).value
 
             # Get val_mask_meta metrics
             valmask_l40_metrics = valmask_task_metrics.get("taxa_L40", {})
-            valmask_l40_acc1_val = valmask_l40_metrics.get(
-                "acc1", Metric("dummy_acc", 0.0, True)
-            ).value
+            valmask_l40_acc1_val = valmask_l40_metrics.get("acc1", Metric("dummy_acc", 0.0, True)).value
 
             # Format safely AFTER getting the values, handling None or non-numeric types
-            val_loss_str = (
-                f"{val_loss_val:.4f}"
-                if isinstance(val_loss_val, (int, float))
-                else str(val_loss_val)
-            )
-            val_l40_acc1_str = (
-                f"{val_l40_acc1_val:.4f}"
-                if isinstance(val_l40_acc1_val, (int, float))
-                else str(val_l40_acc1_val)
-            )
+            val_loss_str = f"{val_loss_val:.4f}" if isinstance(val_loss_val, (int, float)) else str(val_loss_val)
+            val_l40_acc1_str = f"{val_l40_acc1_val:.4f}" if isinstance(val_l40_acc1_val, (int, float)) else str(val_l40_acc1_val)
             valmask_l40_acc1_str = (
-                f"{valmask_l40_acc1_val:.4f}"
-                if isinstance(valmask_l40_acc1_val, (int, float))
-                else str(valmask_l40_acc1_val)
+                f"{valmask_l40_acc1_val:.4f}" if isinstance(valmask_l40_acc1_val, (int, float)) else str(valmask_l40_acc1_val)
             )
 
             # Use current_global_step obtained earlier
-            logger.debug(
-                f"[SAVE_CHECKPOINT PRE-SAVE Check] Epoch {epoch}, Global Step {current_global_step}:"
-            )
+            logger.debug(f"[SAVE_CHECKPOINT PRE-SAVE Check] Epoch {epoch}, Global Step {current_global_step}:")
             logger.debug(f"  - val/loss.value = {val_loss_str}")
             logger.debug(f"  - val/taxa_L40/acc1.value = {val_l40_acc1_str}")
-            logger.debug(
-                f"  - val_mask_meta/taxa_L40/acc1.value = {valmask_l40_acc1_str}"
-            )
+            logger.debug(f"  - val_mask_meta/taxa_L40/acc1.value = {valmask_l40_acc1_str}")
         except KeyError as e:
-            logger.debug(
-                f"[SAVE_CHECKPOINT PRE-SAVE Check] Metric key not found during logging: {e}"
-            )
+            logger.debug(f"[SAVE_CHECKPOINT PRE-SAVE Check] Metric key not found during logging: {e}")
         except Exception as e:
-            logger.debug(
-                f"[SAVE_CHECKPOINT PRE-SAVE Check] Error accessing/formatting metrics during logging: {e}",
-                exc_info=True,
-            )
+            logger.debug(f"[SAVE_CHECKPOINT PRE-SAVE Check] Error accessing/formatting metrics during logging: {e}", exc_info=True)
 
     # Save the checkpoint - no redundant check here as the caller should have already decided to save
-    save_path = os.path.join(
-        config.ENV.OUTPUT.DIRS.CHECKPOINTS, f"ckpt_epoch_{epoch}.pth"
-    )
+    save_path = os.path.join(config.ENV.OUTPUT.DIRS.CHECKPOINTS, f"ckpt_epoch_{epoch}.pth")
     logger.info(f"Saving checkpoint to {save_path}")
     torch.save(save_state, save_path)
 
@@ -1137,32 +920,22 @@ def save_checkpoint(
             # Safely access metric values - first retrieve the nested dictionaries with get
             val_metrics = metrics_tracker.phase_metrics.get("val", {})
             val_task_metrics = metrics_tracker.phase_task_metrics.get("val", {})
-            valmask_task_metrics = metrics_tracker.phase_task_metrics.get(
-                "val_mask_meta", {}
-            )
+            valmask_task_metrics = metrics_tracker.phase_task_metrics.get("val_mask_meta", {})
 
             # Get the specific metrics, with proper fallbacks
-            val_loss_current_after = val_metrics.get(
-                "loss", Metric("dummy_loss", 1e9, False)
-            ).value
+            val_loss_current_after = val_metrics.get("loss", Metric("dummy_loss", 1e9, False)).value
 
             # Get taxa_L40 metrics
             val_l40_metrics = val_task_metrics.get("taxa_L40", {})
-            val_l40_acc1_current_after = val_l40_metrics.get(
-                "acc1", Metric("dummy_acc", 0.0, True)
-            ).value
+            val_l40_acc1_current_after = val_l40_metrics.get("acc1", Metric("dummy_acc", 0.0, True)).value
 
             # Get val_mask_meta metrics
             valmask_l40_metrics = valmask_task_metrics.get("taxa_L40", {})
-            valmask_l40_acc1_current_after = valmask_l40_metrics.get(
-                "acc1", Metric("dummy_acc", 0.0, True)
-            ).value
+            valmask_l40_acc1_current_after = valmask_l40_metrics.get("acc1", Metric("dummy_acc", 0.0, True)).value
 
             # Format safely AFTER getting the values, handling None or non-numeric types
             val_loss_after_str = (
-                f"{val_loss_current_after:.4f}"
-                if isinstance(val_loss_current_after, (int, float))
-                else str(val_loss_current_after)
+                f"{val_loss_current_after:.4f}" if isinstance(val_loss_current_after, (int, float)) else str(val_loss_current_after)
             )
             val_l40_acc1_after_str = (
                 f"{val_l40_acc1_current_after:.4f}"
@@ -1175,21 +948,14 @@ def save_checkpoint(
                 else str(valmask_l40_acc1_current_after)
             )
 
-            logger.debug(
-                f"[SAVE_CHECKPOINT POST-SAVE Check] Epoch {epoch}, Global Step {current_global_step}:"
-            )
+            logger.debug(f"[SAVE_CHECKPOINT POST-SAVE Check] Epoch {epoch}, Global Step {current_global_step}:")
             logger.debug(f"  - val/loss.value = {val_loss_after_str}")
             logger.debug(f"  - val/taxa_L40/acc1.value = {val_l40_acc1_after_str}")
-            logger.debug(
-                f"  - val_mask_meta/taxa_L40/acc1.value = {valmask_l40_acc1_after_str}"
-            )
+            logger.debug(f"  - val_mask_meta/taxa_L40/acc1.value = {valmask_l40_acc1_after_str}")
         except KeyError as e:
             logger.debug(f"[SAVE_CHECKPOINT POST-SAVE Check] Metric key not found: {e}")
         except Exception as e:
-            logger.debug(
-                f"[SAVE_CHECKPOINT POST-SAVE Check] Error accessing/formatting metrics: {e}",
-                exc_info=True,
-            )
+            logger.debug(f"[SAVE_CHECKPOINT POST-SAVE Check] Error accessing/formatting metrics: {e}", exc_info=True)
 
     if config.ENV.OUTPUT.BUCKET.ENABLED:
         logger.info("Syncing output directory to Backblaze")
@@ -1205,17 +971,11 @@ def manage_checkpoints(config, metrics_tracker, logger):
     Preserves both top N best checkpoints AND last N most recent checkpoints.
     """
     ckpt_dir = config.ENV.OUTPUT.DIRS.CHECKPOINTS
-    all_checkpoints = [
-        f
-        for f in os.listdir(ckpt_dir)
-        if f.startswith("ckpt_epoch_") and f.endswith(".pth")
-    ]
+    all_checkpoints = [f for f in os.listdir(ckpt_dir) if f.startswith("ckpt_epoch_") and f.endswith(".pth")]
     # Sort by epoch
     all_checkpoints.sort(key=lambda x: int(x.split("_")[2].split(".")[0]))
 
-    logger.info(
-        f"[Checkpoint Management] Found {len(all_checkpoints)} existing checkpoints"
-    )
+    logger.info(f"[Checkpoint Management] Found {len(all_checkpoints)} existing checkpoints")
 
     # First check for settings in SCHEDULE.CHECKPOINT (preferred)
     # Then fall back to old CHECKPOINT settings if needed (for backwards compatibility)
@@ -1223,19 +983,13 @@ def manage_checkpoints(config, metrics_tracker, logger):
     if keep_top_n == 0:  # Fall back to old config if not set in new location
         keep_top_n = getattr(config.CHECKPOINT, "KEEP_TOP_N", 0)
         if keep_top_n > 0:
-            logger.warning(
-                "Using deprecated config.CHECKPOINT.KEEP_TOP_N. "
-                "Please update to config.SCHEDULE.CHECKPOINT.KEEP_TOP_N."
-            )
+            logger.warning("Using deprecated config.CHECKPOINT.KEEP_TOP_N. Please update to config.SCHEDULE.CHECKPOINT.KEEP_TOP_N.")
 
     keep_last_n = getattr(config.SCHEDULE.CHECKPOINT, "KEEP_LAST_N", 0)
     if keep_last_n == 0:  # Fall back to old config if not set in new location
         keep_last_n = getattr(config.CHECKPOINT, "KEEP_LAST_N", 0)
         if keep_last_n > 0:
-            logger.warning(
-                "Using deprecated config.CHECKPOINT.KEEP_LAST_N. "
-                "Please update to config.SCHEDULE.CHECKPOINT.KEEP_LAST_N."
-            )
+            logger.warning("Using deprecated config.CHECKPOINT.KEEP_LAST_N. Please update to config.SCHEDULE.CHECKPOINT.KEEP_LAST_N.")
 
     checkpoints_to_keep = set()
 
@@ -1249,12 +1003,8 @@ def manage_checkpoints(config, metrics_tracker, logger):
         if actual_top_n < keep_top_n:
             # Fill remaining slots with most recent checkpoints not already in top_n
             remaining_slots = keep_top_n - actual_top_n
-            recent_checkpoints = [
-                ckpt for ckpt in all_checkpoints if ckpt not in top_n_files
-            ]
-            additional_checkpoints = (
-                recent_checkpoints[-remaining_slots:] if recent_checkpoints else []
-            )
+            recent_checkpoints = [ckpt for ckpt in all_checkpoints if ckpt not in top_n_files]
+            additional_checkpoints = recent_checkpoints[-remaining_slots:] if recent_checkpoints else []
             top_n_files.extend(additional_checkpoints)
             logger.info(
                 f"[Checkpoint Management] Only {actual_top_n} checkpoints have valid metrics. "
@@ -1262,23 +1012,16 @@ def manage_checkpoints(config, metrics_tracker, logger):
             )
 
         checkpoints_to_keep.update(top_n_files)
-        logger.info(
-            f"[Checkpoint Management] Keeping top {len(top_n_files)} checkpoints: {top_n_files}"
-        )
+        logger.info(f"[Checkpoint Management] Keeping top {len(top_n_files)} checkpoints: {top_n_files}")
 
     # Keep last N most recent checkpoints (in addition to top N)
     if keep_last_n > 0:
         last_n_files = all_checkpoints[-keep_last_n:] if all_checkpoints else []
         checkpoints_to_keep.update(last_n_files)
-        logger.info(
-            f"[Checkpoint Management] Keeping last {len(last_n_files)} checkpoints: {last_n_files}"
-        )
+        logger.info(f"[Checkpoint Management] Keeping last {len(last_n_files)} checkpoints: {last_n_files}")
 
     # Log metrics info for debugging
-    if (
-        hasattr(metrics_tracker, "top_n_epochs_data")
-        and metrics_tracker.top_n_epochs_data
-    ):
+    if hasattr(metrics_tracker, "top_n_epochs_data") and metrics_tracker.top_n_epochs_data:
         logger.info("[Checkpoint Management] Top epochs by metric:")
         for epoch, value, metric in metrics_tracker.top_n_epochs_data[:5]:  # Show top 5
             logger.info(f"  Epoch {epoch}: {metric}={value:.4f}")
@@ -1286,11 +1029,7 @@ def manage_checkpoints(config, metrics_tracker, logger):
     # Delete checkpoints not in the keep set
     removed_count = 0
     for ckpt in os.listdir(ckpt_dir):
-        if (
-            ckpt.startswith("ckpt_epoch_")
-            and ckpt.endswith(".pth")
-            and ckpt not in checkpoints_to_keep
-        ):
+        if ckpt.startswith("ckpt_epoch_") and ckpt.endswith(".pth") and ckpt not in checkpoints_to_keep:
             os.remove(os.path.join(ckpt_dir, ckpt))
             logger.info(f"[Checkpoint Management] Removed checkpoint: {ckpt}")
             removed_count += 1
@@ -1317,16 +1056,12 @@ def auto_resume_helper(output_dir, config=None):
     checkpoints = [ckpt for ckpt in os.listdir(output_dir) if ckpt.endswith(".pth")]
     logger.info(f"All checkpoints found in {output_dir}: {checkpoints}")
     if len(checkpoints) > 0:
-        latest_checkpoint = max(
-            checkpoints, key=lambda ck: os.path.getmtime(os.path.join(output_dir, ck))
-        )
+        latest_checkpoint = max(checkpoints, key=lambda ck: os.path.getmtime(os.path.join(output_dir, ck)))
         logger.info(f"The latest checkpoint found: {latest_checkpoint}")
         if config and check_debug_flag(config, "DEBUG.CHECKPOINT"):
             checkpoint_path = os.path.join(output_dir, latest_checkpoint)
             logger.debug(f"Latest checkpoint full path: {checkpoint_path}")
-            logger.debug(
-                f"Checkpoint modification time: {os.path.getmtime(checkpoint_path)}"
-            )
+            logger.debug(f"Checkpoint modification time: {os.path.getmtime(checkpoint_path)}")
         return os.path.join(output_dir, latest_checkpoint)
     else:
         return None

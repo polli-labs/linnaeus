@@ -37,9 +37,7 @@ class MultiLRScheduler:
         # Validate schedulers
         for name, scheduler in schedulers.items():
             if not isinstance(scheduler, _LRScheduler):
-                logger.warning(
-                    f"Scheduler '{name}' is not an instance of _LRScheduler. Type: {type(scheduler)}"
-                )
+                logger.warning(f"Scheduler '{name}' is not an instance of _LRScheduler. Type: {type(scheduler)}")
 
         self.schedulers = schedulers
         self._last_lr = []
@@ -62,9 +60,7 @@ class MultiLRScheduler:
         Returns:
             Dictionary containing state of all schedulers
         """
-        return {
-            name: scheduler.state_dict() for name, scheduler in self.schedulers.items()
-        }
+        return {name: scheduler.state_dict() for name, scheduler in self.schedulers.items()}
 
     def load_state_dict(self, state_dict: dict[str, Any]) -> None:
         """
@@ -140,37 +136,25 @@ class MultiLRScheduler:
                 if hasattr(scheduler, "get_lr"):
                     # Use get_lr directly if available
                     lr_by_group[name] = scheduler.get_lr()
-                elif (
-                    hasattr(scheduler, "_last_lr")
-                    and hasattr(scheduler._last_lr, "__len__")
-                    and len(scheduler._last_lr) > 0
-                ):
+                elif hasattr(scheduler, "_last_lr") and hasattr(scheduler._last_lr, "__len__") and len(scheduler._last_lr) > 0:
                     # Use _last_lr only if it actually has values
                     lr_by_group[name] = scheduler._last_lr
                 elif hasattr(scheduler, "optimizer"):
                     # Fall back to base LRs from optimizer
-                    lr_by_group[name] = [
-                        group["lr"] for group in scheduler.optimizer.param_groups
-                    ]
+                    lr_by_group[name] = [group["lr"] for group in scheduler.optimizer.param_groups]
                 else:
                     lr_by_group[name] = []
-                    logger.debug(
-                        f"Scheduler '{name}' has no usable LR information. Type: {type(scheduler)}"
-                    )
+                    logger.debug(f"Scheduler '{name}' has no usable LR information. Type: {type(scheduler)}")
             except Exception as e:
                 logger.debug(f"Error getting LR from scheduler '{name}': {e}")
                 try:
                     # Try to get from optimizer base LRs if possible
                     if hasattr(scheduler, "optimizer"):
-                        lr_by_group[name] = [
-                            group["lr"] for group in scheduler.optimizer.param_groups
-                        ]
+                        lr_by_group[name] = [group["lr"] for group in scheduler.optimizer.param_groups]
                     else:
                         lr_by_group[name] = []
                 except Exception as inner_e:
-                    logger.debug(
-                        f"Also failed to get base LR from optimizer: {inner_e}"
-                    )
+                    logger.debug(f"Also failed to get base LR from optimizer: {inner_e}")
                     lr_by_group[name] = []
         return lr_by_group
 
@@ -217,9 +201,7 @@ class MultiLRScheduler:
         for name, scheduler in self.schedulers.items():
             # Skip if scheduler is not a proper scheduler object (e.g., if it's an integer)
             if not hasattr(scheduler, "step_update"):
-                logger.warning(
-                    f"Scheduler '{name}' does not have step_update method. Type: {type(scheduler)}"
-                )
+                logger.warning(f"Scheduler '{name}' does not have step_update method. Type: {type(scheduler)}")
                 continue
 
             try:
@@ -227,15 +209,10 @@ class MultiLRScheduler:
                 if (
                     hasattr(scheduler, "optimizer")
                     and hasattr(scheduler.optimizer, "param_groups")
-                    and check_debug_flag(
-                        scheduler.optimizer.param_groups[0].get("config", {}),
-                        "DEBUG.SCHEDULING",
-                    )
+                    and check_debug_flag(scheduler.optimizer.param_groups[0].get("config", {}), "DEBUG.SCHEDULING")
                 ):
                     if hasattr(scheduler, "_last_lr"):
-                        logger.debug(
-                            f"Scheduler '{name}' updated to LR: {scheduler._last_lr}"
-                        )
+                        logger.debug(f"Scheduler '{name}' updated to LR: {scheduler._last_lr}")
             except Exception as e:
                 logger.error(f"Error updating scheduler '{name}': {e}")
 
@@ -282,20 +259,14 @@ class MultiLRScheduler:
                     lrs = scheduler.get_lr()
                     logger.debug(f"  - {name}: {lrs}")
                 # Then try _last_lr if it exists and has values
-                elif (
-                    hasattr(scheduler, "_last_lr")
-                    and hasattr(scheduler._last_lr, "__len__")
-                    and len(scheduler._last_lr) > 0
-                ):
+                elif hasattr(scheduler, "_last_lr") and hasattr(scheduler._last_lr, "__len__") and len(scheduler._last_lr) > 0:
                     logger.debug(f"  - {name}: {scheduler._last_lr}")
                 # Then try get_last_lr as a fallback
                 elif hasattr(scheduler, "get_last_lr"):
                     logger.debug(f"  - {name}: {scheduler.get_last_lr()}")
                 # Finally try to get base LRs from optimizer
                 elif hasattr(scheduler, "optimizer"):
-                    base_lrs = [
-                        group["lr"] for group in scheduler.optimizer.param_groups
-                    ]
+                    base_lrs = [group["lr"] for group in scheduler.optimizer.param_groups]
                     logger.debug(f"  - {name}: {base_lrs} (from optimizer)")
                 else:
                     logger.debug(f"  - {name}: [unknown - no LR information available]")

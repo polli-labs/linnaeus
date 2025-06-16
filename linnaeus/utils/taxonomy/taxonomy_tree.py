@@ -102,35 +102,24 @@ class TaxonomyTree:
         # Group nodes by level for convenience
         for task in self.task_keys:
             if task in self.num_classes:
-                self._nodes_by_level[task] = [
-                    (task, idx) for idx in range(self.num_classes[task])
-                ]
+                self._nodes_by_level[task] = [(task, idx) for idx in range(self.num_classes[task])]
             else:
-                logger.warning(
-                    f"Task key '{task}' not found in num_classes during node grouping."
-                )
+                logger.warning(f"Task key '{task}' not found in num_classes during node grouping.")
 
-        logger.info(
-            f"TaxonomyTree built. Found {len(self.roots)} root nodes (relative to map) "
-            f"and {len(self.leaves)} leaf nodes."
-        )
+        logger.info(f"TaxonomyTree built. Found {len(self.roots)} root nodes (relative to map) and {len(self.leaves)} leaf nodes.")
         # if self.is_multi_rooted: logger.info(f"Detected metaclade/forest structure with {len(self.true_biological_roots)} true roots.")
 
         # Validate the constructed tree/forest
         self._validate()
         logger.info("TaxonomyTree validation successful.")
 
-    def _sanitize_raw_map(
-        self, raw_map: dict[str, dict[Any, Any]]
-    ) -> dict[str, dict[int, int]]:
+    def _sanitize_raw_map(self, raw_map: dict[str, dict[Any, Any]]) -> dict[str, dict[int, int]]:
         """Converts inner keys/values of the raw hierarchy map to integers."""
         sanitized_map = {}
         for child_task_key, level_map in raw_map.items():
             sanitized_level_map = {}
             if not isinstance(level_map, dict):
-                logger.warning(
-                    f"Expected dict for level '{child_task_key}' in hierarchy_map, got {type(level_map)}. Skipping."
-                )
+                logger.warning(f"Expected dict for level '{child_task_key}' in hierarchy_map, got {type(level_map)}. Skipping.")
                 continue
             for child_idx_raw, parent_idx_raw in level_map.items():
                 try:
@@ -139,8 +128,7 @@ class TaxonomyTree:
                     sanitized_level_map[child_idx] = parent_idx
                 except (ValueError, TypeError):
                     logger.warning(
-                        f"Skipping non-integer index pair ({child_idx_raw}, {parent_idx_raw}) "
-                        f"in hierarchy map for level {child_task_key}."
+                        f"Skipping non-integer index pair ({child_idx_raw}, {parent_idx_raw}) in hierarchy map for level {child_task_key}."
                     )
             sanitized_map[child_task_key] = sanitized_level_map
         return sanitized_map
@@ -151,9 +139,7 @@ class TaxonomyTree:
         for task in self.task_keys:
             n_cls = self.num_classes.get(task)
             if n_cls is None:
-                raise KeyError(
-                    f"Task key '{task}' from task_keys not found in num_classes."
-                )
+                raise KeyError(f"Task key '{task}' from task_keys not found in num_classes.")
             for idx in range(n_cls):
                 node: Node = (task, idx)
                 self._all_nodes.add(node)
@@ -207,9 +193,7 @@ class TaxonomyTree:
 
                 # Add links to internal graph only if not already set (first parent wins)
                 if existing_parent is None:
-                    self._parent_to_children.setdefault(parent_node, []).append(
-                        child_node
-                    )  # Use setdefault for parent
+                    self._parent_to_children.setdefault(parent_node, []).append(child_node)  # Use setdefault for parent
                     self._child_to_parent[child_node] = parent_node
                     num_level_links += 1
 
@@ -275,20 +259,14 @@ class TaxonomyTree:
         """Identifies root nodes (nodes with no parent in the map)."""
         # Roots are nodes present in _child_to_parent map with a value of None
         return sorted(
-            [node for node, parent in self._child_to_parent.items() if parent is None],
-            key=lambda x: (self.task_keys.index(x[0]), x[1]),
+            [node for node, parent in self._child_to_parent.items() if parent is None], key=lambda x: (self.task_keys.index(x[0]), x[1])
         )
 
     def _find_leaves(self) -> list[Node]:
         """Identifies leaf nodes (nodes with no children in the map)."""
         # Leaves are nodes present in _parent_to_children map with an empty list value
         return sorted(
-            [
-                node
-                for node, children in self._parent_to_children.items()
-                if not children
-            ],
-            key=lambda x: (self.task_keys.index(x[0]), x[1]),
+            [node for node, children in self._parent_to_children.items() if not children], key=lambda x: (self.task_keys.index(x[0]), x[1])
         )
 
     # --- Public API Methods (Unchanged from previous implementation) ---
@@ -334,9 +312,7 @@ class TaxonomyTree:
     def get_leaf_nodes(self) -> list[Node]:
         return self.leaves
 
-    def _find_lca_and_distances(
-        self, node1: Node, node2: Node
-    ) -> tuple[Node | None, int, int]:
+    def _find_lca_and_distances(self, node1: Node, node2: Node) -> tuple[Node | None, int, int]:
         if node1 == node2:
             return node1, 0, 0
         ancestors1 = self.get_ancestors(node1)
@@ -367,9 +343,7 @@ class TaxonomyTree:
             raise KeyError(f"Task key '{task_key}' not found in num_classes.")
         n_classes = self.num_classes[task_key]
         nodes_at_level = self.get_nodes_at_level(task_key)
-        dist_matrix = torch.full(
-            (n_classes, n_classes), float("inf"), dtype=torch.float32
-        )
+        dist_matrix = torch.full((n_classes, n_classes), float("inf"), dtype=torch.float32)
         for i in range(n_classes):
             dist_matrix[i, i] = 0.0
             node_i = nodes_at_level[i]
@@ -389,9 +363,7 @@ class TaxonomyTree:
             pair_key = f"{parent_task}_{child_task}"
             num_parent_classes = self.num_classes[parent_task]
             num_child_classes = self.num_classes[child_task]
-            matrix = torch.zeros(
-                (num_parent_classes, num_child_classes), dtype=torch.float32
-            )
+            matrix = torch.zeros((num_parent_classes, num_child_classes), dtype=torch.float32)
             for child_idx in range(num_child_classes):
                 child_node = (child_task, child_idx)
                 parent_node = self.get_parent(child_node)
@@ -427,9 +399,7 @@ class TaxonomyTree:
                 # "node_to_true_root": {str(k): str(v) for k, v in getattr(self, 'node_to_true_root', {}).items()},
                 # --- End Future Metaclade ---
                 "metadata": {
-                    "creation_time": logging.Formatter().formatTime(
-                        logging.makeLogRecord({})
-                    ),
+                    "creation_time": logging.Formatter().formatTime(logging.makeLogRecord({}))
                     # Add other useful metadata if needed
                 },
             }
@@ -443,21 +413,14 @@ class TaxonomyTree:
 
         except TypeError as e:
             logger.error(
-                f"Serialization Error: Could not serialize TaxonomyTree state to JSON. "
-                f"Check data types. Error: {e}",
-                exc_info=True,
+                f"Serialization Error: Could not serialize TaxonomyTree state to JSON. Check data types. Error: {e}", exc_info=True
             )
             raise
         except OSError as e:
-            logger.error(
-                f"IO Error: Could not write TaxonomyTree state to file {filepath}. Error: {e}",
-                exc_info=True,
-            )
+            logger.error(f"IO Error: Could not write TaxonomyTree state to file {filepath}. Error: {e}", exc_info=True)
             raise
         except Exception as e:
-            logger.error(
-                f"Unexpected error saving TaxonomyTree state: {e}", exc_info=True
-            )
+            logger.error(f"Unexpected error saving TaxonomyTree state: {e}", exc_info=True)
             raise
 
     @classmethod
@@ -488,16 +451,11 @@ class TaxonomyTree:
             required_keys = ["task_keys", "num_classes", "hierarchy_map_raw"]
             if not all(key in data for key in required_keys):
                 missing = [key for key in required_keys if key not in data]
-                raise ValueError(
-                    f"Invalid TaxonomyTree file: Missing required keys: {missing}"
-                )
+                raise ValueError(f"Invalid TaxonomyTree file: Missing required keys: {missing}")
 
             version = data.get("__taxonomy_tree_version__", "0.0")
             if version != "1.0":
-                logger.warning(
-                    f"Loading TaxonomyTree from an older or unknown version ('{version}'). "
-                    f"Compatibility not guaranteed."
-                )
+                logger.warning(f"Loading TaxonomyTree from an older or unknown version ('{version}'). Compatibility not guaranteed.")
 
             # Extract necessary components
             task_keys = data["task_keys"]
@@ -522,25 +480,15 @@ class TaxonomyTree:
                 # true_biological_roots=true_biological_roots,
                 # node_to_true_root=node_to_true_root,
             )
-            logger.info(
-                f"Successfully loaded and initialized TaxonomyTree from {filepath}."
-            )
+            logger.info(f"Successfully loaded and initialized TaxonomyTree from {filepath}.")
             return instance
 
         except json.JSONDecodeError as e:
-            logger.error(
-                f"JSON Decode Error: Could not parse TaxonomyTree file {filepath}. Error: {e}",
-                exc_info=True,
-            )
+            logger.error(f"JSON Decode Error: Could not parse TaxonomyTree file {filepath}. Error: {e}", exc_info=True)
             raise ValueError(f"Invalid JSON format in {filepath}") from e
         except (KeyError, ValueError, TypeError) as e:
-            logger.error(
-                f"Data Error: Invalid or missing data in TaxonomyTree file {filepath}. Error: {e}",
-                exc_info=True,
-            )
+            logger.error(f"Data Error: Invalid or missing data in TaxonomyTree file {filepath}. Error: {e}", exc_info=True)
             raise ValueError(f"Invalid data format in {filepath}") from e
         except Exception as e:
-            logger.error(
-                f"Unexpected error loading TaxonomyTree state: {e}", exc_info=True
-            )
+            logger.error(f"Unexpected error loading TaxonomyTree state: {e}", exc_info=True)
             raise

@@ -52,12 +52,7 @@ class OpsSchedule:
         early_stop_state: Early stopping state if enabled
     """
 
-    def __init__(
-        self,
-        config: CN,
-        metrics_tracker,
-        training_progress: TrainingProgress | None = None,
-    ):
+    def __init__(self, config: CN, metrics_tracker, training_progress: TrainingProgress | None = None):
         """
         Initialize the operations scheduler.
 
@@ -99,15 +94,12 @@ class OpsSchedule:
             and self.config.LOSS.GRAD_WEIGHTING.TASK.get("GRADNORM_ENABLED", False)
         ):
             # Get the GradNorm update interval
-            update_interval = self.config.LOSS.GRAD_WEIGHTING.TASK.get(
-                "UPDATE_INTERVAL", 100
-            )
+            update_interval = self.config.LOSS.GRAD_WEIGHTING.TASK.get("UPDATE_INTERVAL", 100)
 
             # Get the metrics logging interval
             metrics_interval = (
                 getattr(self.config.SCHEDULE.METRICS, "STEP_INTERVAL", 50)
-                if hasattr(self.config, "SCHEDULE")
-                and hasattr(self.config.SCHEDULE, "METRICS")
+                if hasattr(self.config, "SCHEDULE") and hasattr(self.config.SCHEDULE, "METRICS")
                 else 50
             )
 
@@ -144,9 +136,7 @@ class OpsSchedule:
         return {
             "active": c.ACTIVE,
             "metric": c.METRIC,  # e.g. 'val_loss' or 'val_chain_accuracy'
-            "patience_steps": c.PATIENCE_STEPS
-            if hasattr(c, "PATIENCE_STEPS")
-            else None,
+            "patience_steps": c.PATIENCE_STEPS if hasattr(c, "PATIENCE_STEPS") else None,
             "min_delta": c.MIN_DELTA if c.MIN_DELTA else 0.0,
             "max_steps": c.MAX_STEPS if hasattr(c, "MAX_STEPS") else None,
             "max_loss": c.MAX_LOSS,
@@ -202,16 +192,11 @@ class OpsSchedule:
         # 2) max_steps
         max_steps = self.early_stop_config["max_steps"]
         if max_steps is not None and current_step >= max_steps:
-            logger.info(
-                f"Early stop: reached max_steps={max_steps} at step={current_step}."
-            )
+            logger.info(f"Early stop: reached max_steps={max_steps} at step={current_step}.")
             return True
 
         # 3) no-improvement (step-based patience) if patience_steps is set
-        if (
-            self.early_stop_state
-            and self.early_stop_config["patience_steps"] is not None
-        ):
+        if self.early_stop_state and self.early_stop_config["patience_steps"] is not None:
             # Get the metric from the metrics_tracker
             chosen_metric = self.early_stop_config["metric"]
             current_val = self.metrics_tracker.get_metric(*chosen_metric.split("/", 1))
@@ -241,13 +226,9 @@ class OpsSchedule:
             # if the chosen metric is a loss metric => we can compare
             chosen_metric = self.early_stop_config["metric"].lower()
             if "loss" in chosen_metric:
-                current_val = self.metrics_tracker.get_metric(
-                    *chosen_metric.split("/", 1)
-                )
+                current_val = self.metrics_tracker.get_metric(*chosen_metric.split("/", 1))
                 if current_val > max_loss:
-                    logger.info(
-                        f"Early stop: {chosen_metric}={current_val:.4f} exceeded max_loss={max_loss}"
-                    )
+                    logger.info(f"Early stop: {chosen_metric}={current_val:.4f} exceeded max_loss={max_loss}")
                     return True
 
         #    (b) min_lr
@@ -259,9 +240,7 @@ class OpsSchedule:
         #    (c) max_grad_norm
         max_gn = self.early_stop_config["max_grad_norm"]
         if max_gn is not None and grad_norm > max_gn:
-            logger.info(
-                f"Early stop: grad_norm={grad_norm:.4f} > max_grad_norm={max_gn}"
-            )
+            logger.info(f"Early stop: grad_norm={grad_norm:.4f} > max_grad_norm={max_gn}")
             return True
 
         return False
@@ -279,9 +258,7 @@ class OpsSchedule:
         Returns:
             True if GradNorm weights should be updated
         """
-        if not hasattr(self.config, "LOSS") or not hasattr(
-            self.config.LOSS, "GRAD_WEIGHTING"
-        ):
+        if not hasattr(self.config, "LOSS") or not hasattr(self.config.LOSS, "GRAD_WEIGHTING"):
             if check_debug_flag(self.config, "DEBUG.SCHEDULING"):
                 logger.debug("No LOSS.GRAD_WEIGHTING config, returning False")
             return False
@@ -297,9 +274,7 @@ class OpsSchedule:
 
         if current_step < warmup:
             if check_debug_flag(self.config, "DEBUG.SCHEDULING"):
-                logger.debug(
-                    f"Current step {current_step} < warmup {warmup}, returning False"
-                )
+                logger.debug(f"Current step {current_step} < warmup {warmup}, returning False")
             return False
 
         # Default to updating every step
@@ -310,9 +285,7 @@ class OpsSchedule:
         # Update every update_interval steps
         result = (current_step % update_interval) == 0
         if check_debug_flag(self.config, "DEBUG.SCHEDULING"):
-            logger.debug(
-                f"GradNorm check: step={current_step}, warmup={warmup}, interval={update_interval} -> Should Update? {result}"
-            )
+            logger.debug(f"GradNorm check: step={current_step}, warmup={warmup}, interval={update_interval} -> Should Update? {result}")
 
         return result
 
@@ -332,9 +305,7 @@ class OpsSchedule:
         Returns:
             Frequency for logging GradNorm weights
         """
-        if not hasattr(self.config, "LOSS") or not hasattr(
-            self.config.LOSS, "GRAD_WEIGHTING"
-        ):
+        if not hasattr(self.config, "LOSS") or not hasattr(self.config.LOSS, "GRAD_WEIGHTING"):
             return 100  # Default fallback
 
         task_cfg = self.config.LOSS.GRAD_WEIGHTING.TASK
@@ -358,8 +329,7 @@ class OpsSchedule:
         # We now default to using console interval since STEP_INTERVAL is deprecated
         console_interval = (
             getattr(self.config.SCHEDULE.METRICS, "CONSOLE_INTERVAL", 100)
-            if hasattr(self.config, "SCHEDULE")
-            and hasattr(self.config.SCHEDULE, "METRICS")
+            if hasattr(self.config, "SCHEDULE") and hasattr(self.config.SCHEDULE, "METRICS")
             else 100
         )
 
@@ -379,8 +349,7 @@ class OpsSchedule:
         # Get console interval from config
         console_interval = (
             getattr(self.config.SCHEDULE.METRICS, "CONSOLE_INTERVAL", 100)
-            if hasattr(self.config, "SCHEDULE")
-            and hasattr(self.config.SCHEDULE, "METRICS")
+            if hasattr(self.config, "SCHEDULE") and hasattr(self.config.SCHEDULE, "METRICS")
             else 100
         )
 
@@ -400,8 +369,7 @@ class OpsSchedule:
         # Get wandb interval from config
         wandb_interval = (
             getattr(self.config.SCHEDULE.METRICS, "WANDB_INTERVAL", 50)
-            if hasattr(self.config, "SCHEDULE")
-            and hasattr(self.config.SCHEDULE, "METRICS")
+            if hasattr(self.config, "SCHEDULE") and hasattr(self.config.SCHEDULE, "METRICS")
             else 50
         )
 
@@ -429,16 +397,13 @@ class OpsSchedule:
             True if pipeline metrics should be logged, False otherwise
         """
         if not self.training_progress:
-            logger.warning(
-                "Cannot check pipeline metrics logging without training_progress"
-            )
+            logger.warning("Cannot check pipeline metrics logging without training_progress")
             return False
 
         # Get pipeline interval from config
         pipeline_interval = (
             getattr(self.config.SCHEDULE.METRICS, "PIPELINE_INTERVAL", 250)
-            if hasattr(self.config, "SCHEDULE")
-            and hasattr(self.config.SCHEDULE, "METRICS")
+            if hasattr(self.config, "SCHEDULE") and hasattr(self.config.SCHEDULE, "METRICS")
             else 250
         )
 
@@ -466,22 +431,11 @@ class OpsSchedule:
 
         # Handle the case where END_STEPS is 0 or negative by using END_FRACTION if available
         if end_steps <= 0:
-            if (
-                hasattr(self.meta_cfg, "END_FRACTION")
-                and self.meta_cfg.END_FRACTION is not None
-            ):
-                if (
-                    self.training_progress
-                    and self.training_progress.expected_total_steps
-                ):
-                    end_steps = int(
-                        self.training_progress.expected_total_steps
-                        * self.meta_cfg.END_FRACTION
-                    )
+            if hasattr(self.meta_cfg, "END_FRACTION") and self.meta_cfg.END_FRACTION is not None:
+                if self.training_progress and self.training_progress.expected_total_steps:
+                    end_steps = int(self.training_progress.expected_total_steps * self.meta_cfg.END_FRACTION)
                     if check_debug_flag(self.config, "DEBUG.SCHEDULING"):
-                        logger.debug(
-                            f"Resolved end_steps={end_steps} from END_FRACTION={self.meta_cfg.END_FRACTION}"
-                        )
+                        logger.debug(f"Resolved end_steps={end_steps} from END_FRACTION={self.meta_cfg.END_FRACTION}")
                 else:
                     # Fallback to a reasonable default
                     end_steps = 5000
@@ -518,9 +472,7 @@ class OpsSchedule:
             True if partial meta masking is enabled
         """
         if not self.training_progress:
-            logger.warning(
-                "Cannot check partial meta masking without training_progress"
-            )
+            logger.warning("Cannot check partial meta masking without training_progress")
             return False
 
         pm = self.meta_cfg.PARTIAL
@@ -534,13 +486,9 @@ class OpsSchedule:
             start_steps = pm.START_STEPS
         elif hasattr(pm, "START_FRACTION") and pm.START_FRACTION is not None:
             if self.training_progress.expected_total_steps:
-                start_steps = int(
-                    self.training_progress.expected_total_steps * pm.START_FRACTION
-                )
+                start_steps = int(self.training_progress.expected_total_steps * pm.START_FRACTION)
             else:
-                logger.warning(
-                    "Cannot resolve START_FRACTION for partial meta masking without expected_total_steps"
-                )
+                logger.warning("Cannot resolve START_FRACTION for partial meta masking without expected_total_steps")
                 start_steps = 0
         else:
             start_steps = 0  # Default to start at the beginning
@@ -550,13 +498,9 @@ class OpsSchedule:
             end_steps = pm.END_STEPS
         elif hasattr(pm, "END_FRACTION") and pm.END_FRACTION is not None:
             if self.training_progress.expected_total_steps:
-                end_steps = int(
-                    self.training_progress.expected_total_steps * pm.END_FRACTION
-                )
+                end_steps = int(self.training_progress.expected_total_steps * pm.END_FRACTION)
             else:
-                logger.warning(
-                    "Cannot resolve END_FRACTION for partial meta masking without expected_total_steps"
-                )
+                logger.warning("Cannot resolve END_FRACTION for partial meta masking without expected_total_steps")
                 end_steps = float("inf")
         else:
             end_steps = float("inf")  # Default to no end
@@ -571,9 +515,7 @@ class OpsSchedule:
             Probability of applying partial meta masking
         """
         if not self.training_progress:
-            logger.warning(
-                "Cannot calculate partial meta mask probability without training_progress"
-            )
+            logger.warning("Cannot calculate partial meta mask probability without training_progress")
             return 0.0
 
         pm = self.meta_cfg.PARTIAL
@@ -590,34 +532,18 @@ class OpsSchedule:
         end_prob = pm.END_PROB
 
         # Check if we're using PROB_END_STEPS or PROB_END_FRACTION
-        if (
-            hasattr(pm, "PROB_END_STEPS")
-            and pm.PROB_END_STEPS is not None
-            and pm.PROB_END_STEPS > 0
-        ):
+        if hasattr(pm, "PROB_END_STEPS") and pm.PROB_END_STEPS is not None and pm.PROB_END_STEPS > 0:
             end_steps = pm.PROB_END_STEPS
         elif hasattr(pm, "PROB_END_FRACTION") and pm.PROB_END_FRACTION is not None:
             if self.training_progress.expected_total_steps:
-                end_steps = int(
-                    self.training_progress.expected_total_steps * pm.PROB_END_FRACTION
-                )
+                end_steps = int(self.training_progress.expected_total_steps * pm.PROB_END_FRACTION)
             else:
-                logger.warning(
-                    "Cannot resolve PROB_END_FRACTION for partial meta masking without expected_total_steps"
-                )
+                logger.warning("Cannot resolve PROB_END_FRACTION for partial meta masking without expected_total_steps")
                 # Fallback to meta masking end steps
-                end_steps = (
-                    self.meta_cfg.END_STEPS
-                    if hasattr(self.meta_cfg, "END_STEPS")
-                    else 15000
-                )
+                end_steps = self.meta_cfg.END_STEPS if hasattr(self.meta_cfg, "END_STEPS") else 15000
         else:
             # If no probability end point is defined, use the same as the regular meta masking
-            end_steps = (
-                self.meta_cfg.END_STEPS
-                if hasattr(self.meta_cfg, "END_STEPS")
-                else 15000
-            )
+            end_steps = self.meta_cfg.END_STEPS if hasattr(self.meta_cfg, "END_STEPS") else 15000
 
         if current_step >= end_steps:
             return end_prob
@@ -676,23 +602,15 @@ class OpsSchedule:
         end_prob = null_cfg.get("END_PROB", 1.0)
 
         # Check if we're using END_STEPS or END_FRACTION
-        if (
-            hasattr(null_cfg, "END_STEPS")
-            and null_cfg.END_STEPS is not None
-            and null_cfg.END_STEPS > 0
-        ):
+        if hasattr(null_cfg, "END_STEPS") and null_cfg.END_STEPS is not None and null_cfg.END_STEPS > 0:
             # Using absolute steps
             end_steps = null_cfg.END_STEPS
             logger.debug(f"Using END_STEPS={end_steps} for null masking")
         elif hasattr(null_cfg, "END_FRACTION") and null_cfg.END_FRACTION is not None:
             # Using fraction of training
             if self.training_progress and self.training_progress.expected_total_steps:
-                end_steps = int(
-                    self.training_progress.expected_total_steps * null_cfg.END_FRACTION
-                )
-                logger.debug(
-                    f"Using END_FRACTION={null_cfg.END_FRACTION}, calculated end_steps={end_steps} for null masking"
-                )
+                end_steps = int(self.training_progress.expected_total_steps * null_cfg.END_FRACTION)
+                logger.debug(f"Using END_FRACTION={null_cfg.END_FRACTION}, calculated end_steps={end_steps} for null masking")
             else:
                 # Fallback to a reasonable default of 10,000 steps
                 logger.warning(
@@ -719,9 +637,7 @@ class OpsSchedule:
 
         if current_step >= end_steps:
             if debug_null_masking or debug_scheduling:
-                logger.debug(
-                    f"Current step {current_step} >= end_steps {end_steps}, returning end_prob={end_prob}"
-                )
+                logger.debug(f"Current step {current_step} >= end_steps {end_steps}, returning end_prob={end_prob}")
             return end_prob
 
         progress = float(current_step) / float(max(1, end_steps))
@@ -771,9 +687,7 @@ class OpsSchedule:
         Returns:
             Mixup group level (e.g. 'taxa_L30')
         """
-        levels = (
-            self.mix_cfg.GROUP_LEVELS
-        )  # e.g. ['taxa_L40','taxa_L30','taxa_L20','taxa_L10']
+        levels = self.mix_cfg.GROUP_LEVELS  # e.g. ['taxa_L40','taxa_L30','taxa_L20','taxa_L10']
         switch_steps = self.mix_cfg.LEVEL_SWITCH_STEPS
 
         if not levels:
@@ -832,9 +746,7 @@ class OpsSchedule:
             True if validation should be run
         """
         if not self.training_progress:
-            logger.warning(
-                "Cannot check validation scheduling without training_progress"
-            )
+            logger.warning("Cannot check validation scheduling without training_progress")
             return False
 
         # Validation ONLY happens at epoch boundaries
@@ -848,13 +760,10 @@ class OpsSchedule:
         epoch_interval = self.validation_cfg.INTERVAL_EPOCHS
         if epoch_interval > 0:
             # Check if we're at the right epoch interval, allowing epoch 0 only when interval is 1
-            if (current_epoch % epoch_interval == 0) and (
-                current_epoch > 0 or epoch_interval == 1
-            ):
+            if (current_epoch % epoch_interval == 0) and (current_epoch > 0 or epoch_interval == 1):
                 if check_debug_flag(self.config, "DEBUG.SCHEDULING"):
                     logger.debug(
-                        f"Triggering validation at step {current_step} "
-                        f"(epoch {current_epoch}) based on epoch interval {epoch_interval}"
+                        f"Triggering validation at step {current_step} (epoch {current_epoch}) based on epoch interval {epoch_interval}"
                     )
                 return True
 
@@ -865,8 +774,7 @@ class OpsSchedule:
             if (current_step % step_interval) == 0:
                 if check_debug_flag(self.config, "DEBUG.SCHEDULING"):
                     logger.debug(
-                        f"Triggering validation at step {current_step} (epoch {current_epoch}) "
-                        f"based on step interval {step_interval}"
+                        f"Triggering validation at step {current_step} (epoch {current_epoch}) based on step interval {step_interval}"
                     )
                 return True
 
@@ -887,9 +795,7 @@ class OpsSchedule:
             True if mask-meta validation should be run
         """
         if not self.training_progress:
-            logger.warning(
-                "Cannot check mask-meta validation scheduling without training_progress"
-            )
+            logger.warning("Cannot check mask-meta validation scheduling without training_progress")
             return False
 
         # Validation ONLY happens at epoch boundaries
@@ -903,9 +809,7 @@ class OpsSchedule:
         epoch_interval = self.validation_cfg.MASK_META_INTERVAL_EPOCHS
         if epoch_interval > 0:
             # Check if we're at the right epoch interval, allowing epoch 0 only when interval is 1
-            if (current_epoch % epoch_interval == 0) and (
-                current_epoch > 0 or epoch_interval == 1
-            ):
+            if (current_epoch % epoch_interval == 0) and (current_epoch > 0 or epoch_interval == 1):
                 if check_debug_flag(self.config, "DEBUG.SCHEDULING"):
                     logger.debug(
                         f"Triggering mask-meta validation at step {current_step} "
@@ -951,9 +855,7 @@ class OpsSchedule:
             )
 
         if not self.training_progress:
-            logger.warning(
-                "Cannot check partial mask meta validation scheduling without training_progress"
-            )
+            logger.warning("Cannot check partial mask meta validation scheduling without training_progress")
             return False
 
         # Validation ONLY happens at epoch boundaries
@@ -963,18 +865,11 @@ class OpsSchedule:
             return False
 
         # First check if we should skip this validation because exhaustive validation will run
-        if (
-            self.should_run_exhaustive_validation()
-            and self.training_progress.current_epoch >= (self.config.TRAIN.EPOCHS - 1)
-        ):
+        if self.should_run_exhaustive_validation() and self.training_progress.current_epoch >= (self.config.TRAIN.EPOCHS - 1):
             if debug_scheduling:
-                logger.debug(
-                    "Skipping scheduled partial mask meta validation because exhaustive validation will run."
-                )
+                logger.debug("Skipping scheduled partial mask meta validation because exhaustive validation will run.")
             if debug_validation:
-                logger.debug(
-                    "  - SKIPPED: Exhaustive validation will run at final epoch"
-                )
+                logger.debug("  - SKIPPED: Exhaustive validation will run at final epoch")
             return False
 
         # Check if partial mask meta validation is enabled
@@ -993,20 +888,12 @@ class OpsSchedule:
         current_epoch = self.training_progress.current_epoch
 
         # Epoch-based validation
-        if (
-            hasattr(cfg, "INTERVAL_EPOCHS")
-            and cfg.INTERVAL_EPOCHS is not None
-            and cfg.INTERVAL_EPOCHS > 0
-        ):
+        if hasattr(cfg, "INTERVAL_EPOCHS") and cfg.INTERVAL_EPOCHS is not None and cfg.INTERVAL_EPOCHS > 0:
             if debug_validation:
-                logger.debug(
-                    f"  - Checking epoch-based interval: current_epoch={current_epoch}, interval={cfg.INTERVAL_EPOCHS}"
-                )
+                logger.debug(f"  - Checking epoch-based interval: current_epoch={current_epoch}, interval={cfg.INTERVAL_EPOCHS}")
 
             # Check if we're at the right epoch interval, allowing epoch 0 only when interval is 1
-            if (current_epoch % cfg.INTERVAL_EPOCHS == 0) and (
-                current_epoch > 0 or cfg.INTERVAL_EPOCHS == 1
-            ):
+            if (current_epoch % cfg.INTERVAL_EPOCHS == 0) and (current_epoch > 0 or cfg.INTERVAL_EPOCHS == 1):
                 if debug_validation:
                     logger.debug(
                         f"  - PASSED: Epoch {current_epoch} is divisible by {cfg.INTERVAL_EPOCHS} and (current_epoch > 0 or interval == 1)"
@@ -1019,29 +906,19 @@ class OpsSchedule:
                     )
                 return True
             elif debug_validation:
-                logger.debug(
-                    f"  - FAILED: Epoch {current_epoch} is not divisible by {cfg.INTERVAL_EPOCHS}"
-                )
+                logger.debug(f"  - FAILED: Epoch {current_epoch} is not divisible by {cfg.INTERVAL_EPOCHS}")
 
         # Step-based validation (using resolved interval)
-        elif (
-            hasattr(cfg, "INTERVAL_STEPS")
-            and cfg.INTERVAL_STEPS is not None
-            and cfg.INTERVAL_STEPS > 0
-        ):
+        elif hasattr(cfg, "INTERVAL_STEPS") and cfg.INTERVAL_STEPS is not None and cfg.INTERVAL_STEPS > 0:
             step_interval = cfg.INTERVAL_STEPS
 
             if debug_validation:
-                logger.debug(
-                    f"  - Checking step-based interval: current_step={current_step}, interval={step_interval}"
-                )
+                logger.debug(f"  - Checking step-based interval: current_step={current_step}, interval={step_interval}")
 
             # Trigger if current_step is a multiple of interval AND we are at an epoch boundary
             if (current_step % step_interval) == 0:
                 if debug_validation:
-                    logger.debug(
-                        f"  - PASSED: Step {current_step} is divisible by interval {step_interval}"
-                    )
+                    logger.debug(f"  - PASSED: Step {current_step} is divisible by interval {step_interval}")
 
                 if debug_scheduling:
                     logger.debug(
@@ -1050,9 +927,7 @@ class OpsSchedule:
                     )
                 return True
             elif debug_validation:
-                logger.debug(
-                    f"  - FAILED: Step {current_step} is not divisible by interval {step_interval}"
-                )
+                logger.debug(f"  - FAILED: Step {current_step} is not divisible by interval {step_interval}")
 
         # INTERVAL_FRACTION has already been resolved to INTERVAL_STEPS
         # during config initialization, no need to handle it separately here
@@ -1087,9 +962,7 @@ class OpsSchedule:
             True if we should run exhaustive validation
         """
         if not self.training_progress:
-            logger.warning(
-                "Cannot check exhaustive validation scheduling without training_progress"
-            )
+            logger.warning("Cannot check exhaustive validation scheduling without training_progress")
             return False
 
         if not hasattr(self.validation_cfg, "FINAL_EPOCH"):
@@ -1100,12 +973,8 @@ class OpsSchedule:
             return False
 
         # Check if we're in the final epoch
-        if hasattr(self.training_progress, "current_epoch") and hasattr(
-            self.config.TRAIN, "EPOCHS"
-        ):
-            return self.training_progress.current_epoch >= (
-                self.config.TRAIN.EPOCHS - 1
-            )
+        if hasattr(self.training_progress, "current_epoch") and hasattr(self.config.TRAIN, "EPOCHS"):
+            return self.training_progress.current_epoch >= (self.config.TRAIN.EPOCHS - 1)
         else:
             logger.warning("Cannot determine if this is the last epoch")
             return False
@@ -1121,9 +990,7 @@ class OpsSchedule:
             return []
 
         cfg = self.validation_cfg.FINAL_EPOCH
-        if not cfg.get("EXHAUSTIVE_PARTIAL_META_VALIDATION", False) or not hasattr(
-            cfg, "EXHAUSTIVE_META_COMPONENTS"
-        ):
+        if not cfg.get("EXHAUSTIVE_PARTIAL_META_VALIDATION", False) or not hasattr(cfg, "EXHAUSTIVE_META_COMPONENTS"):
             return []
 
         return cfg.EXHAUSTIVE_META_COMPONENTS
@@ -1139,9 +1006,7 @@ class OpsSchedule:
             True if checkpoint should be saved
         """
         if not self.training_progress:
-            logger.warning(
-                "Cannot check checkpoint scheduling without training_progress"
-            )
+            logger.warning("Cannot check checkpoint scheduling without training_progress")
             return False
 
         current_step = self.training_progress.global_step
@@ -1152,10 +1017,7 @@ class OpsSchedule:
         if step_interval > 0:
             # Trigger if current_step is a multiple of interval
             if (current_step % step_interval) == 0:
-                logger.debug(
-                    f"Triggering checkpoint at step {current_step} "
-                    f"based on step interval {step_interval}"
-                )
+                logger.debug(f"Triggering checkpoint at step {current_step} based on step interval {step_interval}")
                 return True
 
         # Then check epoch-based interval if we're at an epoch boundary
@@ -1163,12 +1025,9 @@ class OpsSchedule:
             epoch_interval = self.checkpoint_cfg.INTERVAL_EPOCHS
             if epoch_interval > 0:
                 # Check if we should save checkpoint based on epoch interval, allowing epoch 0 only when interval is 1
-                if (current_epoch % epoch_interval == 0) and (
-                    current_epoch > 0 or epoch_interval == 1
-                ):
+                if (current_epoch % epoch_interval == 0) and (current_epoch > 0 or epoch_interval == 1):
                     logger.debug(
-                        f"Triggering checkpoint at step {current_step} "
-                        f"(epoch {current_epoch}) based on epoch interval {epoch_interval}"
+                        f"Triggering checkpoint at step {current_step} (epoch {current_epoch}) based on epoch interval {epoch_interval}"
                     )
                     return True
 
@@ -1186,12 +1045,8 @@ class OpsSchedule:
         """
         state = {
             "_validation_triggered": list(self._validation_triggered),
-            "_mask_meta_validation_triggered": list(
-                self._mask_meta_validation_triggered
-            ),
-            "_partial_mask_meta_validation_triggered": list(
-                self._partial_mask_meta_validation_triggered
-            ),
+            "_mask_meta_validation_triggered": list(self._mask_meta_validation_triggered),
+            "_partial_mask_meta_validation_triggered": list(self._partial_mask_meta_validation_triggered),
         }
 
         # Add early stop state if available
@@ -1216,19 +1071,13 @@ class OpsSchedule:
         """
         # Convert lists back to sets
         self._validation_triggered = set(state.get("_validation_triggered", []))
-        self._mask_meta_validation_triggered = set(
-            state.get("_mask_meta_validation_triggered", [])
-        )
-        self._partial_mask_meta_validation_triggered = set(
-            state.get("_partial_mask_meta_validation_triggered", [])
-        )
+        self._mask_meta_validation_triggered = set(state.get("_mask_meta_validation_triggered", []))
+        self._partial_mask_meta_validation_triggered = set(state.get("_partial_mask_meta_validation_triggered", []))
 
         # Restore early stop state if available
         if "early_stop_state" in state and self.early_stop_state:
             es_state = state["early_stop_state"]
-            self.early_stop_state.best_metric_value = es_state.get(
-                "best_metric_value", 0.0
-            )
+            self.early_stop_state.best_metric_value = es_state.get("best_metric_value", 0.0)
             self.early_stop_state.best_step = es_state.get("best_step", 0)
             self.early_stop_state.steps_no_improve = es_state.get("steps_no_improve", 0)
 

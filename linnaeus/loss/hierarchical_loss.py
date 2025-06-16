@@ -72,9 +72,7 @@ def weighted_hierarchical_loss(
     # Determine Phase 1 status using the provided config if available
     phase1_is_truly_active = False
     if config is not None and hasattr(config.TRAIN, "PHASE1_MASK_NULL_LOSS"):
-        phase1_is_truly_active = (
-            config.TRAIN.PHASE1_MASK_NULL_LOSS and not is_validation
-        )
+        phase1_is_truly_active = config.TRAIN.PHASE1_MASK_NULL_LOSS and not is_validation
 
     # Add debugging info - determine if we should log details
     debug_loss = False
@@ -86,54 +84,34 @@ def weighted_hierarchical_loss(
 
     # Always log the basic shape information to diagnose
     if rank == 0 and verbose_logging:
-        log.debug(
-            f"[HIERARCHICAL_LOSS] Processing hierarchical loss at step {current_step}"
-        )
+        log.debug(f"[HIERARCHICAL_LOSS] Processing hierarchical loss at step {current_step}")
         log.debug(f"[HIERARCHICAL_LOSS] Outputs type: {type(outputs).__name__}")
         log.debug(f"[HIERARCHICAL_LOSS] Number of task keys: {len(outputs)}")
 
         for key, value in outputs.items():
             if isinstance(value, torch.Tensor):
-                log.debug(
-                    f"[HIERARCHICAL_LOSS] Output '{key}' is tensor with shape {value.shape}, device: {value.device}"
-                )
+                log.debug(f"[HIERARCHICAL_LOSS] Output '{key}' is tensor with shape {value.shape}, device: {value.device}")
             elif isinstance(value, dict):
-                log.debug(
-                    f"[HIERARCHICAL_LOSS] Output '{key}' is dict with {len(value)} keys: {list(value.keys())}"
-                )
+                log.debug(f"[HIERARCHICAL_LOSS] Output '{key}' is dict with {len(value)} keys: {list(value.keys())}")
                 # Show a sample of dictionary values
                 for sub_key, sub_value in list(value.items())[:3]:  # Show first 3 items
                     if isinstance(sub_value, torch.Tensor):
-                        log.debug(
-                            f"[HIERARCHICAL_LOSS]   - '{sub_key}' is tensor with shape {sub_value.shape}, device: {sub_value.device}"
-                        )
+                        log.debug(f"[HIERARCHICAL_LOSS]   - '{sub_key}' is tensor with shape {sub_value.shape}, device: {sub_value.device}")
                     else:
-                        log.debug(
-                            f"[HIERARCHICAL_LOSS]   - '{sub_key}' is {type(sub_value).__name__}"
-                        )
+                        log.debug(f"[HIERARCHICAL_LOSS]   - '{sub_key}' is {type(sub_value).__name__}")
                 if len(value) > 3:
-                    log.debug(
-                        f"[HIERARCHICAL_LOSS]   - (and {len(value) - 3} more entries)"
-                    )
+                    log.debug(f"[HIERARCHICAL_LOSS]   - (and {len(value) - 3} more entries)")
             else:
-                log.debug(
-                    f"[HIERARCHICAL_LOSS] Output '{key}' is {type(value).__name__}"
-                )
+                log.debug(f"[HIERARCHICAL_LOSS] Output '{key}' is {type(value).__name__}")
 
         for key, value in targets.items():
             if isinstance(value, torch.Tensor):
-                log.debug(
-                    f"[HIERARCHICAL_LOSS] Target '{key}' is tensor with shape {value.shape}, device: {value.device}"
-                )
+                log.debug(f"[HIERARCHICAL_LOSS] Target '{key}' is tensor with shape {value.shape}, device: {value.device}")
             else:
-                log.debug(
-                    f"[HIERARCHICAL_LOSS] Target '{key}' is {type(value).__name__}"
-                )
+                log.debug(f"[HIERARCHICAL_LOSS] Target '{key}' is {type(value).__name__}")
 
         # Log criteria types
-        log.info(
-            f"[HIERARCHICAL_LOSS] Criteria: {', '.join([f'{k}: {type(v).__name__}' for k, v in criteria.items()])}"
-        )
+        log.info(f"[HIERARCHICAL_LOSS] Criteria: {', '.join([f'{k}: {type(v).__name__}' for k, v in criteria.items()])}")
 
     try:
         # Get task keys in sorted order
@@ -142,12 +120,8 @@ def weighted_hierarchical_loss(
         # Convert targets to dict if it's not already
         if not isinstance(targets, dict):
             if rank == 0 and verbose_logging:
-                log.info(
-                    f"[HIERARCHICAL_LOSS] Converting targets from {type(targets).__name__} to dict"
-                )
-            targets = {
-                task_key: target for task_key, target in zip(sorted_task_keys, targets, strict=False)
-            }
+                log.info(f"[HIERARCHICAL_LOSS] Converting targets from {type(targets).__name__} to dict")
+            targets = {task_key: target for task_key, target in zip(sorted_task_keys, targets, strict=False)}
 
         # 1. Compute raw per-sample losses
         if rank == 0 and verbose_logging:
@@ -167,9 +141,7 @@ def weighted_hierarchical_loss(
 
         # 2. Determine whether to use Phase 1 deterministic null masking or scheduled null masking
         if rank == 0 and verbose_logging:
-            log.debug(
-                "[HIERARCHICAL_LOSS] Step 2: Applying null masking and class weighting"
-            )
+            log.debug("[HIERARCHICAL_LOSS] Step 2: Applying null masking and class weighting")
 
         # Add detailed debug logging for targets to diagnose null masking issues
         debug_null_masking = False
@@ -180,38 +152,22 @@ def weighted_hierarchical_loss(
 
         # If null masking debug is enabled, log at INFO level to ensure visibility even at default log levels
         if rank == 0 and debug_null_masking:
-            log.info(
-                f"[NULL_MASKING_DEBUG] Null masking debug enabled - Checking targets at step {current_step}"
-            )
+            log.info(f"[NULL_MASKING_DEBUG] Null masking debug enabled - Checking targets at step {current_step}")
 
             # Note any null masking configuration
-            null_mask_prob = (
-                ops_schedule.get_null_mask_prob(current_step)
-                if not is_validation
-                else 1.0
-            )
+            null_mask_prob = ops_schedule.get_null_mask_prob(current_step) if not is_validation else 1.0
             if null_mask_prob < 1.0:
-                log.info(
-                    f"[NULL_MASKING_DEBUG] Current null_mask_prob: {null_mask_prob:.4f}"
-                )
-                log.info(
-                    "[NULL_MASKING_DEBUG] Use --log-level DEBUG for detailed diagnostics"
-                )
+                log.info(f"[NULL_MASKING_DEBUG] Current null_mask_prob: {null_mask_prob:.4f}")
+                log.info("[NULL_MASKING_DEBUG] Use --log-level DEBUG for detailed diagnostics")
 
             # Log Phase 1 mode status
             if force_mask_all_nulls and not is_validation:
-                log.info(
-                    "[NULL_MASKING_DEBUG] PHASE1_MASK_NULL_LOSS is enabled - will deterministically mask all nulls"
-                )
+                log.info("[NULL_MASKING_DEBUG] PHASE1_MASK_NULL_LOSS is enabled - will deterministically mask all nulls")
 
             # Add detailed targets logging just before calling apply_loss_masking
-            log.debug(
-                "[DEBUG_NULL_MASKING_INPUT] Targets passed to apply_loss_masking:"
-            )
+            log.debug("[DEBUG_NULL_MASKING_INPUT] Targets passed to apply_loss_masking:")
             for task_key, tgt_tensor in targets.items():
-                log.debug(
-                    f"  - Task {task_key}: shape={tgt_tensor.shape}, dtype={tgt_tensor.dtype}"
-                )
+                log.debug(f"  - Task {task_key}: shape={tgt_tensor.shape}, dtype={tgt_tensor.dtype}")
                 # Print first 5 rows or fewer
                 sample_rows = min(5, tgt_tensor.shape[0])
                 log.debug(f"    Sample targets:\n{tgt_tensor[:sample_rows]}")
@@ -220,18 +176,12 @@ def weighted_hierarchical_loss(
                     null_check = (tgt_tensor == 0).sum().item()
                     log.debug(f"    Nulls detected (hard labels == 0): {null_check}")
                     # Always log a summary at INFO level
-                    log.info(
-                        f"[NULL_MASKING_DEBUG] Task {task_key}: {null_check}/{len(tgt_tensor)} nulls detected (hard labels)"
-                    )
+                    log.info(f"[NULL_MASKING_DEBUG] Task {task_key}: {null_check}/{len(tgt_tensor)} nulls detected (hard labels)")
                 else:
                     null_check = (tgt_tensor[:, 0] > 0.5).sum().item()
-                    log.debug(
-                        f"    Nulls detected (one-hot index 0 > 0.5): {null_check}"
-                    )
+                    log.debug(f"    Nulls detected (one-hot index 0 > 0.5): {null_check}")
                     # Always log a summary at INFO level
-                    log.info(
-                        f"[NULL_MASKING_DEBUG] Task {task_key}: {null_check}/{len(tgt_tensor)} nulls detected (one-hot index 0)"
-                    )
+                    log.info(f"[NULL_MASKING_DEBUG] Task {task_key}: {null_check}/{len(tgt_tensor)} nulls detected (one-hot index 0)")
 
         # Create placeholder for losses after masking
         masked_losses = {}
@@ -240,9 +190,7 @@ def weighted_hierarchical_loss(
         # 2A. Apply EITHER deterministic null masking (Phase 1) OR scheduled null masking
         if force_mask_all_nulls and not is_validation:
             if rank == 0 and debug_null_masking:
-                log.debug(
-                    f"[PHASE1_MASK_LOSS] Applying deterministic null loss masking at step {current_step}."
-                )
+                log.debug(f"[PHASE1_MASK_LOSS] Applying deterministic null loss masking at step {current_step}.")
 
             for task_key, loss_vec in per_task_losses.items():
                 target = targets[task_key]
@@ -253,16 +201,12 @@ def weighted_hierarchical_loss(
                     is_null_mask = target[:, 0] > 0.5
 
                 # Apply mask: Zero out loss where GT is null
-                masked_vec = (
-                    loss_vec.clone() * (~is_null_mask).float()
-                )  # Multiply by 0.0 where null
+                masked_vec = loss_vec.clone() * (~is_null_mask).float()  # Multiply by 0.0 where null
                 masked_losses[task_key] = masked_vec
 
                 if rank == 0 and debug_null_masking:
                     null_count = is_null_mask.sum().item()
-                    log.debug(
-                        f"[PHASE1_MASK_LOSS] Task {task_key}: Masked {null_count} null samples."
-                    )
+                    log.debug(f"[PHASE1_MASK_LOSS] Task {task_key}: Masked {null_count} null samples.")
                     log.debug(f"  - Original mean loss: {loss_vec.mean().item():.4f}")
                     log.debug(f"  - Masked mean loss:   {masked_vec.mean().item():.4f}")
 
@@ -284,14 +228,7 @@ def weighted_hierarchical_loss(
 
             # Standard path - use apply_loss_masking
             masked_losses, null_stats = apply_loss_masking(
-                per_task_losses,
-                targets,
-                ops_schedule,
-                current_step,
-                task_weighting.class_weights,
-                is_validation,
-                logger=log,
-                config=config,
+                per_task_losses, targets, ops_schedule, current_step, task_weighting.class_weights, is_validation, logger=log, config=config
             )
             # REMOVED: null_stats["phase1_active"] = False
 
@@ -313,15 +250,9 @@ def weighted_hierarchical_loss(
         if task_weighting.class_weights:  # Check if class weights are actually defined
             # Check if class weighting should be applied for this phase (train/val)
             try:
-                apply_cw = (
-                    config.LOSS.GRAD_WEIGHTING.CLASS.TRAIN
-                    if not is_validation
-                    else config.LOSS.GRAD_WEIGHTING.CLASS.VAL
-                )
+                apply_cw = config.LOSS.GRAD_WEIGHTING.CLASS.TRAIN if not is_validation else config.LOSS.GRAD_WEIGHTING.CLASS.VAL
             except:
-                apply_cw = (
-                    True  # Default to applying class weighting if config not found
-                )
+                apply_cw = True  # Default to applying class weighting if config not found
 
             if apply_cw:
                 if rank == 0 and debug_null_masking:
@@ -329,14 +260,10 @@ def weighted_hierarchical_loss(
 
                 from linnaeus.loss.masking import apply_class_weighting
 
-                losses_after_cw = apply_class_weighting(
-                    masked_losses, targets, task_weighting.class_weights
-                )
+                losses_after_cw = apply_class_weighting(masked_losses, targets, task_weighting.class_weights)
             else:
                 if rank == 0 and debug_null_masking:
-                    log.debug(
-                        f"[PHASE1_MASK_LOSS] Skipping class weighting for this phase (is_validation={is_validation})."
-                    )
+                    log.debug(f"[PHASE1_MASK_LOSS] Skipping class weighting for this phase (is_validation={is_validation}).")
         elif rank == 0 and debug_null_masking:
             log.debug("[PHASE1_MASK_LOSS] No class weights configured.")
 
@@ -344,18 +271,14 @@ def weighted_hierarchical_loss(
         if rank == 0 and verbose_logging:
             log.debug("[HIERARCHICAL_LOSS] Step 3: Applying task-level weighting")
         num_valid_samples_per_task = null_stats.get("num_valid_samples_per_task", {})
-        weighted_dict, task_weights = task_weighting(
-            losses_after_cw, targets, num_valid_samples_per_task=num_valid_samples_per_task
-        )
+        weighted_dict, task_weights = task_weighting(losses_after_cw, targets, num_valid_samples_per_task=num_valid_samples_per_task)
 
         if rank == 0 and verbose_logging:
             # Log task weights
             log.debug(f"[HIERARCHICAL_LOSS] Task weights: {task_weights}")
             # Log weighted loss values
             for task_key, loss in weighted_dict.items():
-                log.debug(
-                    f"[HIERARCHICAL_LOSS] Weighted loss for '{task_key}': {loss.item():.4f}"
-                )
+                log.debug(f"[HIERARCHICAL_LOSS] Weighted loss for '{task_key}': {loss.item():.4f}")
 
         # 4. Sum up the weighted task losses
         if rank == 0 and verbose_logging:
@@ -368,18 +291,9 @@ def weighted_hierarchical_loss(
         # Build a logging dictionary with string task keys
         loss_components = {
             "total": total_loss.item(),
-            "tasks": {
-                task_key: per_task_losses[task_key].mean().item()
-                for task_key in sorted_task_keys
-            },
-            "masked_tasks": {
-                task_key: losses_after_cw[task_key].mean().item()
-                for task_key in sorted_task_keys
-            },
-            "weighted_tasks": {
-                task_key: weighted_dict[task_key].item()
-                for task_key in sorted_task_keys
-            },
+            "tasks": {task_key: per_task_losses[task_key].mean().item() for task_key in sorted_task_keys},
+            "masked_tasks": {task_key: losses_after_cw[task_key].mean().item() for task_key in sorted_task_keys},
+            "weighted_tasks": {task_key: weighted_dict[task_key].item() for task_key in sorted_task_keys},
             # Add raw per-sample losses for null vs non-null metrics tracking
             "raw_per_sample_losses": raw_per_task_losses,
         }
@@ -388,18 +302,14 @@ def weighted_hierarchical_loss(
         loss_components["null_masking"] = null_stats
 
         if rank == 0 and verbose_logging:
-            log.debug(
-                "[HIERARCHICAL_LOSS] Successfully completed hierarchical loss computation"
-            )
+            log.debug("[HIERARCHICAL_LOSS] Successfully completed hierarchical loss computation")
 
         return total_loss, loss_components, task_weights
 
     except Exception as e:
         # Catch and log any exceptions to help debugging
         if rank == 0:
-            logger.error(
-                f"[HIERARCHICAL_LOSS] Exception during hierarchical loss computation: {str(e)}"
-            )
+            logger.error(f"[HIERARCHICAL_LOSS] Exception during hierarchical loss computation: {str(e)}")
             import traceback
 
             logger.error(f"[HIERARCHICAL_LOSS] Traceback: {traceback.format_exc()}")

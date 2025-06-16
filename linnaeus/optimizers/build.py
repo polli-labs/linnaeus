@@ -41,26 +41,17 @@ def build_optimizer(config, model):
         A single optimizer or MultiOptimizer instance
     """
     # Check if parameter groups are enabled
-    if (
-        hasattr(config.OPTIMIZER, "PARAMETER_GROUPS")
-        and config.OPTIMIZER.PARAMETER_GROUPS.ENABLED
-    ):
+    if hasattr(config.OPTIMIZER, "PARAMETER_GROUPS") and config.OPTIMIZER.PARAMETER_GROUPS.ENABLED:
         logger.info("Building multi-optimizer with parameter groups")
         if check_debug_flag(config, "DEBUG.OPTIMIZER"):
             logger.debug("[build_optimizer] Using parameter groups defined in config")
-            logger.debug(
-                f"[build_optimizer] Parameter groups configuration: {config.OPTIMIZER.PARAMETER_GROUPS}"
-            )
+            logger.debug(f"[build_optimizer] Parameter groups configuration: {config.OPTIMIZER.PARAMETER_GROUPS}")
         return _build_multi_optimizer(config, model)
     else:
         logger.info("Building single optimizer for all parameters")
         if check_debug_flag(config, "DEBUG.OPTIMIZER"):
-            logger.debug(
-                f"[build_optimizer] Using single optimizer for all parameters: {config.OPTIMIZER.NAME}"
-            )
-            logger.debug(
-                f"[build_optimizer] Base LR: {config.LR_SCHEDULER.BASE_LR}, Weight decay: {config.OPTIMIZER.WEIGHT_DECAY}"
-            )
+            logger.debug(f"[build_optimizer] Using single optimizer for all parameters: {config.OPTIMIZER.NAME}")
+            logger.debug(f"[build_optimizer] Base LR: {config.LR_SCHEDULER.BASE_LR}, Weight decay: {config.OPTIMIZER.WEIGHT_DECAY}")
         return _build_single_optimizer(config, model)
 
 
@@ -88,11 +79,7 @@ def _build_single_optimizer(config, model):
     opt_lower = config.OPTIMIZER.NAME.lower()
     if opt_lower == "sgd":
         optimizer = optim.SGD(
-            parameters,
-            lr=base_lr,
-            momentum=config.OPTIMIZER.MOMENTUM,
-            weight_decay=config.OPTIMIZER.WEIGHT_DECAY,
-            nesterov=True,
+            parameters, lr=base_lr, momentum=config.OPTIMIZER.MOMENTUM, weight_decay=config.OPTIMIZER.WEIGHT_DECAY, nesterov=True
         )
     elif opt_lower == "adamw":
         optimizer = optim.AdamW(
@@ -132,10 +119,7 @@ def _build_single_optimizer(config, model):
                 continue
 
             # Check if parameter is part of embedding or classifier
-            if any(
-                keyword in name.lower()
-                for keyword in ["embed", "token", "cls_token", "head", "classifier"]
-            ):
+            if any(keyword in name.lower() for keyword in ["embed", "token", "cls_token", "head", "classifier"]):
                 embedding_classifier_params.append(param)
                 embedding_classifier_names.append(name)
                 continue
@@ -158,9 +142,7 @@ def _build_single_optimizer(config, model):
         logger.info(f"  - 2D parameters: {param_counts['2D']}")
         logger.info(f"  - 4D parameters: {param_counts['4D']}")
         logger.info(f"  - Other parameters: {param_counts['other']}")
-        logger.info(
-            f"  - Embedding/Classifier parameters: {len(embedding_classifier_params)}"
-        )
+        logger.info(f"  - Embedding/Classifier parameters: {len(embedding_classifier_params)}")
 
         # Log detailed parameter names when DEBUG.OPTIMIZER is enabled
         if check_debug_flag(config, "DEBUG.OPTIMIZER"):
@@ -168,9 +150,7 @@ def _build_single_optimizer(config, model):
             for name in param_names["2D"]:
                 logger.debug(f"  - {name}")
 
-            logger.debug(
-                "[_build_single_optimizer] 4D parameters to be flattened for Muon:"
-            )
+            logger.debug("[_build_single_optimizer] 4D parameters to be flattened for Muon:")
             for name in param_names["4D"]:
                 logger.debug(f"  - {name}")
 
@@ -178,9 +158,7 @@ def _build_single_optimizer(config, model):
             for name in param_names["other"]:
                 logger.debug(f"  - {name}")
 
-            logger.debug(
-                "[_build_single_optimizer] Embedding/Classifier parameters for AdamW:"
-            )
+            logger.debug("[_build_single_optimizer] Embedding/Classifier parameters for AdamW:")
             for name in embedding_classifier_names:
                 logger.debug(f"  - {name}")
 
@@ -220,9 +198,7 @@ def _build_single_optimizer(config, model):
                 if use_distributed_muon:
                     world_size = dist.get_world_size()
                     rank = dist.get_rank()
-                    logger.debug(
-                        f"[_build_single_optimizer] DistributedMuon parameter distribution for rank {rank}/{world_size}:"
-                    )
+                    logger.debug(f"[_build_single_optimizer] DistributedMuon parameter distribution for rank {rank}/{world_size}:")
 
                     # Group parameters by size (similar to how DistributedMuon will group them)
                     size_to_params = {}
@@ -273,9 +249,7 @@ def _build_single_optimizer(config, model):
                     ns_steps=muon_ns_steps,
                     strict=muon_strict,
                 )
-                logger.info(
-                    f"Created Muon optimizer for {len(params_2d)} 2D parameters and {len(params_4d)} flattened 4D parameters"
-                )
+                logger.info(f"Created Muon optimizer for {len(params_2d)} 2D parameters and {len(params_4d)} flattened 4D parameters")
 
         # AdamW for other parameters and embedding/classifier parameters
         adamw_params = params_other + embedding_classifier_params
@@ -344,9 +318,7 @@ def _build_multi_optimizer(config, model):
         from linnaeus.utils.unified_filtering import UnifiedParamFilter
 
         param_filter = UnifiedParamFilter(filter_config, model, checkpoint_state_dict)
-        matched_params_list = param_filter.filter_parameters(
-            list(model.named_parameters())
-        )
+        matched_params_list = param_filter.filter_parameters(list(model.named_parameters()))
 
         if not matched_params_list:
             logger.warning(f"No parameters matched for group {group_name}")
@@ -358,9 +330,7 @@ def _build_multi_optimizer(config, model):
         matched_params.update(params_for_group)
 
         # Log detailed information
-        logger.info(
-            f"Parameter group '{group_name}' matched {len(matched_params_list)} parameters"
-        )
+        logger.info(f"Parameter group '{group_name}' matched {len(matched_params_list)} parameters")
 
         # Log parameter names at DEBUG level
         logger.debug(f"Parameters in group '{group_name}':")
@@ -375,9 +345,7 @@ def _build_multi_optimizer(config, model):
     # Find unmatched parameters
     unmatched_params = all_params - matched_params
     if unmatched_params:
-        logger.info(
-            f"Found {len(unmatched_params)} parameters not matched by any group, using default optimizer"
-        )
+        logger.info(f"Found {len(unmatched_params)} parameters not matched by any group, using default optimizer")
 
         # Log unmatched parameter names at DEBUG level
         logger.debug("Unmatched parameters (using default optimizer):")
@@ -457,9 +425,7 @@ def _build_multi_optimizer(config, model):
                     if use_distributed_muon:
                         world_size = dist.get_world_size()
                         rank = dist.get_rank()
-                        logger.debug(
-                            f"Group '{group_name}': DistributedMuon parameter distribution for rank {rank}/{world_size}:"
-                        )
+                        logger.debug(f"Group '{group_name}': DistributedMuon parameter distribution for rank {rank}/{world_size}:")
 
                         # Group parameters by size (similar to how DistributedMuon will group them)
                         size_to_params = {}
@@ -514,46 +480,28 @@ def _build_multi_optimizer(config, model):
                         f"Created Muon optimizer for group '{group_name}' with {len(params_2d)} 2D parameters and {len(params_4d)} flattened 4D parameters"
                     )
             else:
-                logger.warning(
-                    f"Parameter group '{group_name}' has no 2D or 4D parameters for Muon optimizer."
-                )
+                logger.warning(f"Parameter group '{group_name}' has no 2D or 4D parameters for Muon optimizer.")
 
             # Log warning for skipped parameters
             if params_other:
-                logger.warning(
-                    f"Skipping {len(params_other)} non-2D/4D parameters in group '{group_name}' for Muon optimizer"
-                )
+                logger.warning(f"Skipping {len(params_other)} non-2D/4D parameters in group '{group_name}' for Muon optimizer")
 
                 # Create AdamW for skipped parameters
                 if len(params_other) > 0:
                     adamw_group_name = f"{group_name}_ADAMW"
                     optimizers[adamw_group_name] = optim.AdamW(
-                        params_other,
-                        lr=group_lr,
-                        eps=config.OPTIMIZER.EPS,
-                        betas=config.OPTIMIZER.BETAS[:2],
-                        weight_decay=weight_decay,
+                        params_other, lr=group_lr, eps=config.OPTIMIZER.EPS, betas=config.OPTIMIZER.BETAS[:2], weight_decay=weight_decay
                     )
-                    logger.info(
-                        f"Created AdamW optimizer for {len(params_other)} skipped parameters in group '{group_name}'"
-                    )
+                    logger.info(f"Created AdamW optimizer for {len(params_other)} skipped parameters in group '{group_name}'")
         else:
             # Create standard optimizer
             if opt_name == "sgd":
                 optimizers[group_name] = optim.SGD(
-                    params,
-                    lr=group_lr,
-                    momentum=config.OPTIMIZER.MOMENTUM,
-                    weight_decay=weight_decay,
-                    nesterov=True,
+                    params, lr=group_lr, momentum=config.OPTIMIZER.MOMENTUM, weight_decay=weight_decay, nesterov=True
                 )
             elif opt_name == "adamw":
                 optimizers[group_name] = optim.AdamW(
-                    params,
-                    lr=group_lr,
-                    eps=config.OPTIMIZER.EPS,
-                    betas=config.OPTIMIZER.BETAS[:2],
-                    weight_decay=weight_decay,
+                    params, lr=group_lr, eps=config.OPTIMIZER.EPS, betas=config.OPTIMIZER.BETAS[:2], weight_decay=weight_decay
                 )
             elif opt_name == "ademamix":
                 optimizers[group_name] = AdEMAMix(
@@ -577,19 +525,11 @@ def _build_multi_optimizer(config, model):
         # Apply default optimizer to ungrouped parameters
         if default_opt_name == "sgd":
             optimizers["DEFAULT"] = optim.SGD(
-                unmatched_params,
-                lr=base_lr,
-                momentum=config.OPTIMIZER.MOMENTUM,
-                weight_decay=default_weight_decay,
-                nesterov=True,
+                unmatched_params, lr=base_lr, momentum=config.OPTIMIZER.MOMENTUM, weight_decay=default_weight_decay, nesterov=True
             )
         elif default_opt_name == "adamw":
             optimizers["DEFAULT"] = optim.AdamW(
-                unmatched_params,
-                lr=base_lr,
-                eps=config.OPTIMIZER.EPS,
-                betas=config.OPTIMIZER.BETAS[:2],
-                weight_decay=default_weight_decay,
+                unmatched_params, lr=base_lr, eps=config.OPTIMIZER.EPS, betas=config.OPTIMIZER.BETAS[:2], weight_decay=default_weight_decay
             )
         elif default_opt_name == "ademamix":
             optimizers["DEFAULT"] = AdEMAMix(
@@ -663,15 +603,9 @@ def _build_multi_optimizer(config, model):
             # Create AdamW for other parameters
             if params_other:
                 optimizers["DEFAULT_ADAMW"] = optim.AdamW(
-                    params_other,
-                    lr=base_lr,
-                    eps=config.OPTIMIZER.EPS,
-                    betas=config.OPTIMIZER.BETAS[:2],
-                    weight_decay=default_weight_decay,
+                    params_other, lr=base_lr, eps=config.OPTIMIZER.EPS, betas=config.OPTIMIZER.BETAS[:2], weight_decay=default_weight_decay
                 )
-                logger.info(
-                    f"Created AdamW optimizer for DEFAULT group with {len(params_other)} non-2D/4D parameters"
-                )
+                logger.info(f"Created AdamW optimizer for DEFAULT group with {len(params_other)} non-2D/4D parameters")
 
     # Log optimizer summary
     logger.info("Optimizer summary:")
@@ -703,12 +637,7 @@ def set_weight_decay(model, skip_list=(), skip_keywords=(), lr=0.0):
     for name, param in model.named_parameters():
         if not param.requires_grad:
             continue  # frozen weights
-        if (
-            len(param.shape) == 1
-            or name.endswith(".bias")
-            or (name in skip_list)
-            or check_keywords_in_name(name, skip_keywords)
-        ):
+        if len(param.shape) == 1 or name.endswith(".bias") or (name in skip_list) or check_keywords_in_name(name, skip_keywords):
             no_decay.append(param)
         else:
             has_decay.append(param)

@@ -26,24 +26,14 @@ class AdaptivePoolingAggregation(nn.Module):
         **kwargs: Additional keyword arguments. May be unused, logged if unexpected.
     """
 
-    def __init__(
-        self,
-        in_channels: int,
-        out_channels: int,
-        output_size=1,
-        pool_type: str = "avg",
-        bias: bool = False,
-        **kwargs,
-    ):
+    def __init__(self, in_channels: int, out_channels: int, output_size=1, pool_type: str = "avg", bias: bool = False, **kwargs):
         super().__init__()
         if pool_type == "avg":
             self.pool = nn.AdaptiveAvgPool1d(output_size)
         elif pool_type == "max":
             self.pool = nn.AdaptiveMaxPool1d(output_size)
         else:
-            raise ValueError(
-                f"Unsupported pool_type: {pool_type}. Choose 'avg' or 'max'."
-            )
+            raise ValueError(f"Unsupported pool_type: {pool_type}. Choose 'avg' or 'max'.")
 
         self.fc = nn.Linear(in_channels, out_channels, bias=bias)
         self.activation = nn.GELU()

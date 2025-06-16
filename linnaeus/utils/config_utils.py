@@ -26,9 +26,7 @@ def get_config_path(relative_path: str) -> str:
 
     config_dir = os.environ.get("CONFIG_DIR")
     if not config_dir:
-        raise ValueError(
-            "CONFIG_DIR environment variable not set; cannot resolve relative paths."
-        )
+        raise ValueError("CONFIG_DIR environment variable not set; cannot resolve relative paths.")
     return os.path.join(config_dir, relative_path)
 
 
@@ -148,13 +146,9 @@ def load_model_base_config(cfg: CN) -> CN:
 
             if key in temp_model:
                 # Both configs have this key - check if it's a nested CN
-                if isinstance(original_model_config[key], CN) and isinstance(
-                    temp_model[key], CN
-                ):
+                if isinstance(original_model_config[key], CN) and isinstance(temp_model[key], CN):
                     # Recursively merge nested CfgNodes
-                    temp_model[key] = merge_configs(
-                        temp_model[key], original_model_config[key]
-                    )
+                    temp_model[key] = merge_configs(temp_model[key], original_model_config[key])
                 else:
                     # For simple values, just override
                     temp_model[key] = original_model_config[key]
@@ -177,12 +171,7 @@ def validate_config_paths(cfg: CN) -> None:
     """
     Example path validation. You can expand or remove as needed.
     """
-    for path_attr in [
-        "TRAIN_LABELS_PATH",
-        "VAL_LABELS_PATH",
-        "TRAIN_IMAGES_PATH",
-        "VAL_IMAGES_PATH",
-    ]:
+    for path_attr in ["TRAIN_LABELS_PATH", "VAL_LABELS_PATH", "TRAIN_IMAGES_PATH", "VAL_IMAGES_PATH"]:
         possible_path = cfg.DATA.H5.get(path_attr)
         if possible_path and not os.path.exists(possible_path):
             raise FileNotFoundError(f"Required H5 file does not exist: {possible_path}")
@@ -238,15 +227,11 @@ def update_out_features(cfg: CN, num_classes: dict[str, int]) -> None:
 
     # Check aggregator dimension
     if "AGGREGATION" not in cfg.MODEL:
-        raise ValueError(
-            "No AGGREGATION config found in MODEL; cannot determine final dimension."
-        )
+        raise ValueError("No AGGREGATION config found in MODEL; cannot determine final dimension.")
 
     agg_params = cfg.MODEL.AGGREGATION.get("PARAMETERS", None)
     if not agg_params or "out_channels" not in agg_params:
-        raise ValueError(
-            "AGGREGATION.PARAMETERS.out_channels is missing; cannot set classification in_features."
-        )
+        raise ValueError("AGGREGATION.PARAMETERS.out_channels is missing; cannot set classification in_features.")
 
     aggregator_dim = agg_params["out_channels"]
 

@@ -133,11 +133,7 @@ class BasePrefetchingDataset(ABC):
         self.h5data_logger = h5data_logger or logging.getLogger("h5data")
 
         # MemoryCache for raw items
-        self.prefetch_cache = MemoryCache(
-            max_size=mem_cache_size,
-            main_logger=self.main_logger,
-            h5data_logger=self.h5data_logger,
-        )
+        self.prefetch_cache = MemoryCache(max_size=mem_cache_size, main_logger=self.main_logger, h5data_logger=self.h5data_logger)
 
         # Single-sample augmentation pipeline (optional)
         if isinstance(augmentation_pipeline, AugmentationPipeline):
@@ -156,9 +152,7 @@ class BasePrefetchingDataset(ABC):
         self._preprocess_manager_thread = None
 
         self._io_threadpool = None
-        self._transform_threadpool = ThreadPoolExecutor(
-            max_workers=self.num_preprocess_threads
-        )
+        self._transform_threadpool = ThreadPoolExecutor(max_workers=self.num_preprocess_threads)
 
         # Thread shutdown management
         self._shutdown_event = threading.Event()
@@ -172,11 +166,7 @@ class BasePrefetchingDataset(ABC):
         self.metrics = {
             "prefetch_times": [],
             "preprocess_times": [],
-            "queue_depths": {
-                "batch_index_q": [],
-                "preprocess_q": [],
-                "processed_batch_q": [],
-            },
+            "queue_depths": {"batch_index_q": [], "preprocess_q": [], "processed_batch_q": []},
             "cache_metrics": {
                 "size": [],
                 "hits": 0,
@@ -206,16 +196,7 @@ class BasePrefetchingDataset(ABC):
         pass
 
     @abstractmethod
-    def _read_raw_item(
-        self, idx: int
-    ) -> tuple[
-        torch.Tensor,
-        dict[str, torch.Tensor],
-        torch.Tensor,
-        int,
-        dict[str, int],
-        torch.Tensor,
-    ]:
+    def _read_raw_item(self, idx: int) -> tuple[torch.Tensor, dict[str, torch.Tensor], torch.Tensor, int, dict[str, int], torch.Tensor]:
         """
         Subclass implements how to read a single sample from disk/HDF5.
 
@@ -256,11 +237,7 @@ class BasePrefetchingDataset(ABC):
         self.metrics = {
             "prefetch_times": [],
             "preprocess_times": [],
-            "queue_depths": {
-                "batch_index_q": [],
-                "preprocess_q": [],
-                "processed_batch_q": [],
-            },
+            "queue_depths": {"batch_index_q": [], "preprocess_q": [], "processed_batch_q": []},
             "cache_metrics": {
                 "size": [],
                 "hits": 0,
@@ -280,18 +257,14 @@ class BasePrefetchingDataset(ABC):
                     self._batch_index_queue.put(b_indices)  # blocks if queue is full
                 # Mark end-of-epoch
                 self._batch_index_queue.put(None)
-                self.main_logger.info(
-                    "[BasePrefetchingDataset] batch feeder completed for this epoch."
-                )
+                self.main_logger.info("[BasePrefetchingDataset] batch feeder completed for this epoch.")
             except Exception as e:
                 self.main_logger.error(f"batch feeder error: {e}", exc_info=True)
 
         self._batch_feeder_thread = threading.Thread(target=_feed_batches, daemon=True)
         self._batch_feeder_thread.start()
 
-        self.main_logger.info(
-            f"[BasePrefetchingDataset] start_prefetching => launched batch feeder for {len(epoch_batches)} sub-batches."
-        )
+        self.main_logger.info(f"[BasePrefetchingDataset] start_prefetching => launched batch feeder for {len(epoch_batches)} sub-batches.")
 
     def fetch_next_batch(self):
         """
@@ -307,30 +280,22 @@ class BasePrefetchingDataset(ABC):
 
         try:
             # Use a timeout to prevent blocking indefinitely if the pipeline is shutting down
-            batch = self._processed_batch_queue.get(
-                block=True, timeout=0.1
-            )  # Short timeout
+            batch = self._processed_batch_queue.get(block=True, timeout=0.1)  # Short timeout
         except queue.Empty:
             # Queue is empty. Check if shutdown is requested.
             if self._shutdown_event.is_set():
-                self.main_logger.debug(
-                    f"[{class_name}] fetch_next_batch() got Empty queue during shutdown, returning STOP_SENTINEL."
-                )
+                self.main_logger.debug(f"[{class_name}] fetch_next_batch() got Empty queue during shutdown, returning STOP_SENTINEL.")
                 return STOP_SENTINEL
             # If not shutting down, it's a genuine empty queue moment, dataloader should retry
             return "RETRY"  # Special signal for H5DataLoader to retry
 
         if batch is None:
             # End-of-epoch marker
-            self.main_logger.debug(
-                f"[{class_name}] fetch_next_batch() got None => end of epoch."
-            )
+            self.main_logger.debug(f"[{class_name}] fetch_next_batch() got None => end of epoch.")
             return None
         if batch is STOP_SENTINEL:
             # The pipeline is fully shutting down
-            self.main_logger.debug(
-                f"[{class_name}] fetch_next_batch() got STOP_SENTINEL => dataset closed."
-            )
+            self.main_logger.debug(f"[{class_name}] fetch_next_batch() got STOP_SENTINEL => dataset closed.")
             return STOP_SENTINEL
         return batch
 
@@ -342,13 +307,9 @@ class BasePrefetchingDataset(ABC):
         if self.monitor_enabled and not self.should_monitor:
             self.should_monitor = True
             if not self.monitor_thread:
-                self.monitor_thread = threading.Thread(
-                    target=self._monitor_loop, daemon=True
-                )
+                self.monitor_thread = threading.Thread(target=self._monitor_loop, daemon=True)
                 self.monitor_thread.start()
-            self.main_logger.info(
-                "[BasePrefetchingDataset] Monitoring started (start_monitoring)."
-            )
+            self.main_logger.info("[BasePrefetchingDataset] Monitoring started (start_monitoring).")
 
     def close(self):
         """
@@ -360,9 +321,7 @@ class BasePrefetchingDataset(ABC):
 
         if self._shutdown_event.is_set():
             # Check if already closing
-            self.main_logger.info(
-                f"[{class_name}] Shutdown already in progress or completed."
-            )
+            self.main_logger.info(f"[{class_name}] Shutdown already in progress or completed.")
             return
 
         # Signal all threads to stop immediately
@@ -374,40 +333,26 @@ class BasePrefetchingDataset(ABC):
             self.main_logger.debug(f"[{class_name}] Joining monitor thread...")
             self.monitor_thread.join(timeout=2.0)  # Timeout after 2 seconds
             if self.monitor_thread.is_alive():
-                self.main_logger.warning(
-                    f"[{class_name}] Monitor thread did not exit in time."
-                )
+                self.main_logger.warning(f"[{class_name}] Monitor thread did not exit in time.")
         self.monitor_thread = None
 
         # Gracefully signal batch feeder thread if it's running
         if self._batch_feeder_thread and self._batch_feeder_thread.is_alive():
-            self.main_logger.debug(
-                f"[{class_name}] Signaling and joining batch feeder thread..."
-            )
+            self.main_logger.debug(f"[{class_name}] Signaling and joining batch feeder thread...")
             try:
                 # Feeder checks shutdown_event, also try to unblock it if waiting on put()
                 self._batch_index_queue.put(STOP_SENTINEL, block=False)  # Non-blocking
             except queue.Full:
-                self.main_logger.warning(
-                    f"[{class_name}] Batch index queue full while trying to send STOP to feeder."
-                )
+                self.main_logger.warning(f"[{class_name}] Batch index queue full while trying to send STOP to feeder.")
 
             self._batch_feeder_thread.join(timeout=5.0)  # Timeout after 5 seconds
             if self._batch_feeder_thread.is_alive():
-                self.main_logger.warning(
-                    f"[{class_name}] Batch feeder thread did not exit cleanly."
-                )
+                self.main_logger.warning(f"[{class_name}] Batch feeder thread did not exit cleanly.")
         self._batch_feeder_thread = None
 
         # Propagate STOP_SENTINEL to make sure all threads get the signal
-        self.main_logger.debug(
-            f"[{class_name}] Propagating STOP_SENTINEL to _batch_index_queue."
-        )
-        self._ensure_sentinel_propagated(
-            self._batch_index_queue,
-            STOP_SENTINEL,
-            f"{class_name} Close->BatchIndexQueue",
-        )
+        self.main_logger.debug(f"[{class_name}] Propagating STOP_SENTINEL to _batch_index_queue.")
+        self._ensure_sentinel_propagated(self._batch_index_queue, STOP_SENTINEL, f"{class_name} Close->BatchIndexQueue")
 
         # Define thread join timeout
         thread_timeout = 5.0  # seconds
@@ -417,23 +362,14 @@ class BasePrefetchingDataset(ABC):
             self.main_logger.debug(f"[{class_name}] Joining prefetch manager thread...")
             self._prefetch_manager_thread.join(timeout=thread_timeout)
             if self._prefetch_manager_thread.is_alive():
-                self.main_logger.warning(
-                    f"[{class_name}] Prefetch manager thread timed out."
-                )
+                self.main_logger.warning(f"[{class_name}] Prefetch manager thread timed out.")
         self._prefetch_manager_thread = None
 
-        if (
-            self._preprocess_manager_thread
-            and self._preprocess_manager_thread.is_alive()
-        ):
-            self.main_logger.debug(
-                f"[{class_name}] Joining preprocess manager thread..."
-            )
+        if self._preprocess_manager_thread and self._preprocess_manager_thread.is_alive():
+            self.main_logger.debug(f"[{class_name}] Joining preprocess manager thread...")
             self._preprocess_manager_thread.join(timeout=thread_timeout)
             if self._preprocess_manager_thread.is_alive():
-                self.main_logger.warning(
-                    f"[{class_name}] Preprocess manager thread timed out."
-                )
+                self.main_logger.warning(f"[{class_name}] Preprocess manager thread timed out.")
         self._preprocess_manager_thread = None
 
         # Shutdown thread pools
@@ -444,9 +380,7 @@ class BasePrefetchingDataset(ABC):
         self._io_threadpool = None
 
         if self._transform_threadpool:
-            self.main_logger.debug(
-                f"[{class_name}] Shutting down transform thread pool..."
-            )
+            self.main_logger.debug(f"[{class_name}] Shutting down transform thread pool...")
             self._transform_threadpool.shutdown(wait=True, cancel_futures=True)
             self.main_logger.debug(f"[{class_name}] Transform thread pool shut down.")
         self._transform_threadpool = None
@@ -456,10 +390,7 @@ class BasePrefetchingDataset(ABC):
         self._drain_queue(self._preprocess_queue)
         self._drain_queue(self._processed_batch_queue)
 
-        self.main_logger.info(
-            f"[{class_name}] Closed successfully. Prefetched={self.prefetch_count}, "
-            f"Preprocessed={self.preprocess_count}"
-        )
+        self.main_logger.info(f"[{class_name}] Closed successfully. Prefetched={self.prefetch_count}, Preprocessed={self.preprocess_count}")
 
     # ------------------------------------------------------------------------
     # Internal concurrency setup
@@ -470,25 +401,15 @@ class BasePrefetchingDataset(ABC):
           1) _prefetch_manager_thread
           2) _preprocess_manager_thread
         """
-        if (
-            self._prefetch_manager_thread is None
-            or not self._prefetch_manager_thread.is_alive()
-        ):
+        if self._prefetch_manager_thread is None or not self._prefetch_manager_thread.is_alive():
             self._prefetch_manager_thread = threading.Thread(
-                target=self._prefetch_manager_loop,
-                daemon=True,
-                name=f"{self.__class__.__name__}_PrefetchManagerThread",
+                target=self._prefetch_manager_loop, daemon=True, name=f"{self.__class__.__name__}_PrefetchManagerThread"
             )
             self._prefetch_manager_thread.start()
 
-        if (
-            self._preprocess_manager_thread is None
-            or not self._preprocess_manager_thread.is_alive()
-        ):
+        if self._preprocess_manager_thread is None or not self._preprocess_manager_thread.is_alive():
             self._preprocess_manager_thread = threading.Thread(
-                target=self._preprocess_main_loop,
-                daemon=True,
-                name=f"{self.__class__.__name__}_PreprocessManagerThread",
+                target=self._preprocess_main_loop, daemon=True, name=f"{self.__class__.__name__}_PreprocessManagerThread"
             )
             self._preprocess_manager_thread.start()
 
@@ -503,39 +424,28 @@ class BasePrefetchingDataset(ABC):
 
         io_pool = None
         if self.num_io_threads > 0:  # Create pool only if needed
-            io_pool = ThreadPoolExecutor(
-                max_workers=self.num_io_threads,
-                thread_name_prefix=f"{class_name}_IOThread",
-            )
+            io_pool = ThreadPoolExecutor(max_workers=self.num_io_threads, thread_name_prefix=f"{class_name}_IOThread")
             self._io_threadpool = io_pool
 
         try:
             while not self._shutdown_event.is_set():  # Check shutdown event
                 try:
-                    batch_indices = self._batch_index_queue.get(
-                        timeout=0.5
-                    )  # Use timeout to check shutdown_event regularly
+                    batch_indices = self._batch_index_queue.get(timeout=0.5)  # Use timeout to check shutdown_event regularly
                 except queue.Empty:
                     continue  # Loop back to check shutdown_event
 
                 if batch_indices is STOP_SENTINEL or self._shutdown_event.is_set():
                     # pass STOP_SENTINEL on, then exit
                     self._ensure_sentinel_propagated(
-                        self._preprocess_queue,
-                        STOP_SENTINEL,
-                        f"{class_name}PrefetchManager->PreprocessQueue (Shutdown)",
+                        self._preprocess_queue, STOP_SENTINEL, f"{class_name}PrefetchManager->PreprocessQueue (Shutdown)"
                     )
-                    self.main_logger.info(
-                        f"[{class_name}] PrefetchManager shutdown signal received, exiting loop."
-                    )
+                    self.main_logger.info(f"[{class_name}] PrefetchManager shutdown signal received, exiting loop.")
                     break
 
                 if batch_indices is None:
                     # End-of-epoch => just forward None and continue
                     self._ensure_sentinel_propagated(
-                        self._preprocess_queue,
-                        None,
-                        f"{class_name}PrefetchManager->PreprocessQueue (EpochEnd)",
+                        self._preprocess_queue, None, f"{class_name}PrefetchManager->PreprocessQueue (EpochEnd)"
                     )
                     continue
 
@@ -547,9 +457,7 @@ class BasePrefetchingDataset(ABC):
                             break  # Check before submitting
                         if self.prefetch_cache.get(idx_) is None:
                             # not in cache => read from disk/HDF5 in parallel
-                            futures.append(
-                                io_pool.submit(self._read_and_cache_item, idx_)
-                            )
+                            futures.append(io_pool.submit(self._read_and_cache_item, idx_))
 
                     if self._shutdown_event.is_set():
                         break  # Exit if shutdown requested
@@ -558,13 +466,9 @@ class BasePrefetchingDataset(ABC):
                         try:
                             fut.result(timeout=10.0)  # Add timeout
                         except concurrent.futures.TimeoutError:
-                            self.main_logger.warning(
-                                f"[{class_name}] IO task timed out."
-                            )
+                            self.main_logger.warning(f"[{class_name}] IO task timed out.")
                         except Exception as e:
-                            self.main_logger.error(
-                                f"[{class_name}] Error in IO task: {e}", exc_info=True
-                            )
+                            self.main_logger.error(f"[{class_name}] Error in IO task: {e}", exc_info=True)
                 else:  # Fallback to synchronous IO
                     for idx_ in batch_indices:
                         if self._shutdown_event.is_set():
@@ -583,20 +487,12 @@ class BasePrefetchingDataset(ABC):
                     self._preprocess_queue.put(batch_indices)
 
                 dt = time.time() - t0
-                self.h5data_logger.debug(
-                    f"[{class_name}] PrefetchManager: sub-batch {len(batch_indices)} read+cached in {dt:.2f}s"
-                )
+                self.h5data_logger.debug(f"[{class_name}] PrefetchManager: sub-batch {len(batch_indices)} read+cached in {dt:.2f}s")
         finally:
             if io_pool:
-                self.main_logger.debug(
-                    f"[{class_name}] PrefetchManager: Shutting down IO pool..."
-                )
-                io_pool.shutdown(
-                    wait=True, cancel_futures=True
-                )  # Cancel any pending futures
-                self.main_logger.debug(
-                    f"[{class_name}] PrefetchManager: IO pool shut down."
-                )
+                self.main_logger.debug(f"[{class_name}] PrefetchManager: Shutting down IO pool...")
+                io_pool.shutdown(wait=True, cancel_futures=True)  # Cancel any pending futures
+                self.main_logger.debug(f"[{class_name}] PrefetchManager: IO pool shut down.")
             self.main_logger.info(f"[{class_name}] Prefetch manager thread exited.")
 
     def _read_and_cache_item(self, idx: int):
@@ -619,30 +515,22 @@ class BasePrefetchingDataset(ABC):
         try:
             while not self._shutdown_event.is_set():  # Check shutdown event
                 try:
-                    b_indices = self._preprocess_queue.get(
-                        timeout=0.5
-                    )  # Use timeout to check shutdown_event regularly
+                    b_indices = self._preprocess_queue.get(timeout=0.5)  # Use timeout to check shutdown_event regularly
                 except queue.Empty:
                     continue  # Loop back to check shutdown_event
 
                 if b_indices is STOP_SENTINEL or self._shutdown_event.is_set():
                     # forward STOP_SENTINEL => done
                     self._ensure_sentinel_propagated(
-                        self._processed_batch_queue,
-                        STOP_SENTINEL,
-                        f"{class_name}PreprocessManager->ProcessedBatchQueue (Shutdown)",
+                        self._processed_batch_queue, STOP_SENTINEL, f"{class_name}PreprocessManager->ProcessedBatchQueue (Shutdown)"
                     )
-                    self.main_logger.info(
-                        f"[{class_name}] PreprocessManager shutdown signal received, exiting loop."
-                    )
+                    self.main_logger.info(f"[{class_name}] PreprocessManager shutdown signal received, exiting loop.")
                     break
 
                 if b_indices is None:
                     # end-of-epoch => forward None => keep running
                     self._ensure_sentinel_propagated(
-                        self._processed_batch_queue,
-                        None,
-                        f"{class_name}PreprocessManager->ProcessedBatchQueue (EpochEnd)",
+                        self._processed_batch_queue, None, f"{class_name}PreprocessManager->ProcessedBatchQueue (EpochEnd)"
                     )
                     continue
 
@@ -651,9 +539,7 @@ class BasePrefetchingDataset(ABC):
                 valid_indices_for_transform = []  # Keep track of which indices are processed
 
                 for idx_ in b_indices:
-                    item = self.prefetch_cache.get(
-                        idx_
-                    )  # get() also removes from cache
+                    item = self.prefetch_cache.get(idx_)  # get() also removes from cache
                     if item is not None:
                         raw_batch.append(item)
                         valid_indices_for_transform.append(idx_)
@@ -669,25 +555,16 @@ class BasePrefetchingDataset(ABC):
                     continue
 
                 # Possibly run transforms in parallel
-                futures = [
-                    self._transform_threadpool.submit(self._transform_single, x)
-                    for x in raw_batch
-                ]
+                futures = [self._transform_threadpool.submit(self._transform_single, x) for x in raw_batch]
                 processed_batch_items = []
 
                 for fut in futures:
                     try:
-                        processed_batch_items.append(
-                            fut.result(timeout=10.0)
-                        )  # Add timeout
+                        processed_batch_items.append(fut.result(timeout=10.0))  # Add timeout
                     except concurrent.futures.TimeoutError:
-                        self.main_logger.warning(
-                            f"[{class_name}] Transform task timed out."
-                        )
+                        self.main_logger.warning(f"[{class_name}] Transform task timed out.")
                     except Exception as e:
-                        self.main_logger.error(
-                            f"[{class_name}] Transform task error: {e}", exc_info=True
-                        )
+                        self.main_logger.error(f"[{class_name}] Transform task error: {e}", exc_info=True)
 
                 if not processed_batch_items:  # If all transform tasks failed
                     self.h5data_logger.debug(
@@ -767,32 +644,23 @@ class BasePrefetchingDataset(ABC):
     # ------------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------------
-    def _ensure_sentinel_propagated(
-        self, q: queue.Queue, sentinel: Any, q_name_debug: str
-    ):
+    def _ensure_sentinel_propagated(self, q: queue.Queue, sentinel: Any, q_name_debug: str):
         """Tries to put sentinel into queue. If full, drains and tries again with timeout."""
         try:
             q.put_nowait(sentinel)
             # Successfully enqueued
         except queue.Full:
-            self.main_logger.warning(
-                f"[{self.__class__.__name__}] Queue {q_name_debug} was full. Draining to propagate sentinel."
-            )
+            self.main_logger.warning(f"[{self.__class__.__name__}] Queue {q_name_debug} was full. Draining to propagate sentinel.")
             self._drain_queue(q)  # Drain to make space
             try:
-                q.put(
-                    sentinel, block=True, timeout=1.0
-                )  # Try putting again, with timeout
+                q.put(sentinel, block=True, timeout=1.0)  # Try putting again, with timeout
                 # Successfully enqueued after drain
             except queue.Full:
                 self.main_logger.error(
                     f"[{self.__class__.__name__}] CRITICAL: Could not enqueue sentinel to {q_name_debug} even after drain. Pipeline might hang."
                 )
         except Exception as e:
-            self.main_logger.error(
-                f"[{self.__class__.__name__}] Error propagating sentinel to {q_name_debug}: {e}",
-                exc_info=True,
-            )
+            self.main_logger.error(f"[{self.__class__.__name__}] Error propagating sentinel to {q_name_debug}: {e}", exc_info=True)
 
     def _drain_queue(self, q: queue.Queue):
         """Drain any leftover items from a queue without blocking."""

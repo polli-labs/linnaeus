@@ -55,9 +55,7 @@ def apply_null_masking(
     per_task_null_stats = {}
 
     if debug_null_masking:
-        log.debug(
-            f"[DEBUG_NULL_MASKING] Starting null masking with probability: {null_mask_prob:.4f}"
-        )
+        log.debug(f"[DEBUG_NULL_MASKING] Starting null masking with probability: {null_mask_prob:.4f}")
 
         # Add overall targets diagnostic
         log.debug("[DEBUG_NULL_MASKING] Target overview")
@@ -77,9 +75,7 @@ def apply_null_masking(
         if debug_null_masking:
             target_tensor = targets[task_key]
             log.debug(f"[DEBUG_NULL_MASKING_DETAIL] Task {task_key} target analysis:")
-            log.debug(
-                f"  - Shape: {target_tensor.shape}, dtype: {target_tensor.dtype}, device: {target_tensor.device}"
-            )
+            log.debug(f"  - Shape: {target_tensor.shape}, dtype: {target_tensor.dtype}, device: {target_tensor.device}")
 
             # Calculate overall tensor statistics
             nonzero_elements = torch.count_nonzero(target_tensor).item()
@@ -99,12 +95,8 @@ def apply_null_masking(
                     # Check distribution for float values
                     zero_exact = (target_tensor == 0.0).sum().item()
                     one_exact = (target_tensor == 1.0).sum().item()
-                    between_0_1 = (
-                        ((target_tensor > 0.0) & (target_tensor < 1.0)).sum().item()
-                    )
-                    log.debug(
-                        f"  - Exact zeros: {zero_exact}, exact ones: {one_exact}, values between (0,1): {between_0_1}"
-                    )
+                    between_0_1 = ((target_tensor > 0.0) & (target_tensor < 1.0)).sum().item()
+                    log.debug(f"  - Exact zeros: {zero_exact}, exact ones: {one_exact}, values between (0,1): {between_0_1}")
             except Exception as e:
                 log.debug(f"  - Error analyzing tensor values: {e}")
 
@@ -113,40 +105,28 @@ def apply_null_masking(
             # Hard label => check == 0
             null_mask = targets[task_key] == 0
             if debug_null_masking:
-                log.debug(
-                    f"[DEBUG_NULL_MASKING_INTERNAL] Task {task_key}: Checking hard labels == 0"
-                )
+                log.debug(f"[DEBUG_NULL_MASKING_INTERNAL] Task {task_key}: Checking hard labels == 0")
                 log.debug(
                     f"[DEBUG_NULL_MASKING_INTERNAL] Task {task_key}: Labels (first 10): {targets[task_key][: min(10, len(targets[task_key]))]}"
                 )
 
                 # Show values around the boundary
-                log.debug(
-                    f"[DEBUG_NULL_MASKING_INTERNAL] Task {task_key}: Distribution of label values:"
-                )
-                unique_values, counts = torch.unique(
-                    targets[task_key], return_counts=True
-                )
-                value_counts = {
-                    v.item(): c.item() for v, c in zip(unique_values, counts, strict=False)
-                }
+                log.debug(f"[DEBUG_NULL_MASKING_INTERNAL] Task {task_key}: Distribution of label values:")
+                unique_values, counts = torch.unique(targets[task_key], return_counts=True)
+                value_counts = {v.item(): c.item() for v, c in zip(unique_values, counts, strict=False)}
                 log.debug(f"  - Value counts: {value_counts}")
         else:
             # Soft => check if index 0 is > 0.5
             null_mask = targets[task_key][:, 0] > 0.5
             if debug_null_masking:
-                log.debug(
-                    f"[DEBUG_NULL_MASKING_INTERNAL] Task {task_key}: Checking one-hot index 0 > 0.5"
-                )
+                log.debug(f"[DEBUG_NULL_MASKING_INTERNAL] Task {task_key}: Checking one-hot index 0 > 0.5")
                 log.debug(
                     f"[DEBUG_NULL_MASKING_INTERNAL] Task {task_key}: First column (first 10): {targets[task_key][: min(10, len(targets[task_key])), 0]}"
                 )
 
                 # Show a full distribution of the index 0 values
                 idx0_values = targets[task_key][:, 0]
-                log.debug(
-                    f"[DEBUG_NULL_MASKING_INTERNAL] Task {task_key}: Index 0 value distribution:"
-                )
+                log.debug(f"[DEBUG_NULL_MASKING_INTERNAL] Task {task_key}: Index 0 value distribution:")
                 log.debug(
                     f"  - Min: {idx0_values.min().item():.4f}, Max: {idx0_values.max().item():.4f}, Mean: {idx0_values.mean().item():.4f}"
                 )
@@ -157,59 +137,35 @@ def apply_null_masking(
                 near_0 = ((idx0_values > 0.0) & (idx0_values <= 0.1)).sum().item()
                 near_1 = ((idx0_values >= 0.9) & (idx0_values < 1.0)).sum().item()
                 between_0_1 = ((idx0_values > 0.1) & (idx0_values < 0.9)).sum().item()
-                log.debug(
-                    f"  - Exact 0.0: {exact_0}/{len(idx0_values)} ({exact_0 / len(idx0_values) * 100:.1f}%)"
-                )
-                log.debug(
-                    f"  - Exact 1.0: {exact_1}/{len(idx0_values)} ({exact_1 / len(idx0_values) * 100:.1f}%)"
-                )
-                log.debug(
-                    f"  - Near 0 (0-0.1): {near_0}/{len(idx0_values)} ({near_0 / len(idx0_values) * 100:.1f}%)"
-                )
-                log.debug(
-                    f"  - Near 1 (0.9-1): {near_1}/{len(idx0_values)} ({near_1 / len(idx0_values) * 100:.1f}%)"
-                )
-                log.debug(
-                    f"  - Between (0.1-0.9): {between_0_1}/{len(idx0_values)} ({between_0_1 / len(idx0_values) * 100:.1f}%)"
-                )
+                log.debug(f"  - Exact 0.0: {exact_0}/{len(idx0_values)} ({exact_0 / len(idx0_values) * 100:.1f}%)")
+                log.debug(f"  - Exact 1.0: {exact_1}/{len(idx0_values)} ({exact_1 / len(idx0_values) * 100:.1f}%)")
+                log.debug(f"  - Near 0 (0-0.1): {near_0}/{len(idx0_values)} ({near_0 / len(idx0_values) * 100:.1f}%)")
+                log.debug(f"  - Near 1 (0.9-1): {near_1}/{len(idx0_values)} ({near_1 / len(idx0_values) * 100:.1f}%)")
+                log.debug(f"  - Between (0.1-0.9): {between_0_1}/{len(idx0_values)} ({between_0_1 / len(idx0_values) * 100:.1f}%)")
 
                 # Values near the critical threshold
                 near_half = ((idx0_values > 0.4) & (idx0_values < 0.6)).sum().item()
-                log.debug(
-                    f"  - Near threshold (0.4-0.6): {near_half}/{len(idx0_values)} ({near_half / len(idx0_values) * 100:.1f}%)"
-                )
+                log.debug(f"  - Near threshold (0.4-0.6): {near_half}/{len(idx0_values)} ({near_half / len(idx0_values) * 100:.1f}%)")
 
                 # Check if values are close to 0.5
                 if near_half > 0:
-                    log.debug(
-                        f"[DEBUG_NULL_MASKING_INTERNAL] Task {task_key}: Values that are near 0.5 threshold:"
-                    )
-                    near_half_indices = (
-                        (idx0_values > 0.4) & (idx0_values < 0.6)
-                    ).nonzero(as_tuple=True)[0]
+                    log.debug(f"[DEBUG_NULL_MASKING_INTERNAL] Task {task_key}: Values that are near 0.5 threshold:")
+                    near_half_indices = ((idx0_values > 0.4) & (idx0_values < 0.6)).nonzero(as_tuple=True)[0]
                     for i in range(min(5, len(near_half_indices))):
                         idx = near_half_indices[i].item()
-                        log.debug(
-                            f"  - Sample {idx}: index 0 value = {idx0_values[idx].item():.4f}"
-                        )
+                        log.debug(f"  - Sample {idx}: index 0 value = {idx0_values[idx].item():.4f}")
                         if targets[task_key].size(1) > 1:
                             # Show the full vector for context
-                            log.debug(
-                                f"    Full one-hot vector: {targets[task_key][idx]}"
-                            )
+                            log.debug(f"    Full one-hot vector: {targets[task_key][idx]}")
 
                 # If there are one-hot encoded targets, show a couple of examples
                 if targets[task_key].size(1) > 1:
-                    log.debug(
-                        f"[DEBUG_NULL_MASKING_INTERNAL] Task {task_key}: Example one-hot targets:"
-                    )
+                    log.debug(f"[DEBUG_NULL_MASKING_INTERNAL] Task {task_key}: Example one-hot targets:")
                     for i in range(min(2, targets[task_key].size(0))):
                         log.debug(f"  - Sample {i}: {targets[task_key][i]}")
                         # Identify the argmax position
                         argmax_pos = targets[task_key][i].argmax().item()
-                        log.debug(
-                            f"    Argmax at position {argmax_pos} with value {targets[task_key][i, argmax_pos].item():.4f}"
-                        )
+                        log.debug(f"    Argmax at position {argmax_pos} with value {targets[task_key][i, argmax_pos].item():.4f}")
 
         # Count null samples for logging
         null_count = null_mask.sum().item()
@@ -217,9 +173,7 @@ def apply_null_masking(
 
         # Enhanced debug logging for null mask calculation
         if debug_null_masking:
-            log.debug(
-                f"[DEBUG_NULL_MASKING_INTERNAL] Task {task_key}: Calculated null_mask (sum={null_mask.sum().item()})"
-            )
+            log.debug(f"[DEBUG_NULL_MASKING_INTERNAL] Task {task_key}: Calculated null_mask (sum={null_mask.sum().item()})")
 
             # Show the actual indices that were identified as nulls
             if null_count > 0:
@@ -236,9 +190,7 @@ def apply_null_masking(
 
                 # Additional diagnostics
                 batch_size = len(targets[task_key])
-                log.debug(
-                    f"[DEBUG_NULL_MASKING_INTERNAL] Task {task_key}: Batch size = {batch_size}"
-                )
+                log.debug(f"[DEBUG_NULL_MASKING_INTERNAL] Task {task_key}: Batch size = {batch_size}")
 
                 # Check for potential mixup effects
                 if targets[task_key].dim() > 1:
@@ -248,9 +200,7 @@ def apply_null_masking(
                     # Check for values that are close but below the threshold
                     almost_nulls = ((first_col > 0.3) & (first_col <= 0.5)).sum().item()
                     if almost_nulls > 0:
-                        log.debug(
-                            f"[DEBUG_NULL_MASKING_INTERNAL] Task {task_key}: Found {almost_nulls} values between 0.3-0.5"
-                        )
+                        log.debug(f"[DEBUG_NULL_MASKING_INTERNAL] Task {task_key}: Found {almost_nulls} values between 0.3-0.5")
                         log.debug(
                             f"[DEBUG_NULL_MASKING_INTERNAL] Task {task_key}: These might be mixup-transformed nulls now below the threshold"
                         )
@@ -261,12 +211,8 @@ def apply_null_masking(
                     )
 
                     # Check values near 0.5 threshold
-                    near_threshold = (
-                        ((first_col > 0.4) & (first_col < 0.6)).sum().item()
-                    )
-                    log.debug(
-                        f"[DEBUG_NULL_MASKING_INTERNAL] Task {task_key}: Values near threshold (0.4-0.6): {near_threshold}"
-                    )
+                    near_threshold = ((first_col > 0.4) & (first_col < 0.6)).sum().item()
+                    log.debug(f"[DEBUG_NULL_MASKING_INTERNAL] Task {task_key}: Values near threshold (0.4-0.6): {near_threshold}")
 
                     # Try a more lenient threshold as a test
                     lenient_nulls = (first_col > 0.3).sum().item()
@@ -278,40 +224,23 @@ def apply_null_masking(
                         # Check if maybe index 1 has the nulls instead of index 0
                         second_col = targets[task_key][:, 1]
                         potential_nulls = (second_col > 0.5).sum().item()
-                        log.debug(
-                            f"[DEBUG_NULL_MASKING_INTERNAL] Task {task_key}: Potential nulls in index 1: {potential_nulls}"
-                        )
+                        log.debug(f"[DEBUG_NULL_MASKING_INTERNAL] Task {task_key}: Potential nulls in index 1: {potential_nulls}")
 
                         # Show distribution of argmax positions
                         argmax_pos = targets[task_key].argmax(dim=1)
-                        unique_pos, pos_counts = torch.unique(
-                            argmax_pos, return_counts=True
-                        )
-                        pos_dist = {
-                            p.item(): c.item() for p, c in zip(unique_pos, pos_counts, strict=False)
-                        }
-                        log.debug(
-                            f"[DEBUG_NULL_MASKING_INTERNAL] Task {task_key}: Argmax position distribution: {pos_dist}"
-                        )
+                        unique_pos, pos_counts = torch.unique(argmax_pos, return_counts=True)
+                        pos_dist = {p.item(): c.item() for p, c in zip(unique_pos, pos_counts, strict=False)}
+                        log.debug(f"[DEBUG_NULL_MASKING_INTERNAL] Task {task_key}: Argmax position distribution: {pos_dist}")
                 else:
                     # For hard labels, show class distribution
-                    unique_vals, counts = torch.unique(
-                        targets[task_key], return_counts=True
-                    )
-                    class_dist = {
-                        int(val.item()): int(count.item())
-                        for val, count in zip(unique_vals, counts, strict=False)
-                    }
-                    log.debug(
-                        f"[DEBUG_NULL_MASKING_INTERNAL] Task {task_key}: Class distribution: {class_dist}"
-                    )
+                    unique_vals, counts = torch.unique(targets[task_key], return_counts=True)
+                    class_dist = {int(val.item()): int(count.item()) for val, count in zip(unique_vals, counts, strict=False)}
+                    log.debug(f"[DEBUG_NULL_MASKING_INTERNAL] Task {task_key}: Class distribution: {class_dist}")
             else:
                 if targets[task_key].dim() > 1:
                     # Analyze the one-hot vectors that are identified as nulls
                     null_examples = targets[task_key][null_mask]
-                    log.debug(
-                        f"[DEBUG_NULL_MASKING_INTERNAL] Task {task_key}: First null example (one-hot): {null_examples[0]}"
-                    )
+                    log.debug(f"[DEBUG_NULL_MASKING_INTERNAL] Task {task_key}: First null example (one-hot): {null_examples[0]}")
 
                     # Check if these are true one-hot vectors or soft distributions
                     null_examples_max = null_examples.max(dim=1)[0]
@@ -329,9 +258,7 @@ def apply_null_masking(
         per_task_null_stats[task_key] = {
             "total_samples": len(targets[task_key]),
             "null_samples": null_count,
-            "null_pct": 100.0 * null_count / len(targets[task_key])
-            if len(targets[task_key]) > 0
-            else 0.0,
+            "null_pct": 100.0 * null_count / len(targets[task_key]) if len(targets[task_key]) > 0 else 0.0,
         }
 
         # 2) With probability null_mask_prob, keep those loss entries
@@ -352,9 +279,7 @@ def apply_null_masking(
 
                 # Store in per-task stats
                 per_task_null_stats[task_key]["included_samples"] = included_count
-                per_task_null_stats[task_key]["inclusion_pct"] = (
-                    100.0 * included_count / null_count
-                )
+                per_task_null_stats[task_key]["inclusion_pct"] = 100.0 * included_count / null_count
 
                 # Create a mask of samples to zero out (null samples that weren't selected)
                 # non-null samples always keep their original loss
@@ -369,29 +294,13 @@ def apply_null_masking(
                 if debug_null_masking:
                     # Debug logging for null masking
                     excluded_count = null_count - included_count
-                    avg_loss_included = (
-                        torch.mean(new_loss_vec[null_mask & ~exclude_mask]).item()
-                        if included_count > 0
-                        else 0
-                    )
-                    avg_loss_non_null = (
-                        torch.mean(new_loss_vec[~null_mask]).item()
-                        if (~null_mask).sum() > 0
-                        else 0
-                    )
+                    avg_loss_included = torch.mean(new_loss_vec[null_mask & ~exclude_mask]).item() if included_count > 0 else 0
+                    avg_loss_non_null = torch.mean(new_loss_vec[~null_mask]).item() if (~null_mask).sum() > 0 else 0
 
-                    log.debug(
-                        f"[DEBUG_NULL_MASKING] Task {task_key}: {included_count}/{null_count} null samples included"
-                    )
-                    log.debug(
-                        f"[DEBUG_NULL_MASKING] Task {task_key}: {excluded_count} null samples excluded"
-                    )
-                    log.debug(
-                        f"[DEBUG_NULL_MASKING] Task {task_key}: Avg loss for included null samples: {avg_loss_included:.4f}"
-                    )
-                    log.debug(
-                        f"[DEBUG_NULL_MASKING] Task {task_key}: Avg loss for non-null samples: {avg_loss_non_null:.4f}"
-                    )
+                    log.debug(f"[DEBUG_NULL_MASKING] Task {task_key}: {included_count}/{null_count} null samples included")
+                    log.debug(f"[DEBUG_NULL_MASKING] Task {task_key}: {excluded_count} null samples excluded")
+                    log.debug(f"[DEBUG_NULL_MASKING] Task {task_key}: Avg loss for included null samples: {avg_loss_included:.4f}")
+                    log.debug(f"[DEBUG_NULL_MASKING] Task {task_key}: Avg loss for non-null samples: {avg_loss_non_null:.4f}")
             else:
                 # At null_mask_prob == 1.0, include all null samples
                 null_samples_included += null_count
@@ -400,26 +309,12 @@ def apply_null_masking(
 
                 if debug_null_masking:
                     # Debug logging when all null samples are included
-                    avg_loss_null = (
-                        torch.mean(new_loss_vec[null_mask]).item()
-                        if null_count > 0
-                        else 0
-                    )
-                    avg_loss_non_null = (
-                        torch.mean(new_loss_vec[~null_mask]).item()
-                        if (~null_mask).sum() > 0
-                        else 0
-                    )
+                    avg_loss_null = torch.mean(new_loss_vec[null_mask]).item() if null_count > 0 else 0
+                    avg_loss_non_null = torch.mean(new_loss_vec[~null_mask]).item() if (~null_mask).sum() > 0 else 0
 
-                    log.debug(
-                        f"[DEBUG_NULL_MASKING] Task {task_key}: All {null_count} null samples included (prob=1.0)"
-                    )
-                    log.debug(
-                        f"[DEBUG_NULL_MASKING] Task {task_key}: Avg loss for null samples: {avg_loss_null:.4f}"
-                    )
-                    log.debug(
-                        f"[DEBUG_NULL_MASKING] Task {task_key}: Avg loss for non-null samples: {avg_loss_non_null:.4f}"
-                    )
+                    log.debug(f"[DEBUG_NULL_MASKING] Task {task_key}: All {null_count} null samples included (prob=1.0)")
+                    log.debug(f"[DEBUG_NULL_MASKING] Task {task_key}: Avg loss for null samples: {avg_loss_null:.4f}")
+                    log.debug(f"[DEBUG_NULL_MASKING] Task {task_key}: Avg loss for non-null samples: {avg_loss_non_null:.4f}")
 
             # Update the masked losses dict
             masked_losses[task_key] = new_loss_vec
@@ -428,9 +323,7 @@ def apply_null_masking(
             masked_losses[task_key] = loss_vec
 
             if debug_null_masking:
-                log.debug(
-                    f"[DEBUG_NULL_MASKING] Task {task_key}: No null samples found"
-                )
+                log.debug(f"[DEBUG_NULL_MASKING] Task {task_key}: No null samples found")
 
     # Calculate inclusion percentage
     inclusion_pct = 0.0
@@ -467,9 +360,7 @@ def apply_null_masking(
 
 
 def apply_class_weighting(
-    per_task_losses: dict[str, torch.Tensor],
-    targets: dict[str, torch.Tensor],
-    class_weights: dict[str, dict[int, float]] | None = None,
+    per_task_losses: dict[str, torch.Tensor], targets: dict[str, torch.Tensor], class_weights: dict[str, dict[int, float]] | None = None
 ) -> dict[str, torch.Tensor]:
     """
     Apply class-based weighting to the per-sample losses.
@@ -499,9 +390,7 @@ def apply_class_weighting(
         if tgt.dim() == 1:
             # Hard labels => shape [B]
             with torch.no_grad():
-                sample_wt = torch.empty_like(
-                    tgt, dtype=loss_vec.dtype, device=loss_vec.device
-                )
+                sample_wt = torch.empty_like(tgt, dtype=loss_vec.dtype, device=loss_vec.device)
                 for idx, label_idx in enumerate(tgt):
                     sample_wt[idx] = cw_dict.get(int(label_idx.item()), 1.0)
             weighted_losses[task_key] = loss_vec * sample_wt
@@ -557,9 +446,7 @@ def apply_loss_masking(
         if config is not None:
             force_mask_all_nulls = getattr(config.TRAIN, "PHASE1_MASK_NULL_LOSS", False)
         else:
-            log.warning(
-                "Config not provided to apply_loss_masking; assuming PHASE1_MASK_NULL_LOSS=False"
-            )
+            log.warning("Config not provided to apply_loss_masking; assuming PHASE1_MASK_NULL_LOSS=False")
 
         if force_mask_all_nulls:
             null_mask_prob = 0.0
@@ -575,13 +462,7 @@ def apply_loss_masking(
         debug_null_masking = getattr(config.DEBUG.LOSS, "NULL_MASKING", False)
 
     # 2. Apply null masking
-    masked_losses, null_stats = apply_null_masking(
-        per_task_losses,
-        targets,
-        null_mask_prob,
-        logger=log,
-        config=config,
-    )
+    masked_losses, null_stats = apply_null_masking(per_task_losses, targets, null_mask_prob, logger=log, config=config)
 
     # Add detailed debug logging for null masking stats
     if debug_null_masking:
@@ -602,40 +483,26 @@ def apply_loss_masking(
                 if targets[task_key].dim() == 1:
                     null_indices = (targets[task_key] == 0).nonzero(as_tuple=True)[0]
                 else:
-                    null_indices = (targets[task_key][:, 0] > 0.5).nonzero(
-                        as_tuple=True
-                    )[0]
+                    null_indices = (targets[task_key][:, 0] > 0.5).nonzero(as_tuple=True)[0]
 
                 # Count non-zero loss entries among null samples
                 if null_indices.numel() > 0:
-                    included_count = (
-                        (masked_losses[task_key][null_indices] != 0).sum().item()
-                    )
+                    included_count = (masked_losses[task_key][null_indices] != 0).sum().item()
 
-            log.debug(
-                f"[DEBUG_NULL_STATS_CALC] Task {task_key}: null_count={null_count}, included_count={included_count}"
-            )
+            log.debug(f"[DEBUG_NULL_STATS_CALC] Task {task_key}: null_count={null_count}, included_count={included_count}")
 
     # Add debug logging for aggregated null stats
     if debug_null_masking:
         total = null_stats.get("null_samples_total", 0)
         included = null_stats.get("null_samples_included", 0)
-        log.debug(
-            f"[DEBUG_NULL_STATS_AGG] Aggregated: total={total}, included={included}"
-        )
+        log.debug(f"[DEBUG_NULL_STATS_AGG] Aggregated: total={total}, included={included}")
         log.debug(f"[DEBUG_NULL_STATS_RETURN] Returning null stats: {null_stats}")
 
         # Add a comprehensive diagnostic summary
-        log.debug(
-            "[DEBUG_NULL_MASKING_SUMMARY] ===== NULL MASKING DIAGNOSTIC SUMMARY ====="
-        )
-        log.debug(
-            f"[DEBUG_NULL_MASKING_SUMMARY] Current step: {current_step}, Validation mode: {is_validation}"
-        )
+        log.debug("[DEBUG_NULL_MASKING_SUMMARY] ===== NULL MASKING DIAGNOSTIC SUMMARY =====")
+        log.debug(f"[DEBUG_NULL_MASKING_SUMMARY] Current step: {current_step}, Validation mode: {is_validation}")
         log.debug(f"[DEBUG_NULL_MASKING_SUMMARY] null_mask_prob: {null_mask_prob:.4f}")
-        log.debug(
-            f"[DEBUG_NULL_MASKING_SUMMARY] Total null samples: {total}, Included in loss: {included}"
-        )
+        log.debug(f"[DEBUG_NULL_MASKING_SUMMARY] Total null samples: {total}, Included in loss: {included}")
 
         # Summary of targets and what constitutes a null
         log.debug("[DEBUG_NULL_MASKING_SUMMARY] Target formats:")
@@ -644,46 +511,28 @@ def apply_loss_masking(
                 log.debug(f"  - Task {task_key}: Hard labels, null is value 0")
                 # Count nulls by hard label
                 null_count = (tgt_tensor == 0).sum().item()
-                log.debug(
-                    f"    Nulls by index check: {null_count}/{len(tgt_tensor)} ({null_count / len(tgt_tensor) * 100:.1f}%)"
-                )
+                log.debug(f"    Nulls by index check: {null_count}/{len(tgt_tensor)} ({null_count / len(tgt_tensor) * 100:.1f}%)")
             else:
                 log.debug(f"  - Task {task_key}: One-hot labels, null is index 0 > 0.5")
                 # Count nulls by one-hot
                 null_count = (tgt_tensor[:, 0] > 0.5).sum().item()
-                log.debug(
-                    f"    Nulls by index check: {null_count}/{len(tgt_tensor)} ({null_count / len(tgt_tensor) * 100:.1f}%)"
-                )
+                log.debug(f"    Nulls by index check: {null_count}/{len(tgt_tensor)} ({null_count / len(tgt_tensor) * 100:.1f}%)")
 
         # Summary of potential issues if no nulls were found
         if total == 0:
             # Critical diagnostic warning - log at INFO level to ensure visibility
             warning_msg = "⚠️ NO NULL SAMPLES DETECTED DESPITE NULL_MASK_PROB > 0!"
             logger.info(f"[NULL_MASKING_WARNING] {warning_msg}")
-            logger.info(
-                "[NULL_MASKING_WARNING] Check DEBUG logs for detailed diagnostics or enable --log-level DEBUG"
-            )
+            logger.info("[NULL_MASKING_WARNING] Check DEBUG logs for detailed diagnostics or enable --log-level DEBUG")
 
             # Detailed diagnostics in DEBUG level
-            log.debug(
-                "[DEBUG_NULL_MASKING_SUMMARY] ⚠️ NO NULL SAMPLES DETECTED - POSSIBLE ISSUES:"
-            )
-            log.debug(
-                "  1. Data processing error: The targets may not have null values (index 0)"
-            )
-            log.debug(
-                "  2. One-hot format issue: Check if nulls are represented differently in the dataset"
-            )
-            log.debug(
-                "  3. Target modification: Targets may be modified before reaching null masking"
-            )
-            log.debug(
-                "  4. Label mapping issue: Check if 'null' is correctly mapped to index 0 in class_to_idx"
-            )
+            log.debug("[DEBUG_NULL_MASKING_SUMMARY] ⚠️ NO NULL SAMPLES DETECTED - POSSIBLE ISSUES:")
+            log.debug("  1. Data processing error: The targets may not have null values (index 0)")
+            log.debug("  2. One-hot format issue: Check if nulls are represented differently in the dataset")
+            log.debug("  3. Target modification: Targets may be modified before reaching null masking")
+            log.debug("  4. Label mapping issue: Check if 'null' is correctly mapped to index 0 in class_to_idx")
 
-        log.debug(
-            "[DEBUG_NULL_MASKING_SUMMARY] ============================================"
-        )
+        log.debug("[DEBUG_NULL_MASKING_SUMMARY] ============================================")
 
     # Count how many samples contribute to each task's loss after masking
     num_valid_samples_per_task = {}

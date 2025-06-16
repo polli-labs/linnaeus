@@ -70,16 +70,10 @@ class ConditionalClassifierHead(BaseHierarchicalHead):
         self.temperature = temperature
 
         if not isinstance(taxonomy_tree, TaxonomyTree):
-            logger.error(
-                "ConditionalClassifierHead requires a valid TaxonomyTree instance."
-            )
-            raise TypeError(
-                "Invalid taxonomy_tree provided to ConditionalClassifierHead."
-            )
+            logger.error("ConditionalClassifierHead requires a valid TaxonomyTree instance.")
+            raise TypeError("Invalid taxonomy_tree provided to ConditionalClassifierHead.")
         if task_key not in task_keys:
-            raise ValueError(
-                f"Primary task key '{task_key}' not found in task_keys list."
-            )
+            raise ValueError(f"Primary task key '{task_key}' not found in task_keys list.")
         if task_key not in num_classes:
             raise ValueError(f"num_classes missing for primary task key '{task_key}'")
 
@@ -93,9 +87,7 @@ class ConditionalClassifierHead(BaseHierarchicalHead):
         if level_classifiers_override is not None:
             # Use shared classifiers from configure_classification_heads
             self.level_classifiers = level_classifiers_override
-            logger.debug(
-                f"CC (Instance for {task_key}): Using shared level classifiers."
-            )
+            logger.debug(f"CC (Instance for {task_key}): Using shared level classifiers.")
         else:
             # Fallback to creating local classifiers (not recommended with DDP)
             logger.warning(
@@ -108,9 +100,7 @@ class ConditionalClassifierHead(BaseHierarchicalHead):
                 n_cls = num_classes.get(tk)
                 if n_cls is None:
                     raise ValueError(f"num_classes missing for task '{tk}'")
-                self.level_classifiers[tk] = nn.Linear(
-                    in_features, n_cls, bias=use_bias
-                )
+                self.level_classifiers[tk] = nn.Linear(in_features, n_cls, bias=use_bias)
                 # logger.debug(f"  CC (Instance for {task_key}): Created classifier for {tk} ({in_features} -> {n_cls})")
 
         # Pre-build and register hierarchy matrices from the tree
@@ -122,21 +112,13 @@ class ConditionalClassifierHead(BaseHierarchicalHead):
                 buffer_name = f"hmatrix_{pair_key}"
                 self.register_buffer(buffer_name, matrix)
                 self._matrix_keys.append(pair_key)
-            logger.info(
-                f"CC (Instance for {task_key}): Registered {len(hierarchy_matrices)} hierarchy matrices."
-            )
+            logger.info(f"CC (Instance for {task_key}): Registered {len(hierarchy_matrices)} hierarchy matrices.")
         except Exception as e:
-            logger.error(
-                f"CC (Instance for {task_key}): Failed to build or register hierarchy matrices: {e}",
-                exc_info=True,
-            )
-            raise RuntimeError(
-                "Failed to initialize hierarchy matrices for CC head."
-            ) from e
+            logger.error(f"CC (Instance for {task_key}): Failed to build or register hierarchy matrices: {e}", exc_info=True)
+            raise RuntimeError("Failed to initialize hierarchy matrices for CC head.") from e
 
         logger.info(
-            f"Initialized ConditionalClassifierHead instance for task '{task_key}' "
-            f"with routing='{routing_strategy}', temp={temperature}."
+            f"Initialized ConditionalClassifierHead instance for task '{task_key}' with routing='{routing_strategy}', temp={temperature}."
         )
 
     def _compute_routing_probabilities(
@@ -171,9 +153,7 @@ class ConditionalClassifierHead(BaseHierarchicalHead):
         """
         if self.is_gradnorm_mode():
             if self.primary_task_key not in self.level_classifiers:
-                raise RuntimeError(
-                    f"Classifier for primary task '{self.primary_task_key}' not found in ConditionalClassifierHead."
-                )
+                raise RuntimeError(f"Classifier for primary task '{self.primary_task_key}' not found in ConditionalClassifierHead.")
             return self.level_classifiers[self.primary_task_key](x)
 
         batch_size = x.shape[0]
@@ -183,9 +163,7 @@ class ConditionalClassifierHead(BaseHierarchicalHead):
         all_logits: dict[str, torch.Tensor] = {}
         for task_key in self.task_keys:
             if task_key not in self.level_classifiers:
-                raise RuntimeError(
-                    f"Missing classifier for task '{task_key}' in ConditionalClassifierHead."
-                )
+                raise RuntimeError(f"Missing classifier for task '{task_key}' in ConditionalClassifierHead.")
             all_logits[task_key] = self.level_classifiers[task_key](x)
 
         # 2. Apply conditional refinement (top-down)
@@ -199,27 +177,17 @@ class ConditionalClassifierHead(BaseHierarchicalHead):
             matrix_buffer_name = f"hmatrix_{pair_key}"
             if hasattr(self, matrix_buffer_name):
                 # Get parent routing probabilities using the *refined* logits from the previous step
-                parent_probs = self._compute_routing_probabilities(
-                    refined_logits[parent_task], parent_task
-                )  # [B, num_parent_classes]
+                parent_probs = self._compute_routing_probabilities(refined_logits[parent_task], parent_task)  # [B, num_parent_classes]
 
-                hierarchy_matrix = getattr(
-                    self, matrix_buffer_name
-                )  # [num_parent, num_child]
+                hierarchy_matrix = getattr(self, matrix_buffer_name)  # [num_parent, num_child]
 
                 # Calculate hierarchy weights (prior for children based on parents)
-                hierarchy_weights = torch.matmul(
-                    parent_probs, hierarchy_matrix
-                )  # [B, num_child_classes]
-                hierarchy_weights = (
-                    hierarchy_weights + 1e-10
-                )  # Epsilon for log stability
+                hierarchy_weights = torch.matmul(parent_probs, hierarchy_matrix)  # [B, num_child_classes]
+                hierarchy_weights = hierarchy_weights + 1e-10  # Epsilon for log stability
 
                 # Refine child logits: Logits = BaseLogits + LogPrior
                 # Use all_logits (base) here, as refinement is cumulative based on parent probs
-                refined_logits[child_task] = all_logits[child_task] + torch.log(
-                    hierarchy_weights
-                )
+                refined_logits[child_task] = all_logits[child_task] + torch.log(hierarchy_weights)
             # else: # No warning needed if matrix simply doesn't exist (sparse hierarchy)
             # Logits remain as base_logits[child_task] via the initial copy
 
@@ -229,11 +197,6 @@ class ConditionalClassifierHead(BaseHierarchicalHead):
                 f"Primary task key '{self.primary_task_key}' not found in calculated refined logits dict "
                 f"(keys: {list(refined_logits.keys())}). Returning base logits as fallback."
             )
-            return all_logits.get(
-                self.primary_task_key,
-                torch.zeros(
-                    batch_size, self.num_classes[self.primary_task_key], device=device
-                ),
-            )
+            return all_logits.get(self.primary_task_key, torch.zeros(batch_size, self.num_classes[self.primary_task_key], device=device))
 
         return refined_logits[self.primary_task_key]
