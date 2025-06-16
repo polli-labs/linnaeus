@@ -125,6 +125,8 @@ def initialize_wandb(
         "tags": config.EXPERIMENT.TAGS,
         "notes": config.EXPERIMENT.NOTES,
         "config": wandb_config,
+        # Default mode, can be overridden
+        "mode": "online" if rank == 0 else "offline",
     }
 
     # Determine resume behavior:
@@ -132,20 +134,23 @@ def initialize_wandb(
     # - Otherwise respect config.EXPERIMENT.WANDB.RESUME setting for manual resumption
     if run_id:
         init_kwargs["id"] = run_id
-        if getattr(config, "LOADING_FROM_CHECKPOINT", False):
+        if getattr(config, "LOADING_FROM_CHECKPOINT", False):  # This indicates auto-resume
             init_kwargs["resume"] = "must"
-        elif config.EXPERIMENT.WANDB.RESUME:
+            if rank == 0:
+                init_kwargs["mode"] = "online"  # Explicitly online for rank 0 on auto-resume
+        elif config.EXPERIMENT.WANDB.RESUME:  # This indicates manual resume via config
             init_kwargs["resume"] = "must"
-        else:
+            if rank == 0:
+                init_kwargs["mode"] = "online"  # Explicitly online for rank 0 on manual resume
+        else:  # New run with a specified ID, but not resuming
             init_kwargs["resume"] = False
-    else:
+            # Mode remains as per default (online for rank 0, offline for others)
+    else:  # New run, no ID specified
         init_kwargs["resume"] = False
+        # Mode remains as per default (online for rank 0, offline for others)
 
-    # For multi-gpu runs, only rank 0 should sync to wandb.ai
-    # Other ranks should run in offline mode
-    if rank != 0:
-        init_kwargs["mode"] = "offline"
-
+    # The check for rank != 0 to set mode="offline" is now handled by the default
+    # and overridden for rank 0 if resume="must".
     wandb.init(**init_kwargs)
 
 
