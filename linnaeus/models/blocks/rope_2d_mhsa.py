@@ -358,7 +358,7 @@ class RoPE2DAttention(nn.Module):
             # Needs coordinates for the current size
             t_x, t_y = init_t_xy(W, H, device=device)
             freqs_cis = compute_mixed_cis(self.freqs.to(device), t_x, t_y)  # Compute complex
-            return freqs_cis.to(self.freqs.dtype)  # Match learnable freqs dtype
+            return freqs_cis.to(torch.complex64)
         else:
             # Axial: Check if precomputed size matches
             if N_img != self.freqs_cis.shape[0]:
