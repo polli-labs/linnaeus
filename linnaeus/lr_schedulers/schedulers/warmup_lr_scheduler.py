@@ -67,7 +67,7 @@ class WarmupLRScheduler(_LRScheduler):
         else:
             # After warmup, delegate to base scheduler
             if hasattr(self.base_scheduler, "step_update"):
-                self.base_scheduler.step_update(current_iteration)
+                self.base_scheduler.step_update(current_iteration - self.warmup_steps)
             else:
                 # For traditional PyTorch schedulers, we just do step()
                 # but we must set base_scheduler.last_epoch properly.
