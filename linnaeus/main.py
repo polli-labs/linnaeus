@@ -970,7 +970,7 @@ def main(config, args=None):
         logger.debug(f"\n{schedule_text}")
 
     # AMP
-    scaler = GradScaler(enabled=(config.TRAIN.AMP_OPT_LEVEL != "O0"))
+    scaler = torch.amp.GradScaler('cuda', enabled=(config.TRAIN.AMP_OPT_LEVEL != "O0"))
 
     # Possibly do autobatch for training and validation now that optimizer,
     # loss functions, grad weighting, and scaler are available
