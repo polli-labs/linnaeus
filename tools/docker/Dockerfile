@@ -66,11 +66,11 @@ RUN uv pip install --system packaging setuptools wheel psutil
 
 RUN echo "Processing Flash Attention installation..." && \
     if [ "$TORCH_CHANNEL" = "nightly" ]; then \
-        echo "Installing latest Flash-Attention v3 nightly (>=3,<4)"; \
-        ACTUAL_MAX_JOBS=${MAX_JOBS:-12} && \
-        echo "Using MAX_JOBS=${ACTUAL_MAX_JOBS}" && \
-        uv pip install --system --pre \
-            'flash-attn>=3,<4' --no-build-isolation; \
+        echo "Building Flash-Attention v3 from source for nightly PyTorch..." && \
+        git clone --depth 1 https://github.com/Dao-AILab/flash-attention.git /tmp/fa && \
+        cd /tmp/fa && \
+        MAX_JOBS=${MAX_JOBS:-6} uv pip install --system --no-build-isolation . && \
+        cd / && rm -rf /tmp/fa; \
     elif [ -n "$FA_VER" ]; then \
         echo "Installing Flash-Attention version $FA_VER"; \
         ACTUAL_MAX_JOBS=${MAX_JOBS:-12} && \
