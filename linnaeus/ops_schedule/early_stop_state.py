@@ -20,9 +20,7 @@ class EarlyStopState:
         steps_no_improve (int): Number of consecutive steps without improvement.
     """
 
-    def __init__(
-        self, patience_steps: int, higher_is_better: bool, min_delta: float = 0.0
-    ):
+    def __init__(self, patience_steps: int, higher_is_better: bool, min_delta: float = 0.0):
         self.patience_steps = patience_steps
         self.higher_is_better = higher_is_better
         self.min_delta = min_delta

@@ -60,51 +60,25 @@ class CPUAutoAugmentBatch(AutoAugmentBatch):
             Dict[str, callable]: A dictionary mapping operation names to their implementations.
         """
         ops = {
-            "ShearX": lambda img, magnitude: img.transform(
-                img.size, Image.AFFINE, (1, magnitude * 0.3, 0, 0, 1, 0)
-            ),
-            "ShearY": lambda img, magnitude: img.transform(
-                img.size, Image.AFFINE, (1, 0, 0, magnitude * 0.3, 1, 0)
-            ),
-            "TranslateX": lambda img, magnitude: img.transform(
-                img.size, Image.AFFINE, (1, 0, magnitude * img.size[0] / 10, 0, 1, 0)
-            ),
-            "TranslateY": lambda img, magnitude: img.transform(
-                img.size, Image.AFFINE, (1, 0, 0, 0, 1, magnitude * img.size[1] / 10)
-            ),
+            "ShearX": lambda img, magnitude: img.transform(img.size, Image.AFFINE, (1, magnitude * 0.3, 0, 0, 1, 0)),
+            "ShearY": lambda img, magnitude: img.transform(img.size, Image.AFFINE, (1, 0, 0, magnitude * 0.3, 1, 0)),
+            "TranslateX": lambda img, magnitude: img.transform(img.size, Image.AFFINE, (1, 0, magnitude * img.size[0] / 10, 0, 1, 0)),
+            "TranslateY": lambda img, magnitude: img.transform(img.size, Image.AFFINE, (1, 0, 0, 0, 1, magnitude * img.size[1] / 10)),
             "Rotate": lambda img, magnitude: img.rotate(magnitude),
-            "Color": lambda img, magnitude: ImageEnhance.Color(img).enhance(
-                1 + magnitude * 0.9
-            ),
+            "Color": lambda img, magnitude: ImageEnhance.Color(img).enhance(1 + magnitude * 0.9),
             "Posterize": lambda img, magnitude: ImageOps.posterize(img, int(magnitude)),
-            "Solarize": lambda img, magnitude: ImageOps.solarize(
-                img, 256 - int(magnitude)
-            ),
-            "Contrast": lambda img, magnitude: ImageEnhance.Contrast(img).enhance(
-                1 + magnitude * 0.9
-            ),
-            "Sharpness": lambda img, magnitude: ImageEnhance.Sharpness(img).enhance(
-                1 + magnitude * 0.9
-            ),
-            "Brightness": lambda img, magnitude: ImageEnhance.Brightness(img).enhance(
-                1 + magnitude * 0.9
-            ),
+            "Solarize": lambda img, magnitude: ImageOps.solarize(img, 256 - int(magnitude)),
+            "Contrast": lambda img, magnitude: ImageEnhance.Contrast(img).enhance(1 + magnitude * 0.9),
+            "Sharpness": lambda img, magnitude: ImageEnhance.Sharpness(img).enhance(1 + magnitude * 0.9),
+            "Brightness": lambda img, magnitude: ImageEnhance.Brightness(img).enhance(1 + magnitude * 0.9),
             "AutoContrast": lambda img, _: ImageOps.autocontrast(img),
             "Equalize": lambda img, _: ImageOps.equalize(img),
             "Invert": lambda img, _: ImageOps.invert(img),
             "SolarizeAdd": lambda img, magnitude: self._solarize_add(img, magnitude),
-            "PosterizeOriginal": lambda img, magnitude: ImageOps.posterize(
-                img, int(magnitude)
-            ),
-            "PosterizeIncreasing": lambda img, magnitude: ImageOps.posterize(
-                img, 8 - int(magnitude)
-            ),
-            "Desaturate": lambda img, magnitude: ImageEnhance.Color(img).enhance(
-                1 - magnitude * 0.9
-            ),
-            "GaussianBlurRand": lambda img, magnitude: img.filter(
-                ImageFilter.GaussianBlur(radius=magnitude)
-            ),
+            "PosterizeOriginal": lambda img, magnitude: ImageOps.posterize(img, int(magnitude)),
+            "PosterizeIncreasing": lambda img, magnitude: ImageOps.posterize(img, 8 - int(magnitude)),
+            "Desaturate": lambda img, magnitude: ImageEnhance.Color(img).enhance(1 - magnitude * 0.9),
+            "GaussianBlurRand": lambda img, magnitude: img.filter(ImageFilter.GaussianBlur(radius=magnitude)),
         }
         return ops
 
@@ -139,9 +113,7 @@ class CPUAutoAugmentBatch(AutoAugmentBatch):
         result = np.stack(augmented_images)
         return result.astype(np.float32)
 
-    def _solarize_add(
-        self, img: Image.Image, magnitude: float, threshold: int = 128
-    ) -> Image.Image:
+    def _solarize_add(self, img: Image.Image, magnitude: float, threshold: int = 128) -> Image.Image:
         """
         Apply the SolarizeAdd operation to an image.
 
@@ -166,9 +138,7 @@ class CPUAutoAugmentBatch(AutoAugmentBatch):
         else:
             return img
 
-    def _apply_op(
-        self, image: Image.Image, op_name: str, magnitude: int
-    ) -> Image.Image:
+    def _apply_op(self, image: Image.Image, op_name: str, magnitude: int) -> Image.Image:
         """
         Apply a single augmentation operation to an image.
 

@@ -34,9 +34,7 @@ def _find_local_checkpoint(filename: str, cache_dir: str) -> str | None:
         return None
 
     if len(matches) > 1:
-        logger.warning(
-            f"Multiple matches found for {filename} in {cache_dir}. Using first match."
-        )
+        logger.warning(f"Multiple matches found for {filename} in {cache_dir}. Using first match.")
         for match in matches[:5]:  # Log first 5 matches
             logger.warning(f"  Found: {match}")
         if len(matches) > 5:
@@ -46,9 +44,7 @@ def _find_local_checkpoint(filename: str, cache_dir: str) -> str | None:
     return str(matches[0])
 
 
-def _download_checkpoint_from_b2(
-    filename: str, cache_dir: str, bucket_config: CN
-) -> str | None:
+def _download_checkpoint_from_b2(filename: str, cache_dir: str, bucket_config: CN) -> str | None:
     """
     Download a checkpoint file from a B2 bucket using rclone.
 
@@ -101,9 +97,7 @@ def _download_checkpoint_from_b2(
         return None
 
 
-def resolve_checkpoint_path(
-    identifier: str, cache_dir: str, bucket_config: CN
-) -> str | None:
+def resolve_checkpoint_path(identifier: str, cache_dir: str, bucket_config: CN) -> str | None:
     """
     Resolve a checkpoint identifier to a full path.
 
@@ -140,19 +134,13 @@ def resolve_checkpoint_path(
 
     # If not found locally and bucket is enabled, try to download
     if bucket_config.ENABLED:
-        logger.info(
-            f"Checkpoint {identifier} not found in cache, attempting download from B2"
-        )
-        downloaded_path = _download_checkpoint_from_b2(
-            identifier, cache_dir, bucket_config
-        )
+        logger.info(f"Checkpoint {identifier} not found in cache, attempting download from B2")
+        downloaded_path = _download_checkpoint_from_b2(identifier, cache_dir, bucket_config)
         if downloaded_path:
             return downloaded_path
         else:
             logger.error(f"Failed to download checkpoint {identifier} from B2")
             return None
     else:
-        logger.warning(
-            f"Checkpoint {identifier} not found in cache and B2 bucket is disabled."
-        )
+        logger.warning(f"Checkpoint {identifier} not found in cache and B2 bucket is disabled.")
         return None

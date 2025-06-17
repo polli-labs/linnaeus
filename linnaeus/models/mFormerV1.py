@@ -10,11 +10,7 @@ from yacs.config import CfgNode as CN
 from linnaeus.models.base_model import BaseModel
 
 # Import the new blocks
-from linnaeus.models.blocks.convnext import (
-    ConvNeXtBlock,
-    ConvNeXtDownsampleLayer,
-    LayerNormChannelsFirst,
-)
+from linnaeus.models.blocks.convnext import ConvNeXtBlock, ConvNeXtDownsampleLayer, LayerNormChannelsFirst
 from linnaeus.models.blocks.mlp import Mlp
 from linnaeus.models.blocks.rope_2d_mhsa import RoPE2DMHSABlock
 from linnaeus.models.heads.utils import configure_classification_heads
@@ -47,9 +43,7 @@ class mFormerV1(BaseModel):
 
         # Basic image properties
         img_size = config.MODEL.IMG_SIZE
-        self.img_size = (
-            (img_size, img_size) if isinstance(img_size, int) else tuple(img_size)
-        )
+        self.img_size = (img_size, img_size) if isinstance(img_size, int) else tuple(img_size)
         in_chans = config.MODEL.IN_CHANS
 
         # ConvNeXt Stage Config
@@ -60,9 +54,7 @@ class mFormerV1(BaseModel):
         convnext_dims = cs.DIMS  # e.g., [96, 192, 384, 768] for ConvNeXt-T/S
         self.convnext_ls_init = cs.get("LAYER_SCALE_INIT_VALUE", 1e-6)
         if len(convnext_depths) != 4 or len(convnext_dims) != 4:
-            raise ValueError(
-                "CONVNEXT_STAGES depths and dims must be lists of length 4."
-            )
+            raise ValueError("CONVNEXT_STAGES depths and dims must be lists of length 4.")
 
         # RoPE Stage Config
         if not hasattr(config.MODEL, "ROPE_STAGES"):
@@ -74,15 +66,8 @@ class mFormerV1(BaseModel):
         rope_mlp_ratio = rs.MLP_RATIO  # e.g., [4.0, 4.0]
         self.rope_theta = rs.get("ROPE_THETA", 10000.0)
         self.rope_mixed = rs.get("ROPE_MIXED", True)
-        if (
-            len(rope_depths) != 2
-            or len(rope_dims) != 2
-            or len(rope_num_heads) != 2
-            or len(rope_mlp_ratio) != 2
-        ):
-            raise ValueError(
-                "ROPE_STAGES depths, dims, num_heads, mlp_ratio must be lists of length 2."
-            )
+        if len(rope_depths) != 2 or len(rope_dims) != 2 or len(rope_num_heads) != 2 or len(rope_mlp_ratio) != 2:
+            raise ValueError("ROPE_STAGES depths, dims, num_heads, mlp_ratio must be lists of length 2.")
 
         # Flash Attention configuration
         self.use_flash_attn = config.MODEL.get("USE_FLASH_ATTN", False)
@@ -111,19 +96,13 @@ class mFormerV1(BaseModel):
                     self.meta_dims.append(dim)
                     self.meta_components[comp_name] = {"dim": dim, "offset": offset}
                     offset += dim
-                logger.info(
-                    f"[mFormerV1] Using NAMED metadata components: {list(self.meta_components.keys())}"
-                )
+                logger.info(f"[mFormerV1] Using NAMED metadata components: {list(self.meta_components.keys())}")
             elif config.MODEL.get("META_DIMS"):  # Legacy fallback
                 self.use_meta = True
                 self.meta_dims = config.MODEL.META_DIMS
-                logger.warning(
-                    "[mFormerV1] Using LEGACY config.MODEL.META_DIMS. Prefer DATA.META.COMPONENTS."
-                )
+                logger.warning("[mFormerV1] Using LEGACY config.MODEL.META_DIMS. Prefer DATA.META.COMPONENTS.")
             else:
-                logger.info(
-                    "[mFormerV1] Metadata inactive or no components configured."
-                )
+                logger.info("[mFormerV1] Metadata inactive or no components configured.")
         else:
             logger.info("[mFormerV1] Metadata inactive.")
 
@@ -131,20 +110,15 @@ class mFormerV1(BaseModel):
 
         # --- Stochastic Depth ---
         # Calculate total depth for drop path rate decay (ConvNeXt + RoPE stages)
-        total_conv_depth = sum(
-            convnext_depths[:2]
-        )  # Only first 2 ConvNeXt stages are used
+        total_conv_depth = sum(convnext_depths[:2])  # Only first 2 ConvNeXt stages are used
         total_rope_depth = sum(rope_depths)
         total_depth = total_conv_depth + total_rope_depth
         dpr = [x.item() for x in torch.linspace(0, self.drop_path_rate, total_depth)]
-        logger.info(
-            f"[mFormerV1] Total depth for DropPath: {total_depth} (ConvNeXt={total_conv_depth}, RoPE={total_rope_depth})"
-        )
+        logger.info(f"[mFormerV1] Total depth for DropPath: {total_depth} (ConvNeXt={total_conv_depth}, RoPE={total_rope_depth})")
 
         # --- Build Network Stages ---
         self.stem = nn.Sequential(
-            nn.Conv2d(in_chans, convnext_dims[0], kernel_size=4, stride=4),
-            LayerNormChannelsFirst(convnext_dims[0], eps=1e-6),
+            nn.Conv2d(in_chans, convnext_dims[0], kernel_size=4, stride=4), LayerNormChannelsFirst(convnext_dims[0], eps=1e-6)
         )
         # Calculate grid size after stem
         H_stem, W_stem = self.img_size[0] // 4, self.img_size[1] // 4
@@ -154,17 +128,11 @@ class mFormerV1(BaseModel):
         # Downsampler before ConvNeXt Stage 1 (maps stem_dim -> dim[0]) - Already handled by stem?
         # No, ConvNeXt applies stem then stage 0 blocks directly.
         # Downsampler before ConvNeXt Stage 2 (maps dim[0] -> dim[1])
-        self.downsample_layers.append(
-            ConvNeXtDownsampleLayer(convnext_dims[0], convnext_dims[1])
-        )
+        self.downsample_layers.append(ConvNeXtDownsampleLayer(convnext_dims[0], convnext_dims[1]))
         # Downsampler before RoPE Stage 3 (maps dim[1] -> dim[2])
-        self.downsample_layers.append(
-            ConvNeXtDownsampleLayer(convnext_dims[1], convnext_dims[2])
-        )
+        self.downsample_layers.append(ConvNeXtDownsampleLayer(convnext_dims[1], convnext_dims[2]))
         # Downsampler before RoPE Stage 4 (maps dim[2] -> dim[3])
-        self.downsample_layers.append(
-            ConvNeXtDownsampleLayer(convnext_dims[2], convnext_dims[3])
-        )
+        self.downsample_layers.append(ConvNeXtDownsampleLayer(convnext_dims[2], convnext_dims[3]))
 
         # Build Stages
         self.stages = nn.ModuleList()
@@ -175,13 +143,7 @@ class mFormerV1(BaseModel):
         # ConvNeXt Stage 1 (index 0 in config)
         stage1_blocks = []
         for i in range(convnext_depths[0]):
-            stage1_blocks.append(
-                ConvNeXtBlock(
-                    dim=current_dim,
-                    drop_path=dpr[dp_idx + i],
-                    layer_scale_init_value=self.convnext_ls_init,
-                )
-            )
+            stage1_blocks.append(ConvNeXtBlock(dim=current_dim, drop_path=dpr[dp_idx + i], layer_scale_init_value=self.convnext_ls_init))
         self.stages.append(nn.ModuleList(stage1_blocks))
         dp_idx += convnext_depths[0]
         # Apply Downsampler 1 (prepares for Stage 2)
@@ -191,20 +153,12 @@ class mFormerV1(BaseModel):
         # ConvNeXt Stage 2 (index 1 in config)
         stage2_blocks = []
         for i in range(convnext_depths[1]):
-            stage2_blocks.append(
-                ConvNeXtBlock(
-                    dim=current_dim,
-                    drop_path=dpr[dp_idx + i],
-                    layer_scale_init_value=self.convnext_ls_init,
-                )
-            )
+            stage2_blocks.append(ConvNeXtBlock(dim=current_dim, drop_path=dpr[dp_idx + i], layer_scale_init_value=self.convnext_ls_init))
         self.stages.append(nn.ModuleList(stage2_blocks))
         dp_idx += convnext_depths[1]
         # Apply Downsampler 2 (prepares for RoPE Stage 3)
         if rope_dims[0] != convnext_dims[2]:  # Dimension check
-            raise ValueError(
-                f"ConvNeXt dim[2] ({convnext_dims[2]}) must match RoPE dim[0] ({rope_dims[0]})"
-            )
+            raise ValueError(f"ConvNeXt dim[2] ({convnext_dims[2]}) must match RoPE dim[0] ({rope_dims[0]})")
         current_dim = rope_dims[0]
         current_H, current_W = current_H // 2, current_W // 2
         grid_size_stage3 = (current_H, current_W)
@@ -230,15 +184,11 @@ class mFormerV1(BaseModel):
                     use_flash_attn=self.use_flash_attn,  # Pass flash attention flag
                 )
             )
-        self.stages.append(
-            nn.ModuleList(stage3_blocks)
-        )  # Use ModuleList for RoPE blocks
+        self.stages.append(nn.ModuleList(stage3_blocks))  # Use ModuleList for RoPE blocks
         dp_idx += rope_depths[0]
         # Apply Downsampler 3 (prepares for RoPE Stage 4)
         if rope_dims[1] != convnext_dims[3]:  # Dimension check
-            raise ValueError(
-                f"ConvNeXt dim[3] ({convnext_dims[3]}) must match RoPE dim[1] ({rope_dims[1]})"
-            )
+            raise ValueError(f"ConvNeXt dim[3] ({convnext_dims[3]}) must match RoPE dim[1] ({rope_dims[1]})")
         current_dim = rope_dims[1]
         current_H, current_W = current_H // 2, current_W // 2
         grid_size_stage4 = (current_H, current_W)
@@ -280,9 +230,7 @@ class mFormerV1(BaseModel):
 
         # Build meta heads for stage_3 and stage_4 inputs
         for i, meta_dim_input in enumerate(self.meta_dims):
-            comp_name = list(self.meta_components.keys())[
-                i
-            ]  # Assumes order matches self.meta_dims
+            comp_name = list(self.meta_components.keys())[i]  # Assumes order matches self.meta_dims
             if meta_dim_input > 0:
                 # Stage 3 head projects meta_dim_input -> rope_dims[0]
                 setattr(
@@ -314,9 +262,7 @@ class mFormerV1(BaseModel):
         self.only_last_cls = config.MODEL.ONLY_LAST_CLS  # Inherited from mFormerV0
         if not self.only_last_cls:
             self.cl_1_fc = nn.Sequential(
-                Mlp(
-                    rope_dims[0], rope_dims[0], rope_dims[1], drop=0.0
-                ),  # In, Hidden, Out
+                Mlp(rope_dims[0], rope_dims[0], rope_dims[1], drop=0.0),  # In, Hidden, Out
                 nn.LayerNorm(rope_dims[1]),
             )
             self.aggregate = nn.Conv1d(in_channels=2, out_channels=1, kernel_size=1)
@@ -324,9 +270,7 @@ class mFormerV1(BaseModel):
         else:
             self.cl_1_fc = None
             self.aggregate = None
-            self.final_norm = nn.LayerNorm(
-                rope_dims[1]
-            )  # Final norm is applied to cls_token_2
+            self.final_norm = nn.LayerNorm(rope_dims[1])  # Final norm is applied to cls_token_2
 
         # Build classification heads
         num_classes = kwargs.get("num_classes")
@@ -344,9 +288,7 @@ class mFormerV1(BaseModel):
 
         # Apply weight initialization
         self.apply(self._init_weights)
-        logger.info(
-            f"[mFormerV1] Model built. Total Params: {sum(p.numel() for p in self.parameters()):,}"
-        )
+        logger.info(f"[mFormerV1] Model built. Total Params: {sum(p.numel() for p in self.parameters()):,}")
 
     def _init_weights(self, m):
         """Initialize weights like ConvNeXt and ViT."""
@@ -370,18 +312,10 @@ class mFormerV1(BaseModel):
                     "downsample_layers.0",
                     "downsample_layers.1",
                 ],  # Downsampler index matters
-                "rope_stages": [
-                    "stages.2.",
-                    "stages.3.",
-                    "downsample_layers.2",
-                    "downsample_layers.3",
-                ],
+                "rope_stages": ["stages.2.", "stages.3.", "downsample_layers.2", "downsample_layers.3"],
                 "rope_freqs": ["freqs"],  # Learnable RoPE frequencies
             },
-            "heads": {
-                "classification_heads": ["head."],
-                "meta_heads": ["meta_"],
-            },
+            "heads": {"classification_heads": ["head."], "meta_heads": ["meta_"]},
             "embeddings": ["cls_token"],  # Only CLS tokens
             "norm_layers": ["norm", ".bn", "LayerNorm"],  # Add LayerNorm pattern
             "aggregation": ["cl_1_fc.", "aggregate.", "final_norm."],
@@ -404,21 +338,14 @@ class mFormerV1(BaseModel):
             "strict": False,  # Allow flexibility during stitching
         }
 
-    def forward_features(
-        self,
-        x: torch.Tensor,
-        meta: torch.Tensor | None = None,
-        force_checkpointing: bool | None = None,
-    ) -> torch.Tensor:
+    def forward_features(self, x: torch.Tensor, meta: torch.Tensor | None = None, force_checkpointing: bool | None = None) -> torch.Tensor:
         """Main feature extraction path."""
         B = x.shape[0]
         # Determine checkpointing flag
         if force_checkpointing is not None:
             use_checkpoint = force_checkpointing
         else:
-            use_checkpoint = bool(
-                self.config.TRAIN.GRADIENT_CHECKPOINTING.ENABLED_NORMAL_STEPS
-            )
+            use_checkpoint = bool(self.config.TRAIN.GRADIENT_CHECKPOINTING.ENABLED_NORMAL_STEPS)
 
         # --- ConvNeXt Stages ---
         x = self.stem(x)  # (B, D0, H/4, W/4)
@@ -450,10 +377,7 @@ class mFormerV1(BaseModel):
         if self.use_meta and meta is not None:
             if hasattr(self, "meta_components") and self.meta_components:
                 for comp_name, comp_info in self.meta_components.items():
-                    start, end = (
-                        comp_info["offset"],
-                        comp_info["offset"] + comp_info["dim"],
-                    )
+                    start, end = (comp_info["offset"], comp_info["offset"] + comp_info["dim"])
                     meta_head = getattr(self, f"meta_{comp_name.lower()}_head_1")
                     extras_1.append(meta_head(meta[:, start:end]).unsqueeze(1))
             else:  # Legacy
@@ -489,10 +413,7 @@ class mFormerV1(BaseModel):
         if self.use_meta and meta is not None:
             if hasattr(self, "meta_components") and self.meta_components:
                 for comp_name, comp_info in self.meta_components.items():
-                    start, end = (
-                        comp_info["offset"],
-                        comp_info["offset"] + comp_info["dim"],
-                    )
+                    start, end = (comp_info["offset"], comp_info["offset"] + comp_info["dim"])
                     meta_head = getattr(self, f"meta_{comp_name.lower()}_head_2")
                     extras_2.append(meta_head(meta[:, start:end]).unsqueeze(1))
             else:  # Legacy
@@ -512,9 +433,7 @@ class mFormerV1(BaseModel):
         # --- Aggregation ---
         if not self.only_last_cls:
             # cls_1_final is (B, 1, D3), cls_2_final is (B, 1, D3)
-            cat_tokens = torch.cat(
-                [cls_1_final, cls_2_final], dim=1
-            )  # Shape: (B, 2, D3)
+            cat_tokens = torch.cat([cls_1_final, cls_2_final], dim=1)  # Shape: (B, 2, D3)
             # Conv1d expects (B, C, N) where C=in_channels=2, N=length=D3
             # No transpose needed - cat_tokens already has the right shape (B, 2, D3)
 
@@ -529,10 +448,7 @@ class mFormerV1(BaseModel):
         return feats
 
     def forward(
-        self,
-        x: torch.Tensor,
-        meta: torch.Tensor | None = None,
-        force_checkpointing: bool | None = None,
+        self, x: torch.Tensor, meta: torch.Tensor | None = None, force_checkpointing: bool | None = None
     ) -> dict[str, torch.Tensor]:
         """Forward pass including classification heads."""
         feats = self.forward_features(x, meta, force_checkpointing=force_checkpointing)

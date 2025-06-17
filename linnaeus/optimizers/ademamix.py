@@ -14,35 +14,17 @@ Adapted from reference implementation: https://github.com/nanowell/AdEMAMix-Opti
 
 
 class AdEMAMix(Optimizer):
-    def __init__(
-        self,
-        params,
-        lr=1e-3,
-        betas=(0.9, 0.999, 0.9999),
-        eps=1e-8,
-        weight_decay=0,
-        alpha=5.0,
-        T_alpha_beta3=None,
-    ):
+    def __init__(self, params, lr=1e-3, betas=(0.9, 0.999, 0.9999), eps=1e-8, weight_decay=0, alpha=5.0, T_alpha_beta3=None):
         if not 0.0 <= lr:
             raise ValueError(f"Invalid learning rate: {lr}")
         if not 0.0 <= eps:
             raise ValueError(f"Invalid epsilon value: {eps}")
         assert len(betas) == 3, f"Invalid beta parameters: {betas}, expected 3"
-        assert all(0.0 <= beta < 1.0 for beta in betas), (
-            f"Invalid beta parameters: {betas}"
-        )
+        assert all(0.0 <= beta < 1.0 for beta in betas), f"Invalid beta parameters: {betas}"
         if not 0.0 <= weight_decay:
             raise ValueError(f"Invalid weight_decay value: {weight_decay}")
 
-        defaults = dict(
-            lr=lr,
-            betas=betas,
-            eps=eps,
-            weight_decay=weight_decay,
-            alpha=alpha,
-            T_alpha_beta3=T_alpha_beta3,
-        )
+        defaults = dict(lr=lr, betas=betas, eps=eps, weight_decay=weight_decay, alpha=alpha, T_alpha_beta3=T_alpha_beta3)
         super().__init__(params, defaults)
 
     def __setstate__(self, state):
@@ -75,17 +57,11 @@ class AdEMAMix(Optimizer):
                     if len(state) == 0:
                         state["step"] = 0
                         # Exponential moving average of gradient values
-                        state["exp_avg"] = torch.zeros_like(
-                            p, memory_format=torch.preserve_format
-                        )
+                        state["exp_avg"] = torch.zeros_like(p, memory_format=torch.preserve_format)
                         # Exponential moving average of squared gradient values
-                        state["exp_avg_sq"] = torch.zeros_like(
-                            p, memory_format=torch.preserve_format
-                        )
+                        state["exp_avg_sq"] = torch.zeros_like(p, memory_format=torch.preserve_format)
                         # Slow exponential moving average
-                        state["exp_avg_slow"] = torch.zeros_like(
-                            p, memory_format=torch.preserve_format
-                        )
+                        state["exp_avg_slow"] = torch.zeros_like(p, memory_format=torch.preserve_format)
 
                     exp_avgs.append(state["exp_avg"])
                     exp_avg_sqs.append(state["exp_avg_sq"])
@@ -149,10 +125,7 @@ class AdEMAMix(Optimizer):
                     math.exp(
                         math.log(beta1)
                         * math.log(beta3)
-                        / (
-                            (1 - step / T_alpha_beta3) * math.log(beta3)
-                            + (step / T_alpha_beta3) * math.log(beta1)
-                        )
+                        / ((1 - step / T_alpha_beta3) * math.log(beta3) + (step / T_alpha_beta3) * math.log(beta1))
                     ),
                     beta3,
                 )

@@ -7,6 +7,7 @@ ApplyRotaryEmb = None
 
 try:
     from flash_attn.rotary import ApplyRotaryEmb, apply_rotary_emb
+
     FLASH_ATTENTION_AVAILABLE = True
     print("flash_attn.rotary found.")
 except Exception:

@@ -28,16 +28,39 @@ We are excited to announce that Polli Linnaeus is fully open-source and will be 
 ## Installation
 
 ```bash
-# Via pip from GitHub (recommended)
-pip install git+https://github.com/polli-labs/linnaeus.git
+# Create and activate a project-specific virtual environment
+uv venv .venv
+source .venv/bin/activate  # On Unix/macOS
+# or
+.venv\Scripts\activate  # On Windows
+
+# Via uv pip from GitHub (recommended)
+uv pip install git+https://github.com/polli-labs/linnaeus.git
 
 # Development installation
 git clone https://github.com/polli-labs/linnaeus.git
 cd linnaeus
-pip install -e .
+uv pip install -e .
 ```
 
 For detailed installation instructions, see [Installation Guide](docs/installation.md).
+
+## Docker Images
+
+Polli Linnaeus provides Docker images for development and deployment. These images are built using a two-stage process, which significantly speeds up iteration cycles when developing the Linnaeus codebase.
+
+**Key Benefits:**
+- **Faster Rebuilds:** Core dependencies like CUDA, PyTorch, and `flash-attn` are pre-built into a `base` image. Changes to the Linnaeus application code only require rebuilding the lightweight `runtime` image, making the process much quicker.
+- **Consistency:** Ensures a consistent development and deployment environment across different setups.
+
+**Available Architectures:**
+The primary development image, `frontierkodiak/linnaeus-dev`, supports common NVIDIA GPU architectures:
+- Turing (e.g., T4, RTX 20xx)
+- Ampere (e.g., A100, RTX 30xx)
+- Hopper (e.g., H100)
+
+**Detailed Docker Guide:**
+For comprehensive information on building and using the Docker images, including details on image tags, architecture-specific configurations, and how to leverage the two-stage build system, please refer to the **[Docker Build System Guide](./tools/docker/README.md)**.
 
 ## Quick Start
 

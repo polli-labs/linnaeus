@@ -1,6 +1,7 @@
 """
 Preprocessing functions for image and metadata inputs.
 """
+
 import logging
 from datetime import datetime
 from io import BytesIO
@@ -26,23 +27,18 @@ def _decode_image(image_bytes: bytes) -> Image.Image:
         raise ValueError("Invalid image data") from e
 
 
-def preprocess_single_image(
-    image: Image.Image,
-    input_cfg: InputConfig
-) -> torch.Tensor:
+def preprocess_single_image(image: Image.Image, input_cfg: InputConfig) -> torch.Tensor:
     """Preprocesses a single PIL Image."""
     # Resize
-    resize_dim = (input_cfg.image_size[1], input_cfg.image_size[2]) # H, W
+    resize_dim = (input_cfg.image_size[1], input_cfg.image_size[2])  # H, W
 
     interpolation_mode_map = {
         "bilinear": TF.InterpolationMode.BILINEAR,
         "bicubic": TF.InterpolationMode.BICUBIC,
         "nearest": TF.InterpolationMode.NEAREST,
-        "nearest_exact": TF.InterpolationMode.NEAREST_EXACT
+        "nearest_exact": TF.InterpolationMode.NEAREST_EXACT,
     }
-    interpolation = interpolation_mode_map.get(
-        input_cfg.image_interpolation.lower(), TF.InterpolationMode.BILINEAR
-    )
+    interpolation = interpolation_mode_map.get(input_cfg.image_interpolation.lower(), TF.InterpolationMode.BILINEAR)
 
     image = TF.resize(image, resize_dim, interpolation=interpolation)
 
@@ -55,10 +51,7 @@ def preprocess_single_image(
     return img_tensor
 
 
-def preprocess_image_batch(
-    images: list[bytes | Image.Image],
-    input_cfg: InputConfig,
-) -> torch.Tensor:
+def preprocess_image_batch(images: list[bytes | Image.Image], input_cfg: InputConfig) -> torch.Tensor:
     """
     Preprocesses a batch of images.
     Each image is decoded (if bytes), resized, converted to tensor, and normalized.
@@ -77,15 +70,13 @@ def preprocess_image_batch(
 
     if not processed_tensors:
         # Handle empty image list case to avoid error in torch.stack
-        return torch.empty((0, *input_cfg.image_size), dtype=torch.float32) # C, H, W
+        return torch.empty((0, *input_cfg.image_size), dtype=torch.float32)  # C, H, W
 
     return torch.stack(processed_tensors)
 
 
 def preprocess_metadata_batch(
-    metadata_list: list[dict[str, Any]],
-    meta_cfg: MetaConfig,
-    expected_aux_vector_length: int | None = None
+    metadata_list: list[dict[str, Any]], meta_cfg: MetaConfig, expected_aux_vector_length: int | None = None
 ) -> torch.Tensor:
     """
     Preprocesses a batch of raw metadata into auxiliary feature vectors.
@@ -110,25 +101,24 @@ def preprocess_metadata_batch(
                 sample_features.extend([0.0, 0.0, 0.0])
 
         if meta_cfg.use_temporal:
-            dt = raw_meta.get("datetime_utc") # Expects datetime object or ISO string
+            dt = raw_meta.get("datetime_utc")  # Expects datetime object or ISO string
             if dt:
                 # Ensure dt is datetime object
                 from dateutil import parser as dateutil_parser
+
                 if isinstance(dt, str):
                     try:
                         dt = dateutil_parser.isoparse(dt)
                     except ValueError:
                         logger.warning(f"Invalid datetime string: {dt}. Temporal features will be zeroed.")
-                        dt = None # Fallback to zero-fill
+                        dt = None  # Fallback to zero-fill
 
                 if isinstance(dt, datetime):
                     temporal_feats = typus_projections.datetime_to_temporal_sinusoids(
-                        dt,
-                        use_jd=meta_cfg.temporal_use_julian_day,
-                        use_hour=meta_cfg.temporal_use_hour,
+                        dt, use_jd=meta_cfg.temporal_use_julian_day, use_hour=meta_cfg.temporal_use_hour
                     )
                     sample_features.extend(temporal_feats)
-                else: # dt is None or parsing failed
+                else:  # dt is None or parsing failed
                     temporal_dim = 2 + (2 if meta_cfg.temporal_use_hour else 0)
                     sample_features.extend([0.0] * temporal_dim)
             else:
@@ -139,9 +129,7 @@ def preprocess_metadata_batch(
             elev = raw_meta.get("elevation_m")
             if elev is not None:
                 try:
-                    elev_feats = typus_projections.elevation_to_sinusoids(
-                        float(elev), scales=meta_cfg.elevation_scales
-                    )
+                    elev_feats = typus_projections.elevation_to_sinusoids(float(elev), scales=meta_cfg.elevation_scales)
                     sample_features.extend(elev_feats)
                 except (ValueError, TypeError):
                     logger.warning(f"Invalid elevation value: {elev}. Using zeros.")
@@ -154,8 +142,8 @@ def preprocess_metadata_batch(
     if not batch_aux_vectors:
         # Handle empty metadata list
         if expected_aux_vector_length is not None and expected_aux_vector_length > 0:
-             return torch.empty((0, expected_aux_vector_length), dtype=torch.float32)
-        return torch.empty((0,0), dtype=torch.float32) # Default empty tensor
+            return torch.empty((0, expected_aux_vector_length), dtype=torch.float32)
+        return torch.empty((0, 0), dtype=torch.float32)  # Default empty tensor
 
     stacked_aux_tensor = torch.stack(batch_aux_vectors)
 

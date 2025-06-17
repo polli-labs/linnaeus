@@ -44,10 +44,10 @@ class MultiOptimizer:
 
         # Collect param_groups from all optimizers for compatibility
         for opt_name, opt in self.optimizers.items():
-            for _i, group in enumerate(opt.param_groups): # Renamed i to _i, as it's not used
+            for _i, group in enumerate(opt.param_groups):  # Renamed i to _i, as it's not used
                 # Add a reference to the original optimizer and group index
                 group["optimizer_name"] = opt_name
-                group["optimizer_group_idx"] = _i # Use _i here
+                group["optimizer_group_idx"] = _i  # Use _i here
                 self.param_groups.append(group)
 
     def _build_param_mappings(self) -> tuple[list[torch.nn.Parameter], dict[int, int]]:
@@ -63,7 +63,7 @@ class MultiOptimizer:
         # Collect parameters in deterministic order: sorted by optimizer name, then group index
         for opt_name in sorted(self.optimizers.keys()):
             opt = self.optimizers[opt_name]
-            for _group_idx, group in enumerate(opt.param_groups): # Renamed group_idx to _group_idx
+            for _group_idx, group in enumerate(opt.param_groups):  # Renamed group_idx to _group_idx
                 for param in group["params"]:
                     all_params.append(param)
 
@@ -100,19 +100,12 @@ class MultiOptimizer:
                     stable_idx = param_to_index[param_id]
                     remapped_state[stable_idx] = param_state
                 else:
-                    logger.warning(
-                        f"Parameter with ID {param_id} not found in param_to_index mapping"
-                    )
+                    logger.warning(f"Parameter with ID {param_id} not found in param_to_index mapping")
 
-            state_dict["optimizers"][opt_name] = {
-                "state": remapped_state,
-                "param_groups": opt_state["param_groups"],
-            }
+            state_dict["optimizers"][opt_name] = {"state": remapped_state, "param_groups": opt_state["param_groups"]}
 
         if check_debug_flag(getattr(self, "config", None), "DEBUG.OPTIMIZER"):
-            logger.debug(
-                f"[MultiOptimizer] Saved state with {len(all_params)} parameters using stable indexing"
-            )
+            logger.debug(f"[MultiOptimizer] Saved state with {len(all_params)} parameters using stable indexing")
 
         return state_dict
 
@@ -130,17 +123,12 @@ class MultiOptimizer:
 
         if version == 1:
             # Legacy format: direct passthrough (backward compatibility)
-            logger.warning(
-                "Loading legacy optimizer state dict format (version 1). "
-                "Consider re-saving checkpoint with new format."
-            )
+            logger.warning("Loading legacy optimizer state dict format (version 1). Consider re-saving checkpoint with new format.")
             for name, opt in self.optimizers.items():
                 if name in state_dict:
                     opt.load_state_dict(state_dict[name])
                 else:
-                    logger.warning(
-                        f"No state found for optimizer '{name}' in state_dict"
-                    )
+                    logger.warning(f"No state found for optimizer '{name}' in state_dict")
         else:
             # Version 2: stable indexing
             self._load_state_dict_v2(state_dict)
@@ -160,18 +148,11 @@ class MultiOptimizer:
         if saved_shapes:
             current_shapes = [tuple(p.shape) for p in all_params]
             if len(saved_shapes) != len(current_shapes):
-                logger.warning(
-                    f"Parameter count mismatch: saved {len(saved_shapes)}, current {len(current_shapes)}"
-                )
+                logger.warning(f"Parameter count mismatch: saved {len(saved_shapes)}, current {len(current_shapes)}")
             else:
-                for idx, (saved_shape, current_shape) in enumerate(
-                    zip(saved_shapes, current_shapes, strict=False)
-                ):
+                for idx, (saved_shape, current_shape) in enumerate(zip(saved_shapes, current_shapes, strict=False)):
                     if saved_shape != current_shape:
-                        logger.error(
-                            f"Parameter shape mismatch at index {idx}: "
-                            f"saved {saved_shape}, current {current_shape}"
-                        )
+                        logger.error(f"Parameter shape mismatch at index {idx}: saved {saved_shape}, current {current_shape}")
 
         # Create index to parameter ID mapping for current parameters
         index_to_param_id = {idx: id(param) for idx, param in enumerate(all_params)}
@@ -179,18 +160,13 @@ class MultiOptimizer:
         # Load each optimizer's state
         for opt_name, opt in self.optimizers.items():
             if opt_name not in state_dict.get("optimizers", {}):
-                logger.warning(
-                    f"No state found for optimizer '{opt_name}' in state_dict"
-                )
+                logger.warning(f"No state found for optimizer '{opt_name}' in state_dict")
                 continue
 
             saved_opt_state = state_dict["optimizers"][opt_name]
 
             # Build optimizer state dict with current parameter IDs
-            opt_state_dict = {
-                "state": {},
-                "param_groups": saved_opt_state["param_groups"],
-            }
+            opt_state_dict = {"state": {}, "param_groups": saved_opt_state["param_groups"]}
 
             # Remap stable indices back to current parameter IDs
             for stable_idx, param_state in saved_opt_state["state"].items():
@@ -208,18 +184,13 @@ class MultiOptimizer:
                                 f"exp_avg shape = {param_state['exp_avg'].shape}"
                             )
                 else:
-                    logger.warning(
-                        f"Stable index {stable_idx} not found in current parameters"
-                    )
+                    logger.warning(f"Stable index {stable_idx} not found in current parameters")
 
             # Load the remapped state
             opt.load_state_dict(opt_state_dict)
 
             if check_debug_flag(self.config, "DEBUG.OPTIMIZER"):
-                logger.debug(
-                    f"[MultiOptimizer] Loaded {len(opt_state_dict['state'])} parameter states "
-                    f"for optimizer '{opt_name}'"
-                )
+                logger.debug(f"[MultiOptimizer] Loaded {len(opt_state_dict['state'])} parameter states for optimizer '{opt_name}'")
 
     def zero_grad(self, set_to_none: bool = False) -> None:
         """
@@ -252,9 +223,7 @@ class MultiOptimizer:
             except RuntimeError as e:
                 if "must match the size of tensor" in str(e):
                     # Log detailed debugging information
-                    logger.error(
-                        f"Tensor size mismatch in optimizer '{name}': {str(e)}"
-                    )
+                    logger.error(f"Tensor size mismatch in optimizer '{name}': {str(e)}")
                     logger.error("Debugging information:")
 
                     # Log current parameter shapes
@@ -262,20 +231,14 @@ class MultiOptimizer:
                         logger.error(f"  Param group {i}:")
                         for j, param in enumerate(group["params"]):
                             if param.grad is not None:
-                                logger.error(
-                                    f"    Param {j}: shape={list(param.shape)}, grad_shape={list(param.grad.shape)}"
-                                )
+                                logger.error(f"    Param {j}: shape={list(param.shape)}, grad_shape={list(param.grad.shape)}")
 
                     # Log optimizer state shapes
                     if hasattr(opt, "state"):
                         logger.error("  Optimizer state:")
-                        for param_id, param_state in list(opt.state.items())[
-                            :5
-                        ]:  # First 5 states
+                        for param_id, param_state in list(opt.state.items())[:5]:  # First 5 states
                             if "exp_avg" in param_state:
-                                logger.error(
-                                    f"    State for param {param_id}: exp_avg shape = {param_state['exp_avg'].shape}"
-                                )
+                                logger.error(f"    State for param {param_id}: exp_avg shape = {param_state['exp_avg'].shape}")
 
                     raise  # Re-raise the original error
                 else:

@@ -1,6 +1,7 @@
 """
 Postprocessing logic for inference results, including hierarchical consistency.
 """
+
 import logging
 
 from typus.constants import RankLevel
@@ -12,9 +13,7 @@ logger = logging.getLogger("linnaeus.inference")
 
 
 def enforce_hierarchical_consistency(
-    result: HierarchicalClassificationResult,
-    taxonomy_data: TaxonomyData,
-    class_maps: ClassIndexMapData,
+    result: HierarchicalClassificationResult, taxonomy_data: TaxonomyData, class_maps: ClassIndexMapData
 ) -> HierarchicalClassificationResult:
     """
     Enforces parent-child consistency in predictions.
@@ -36,12 +35,10 @@ def enforce_hierarchical_consistency(
     # Sort tasks by rank (highest rank first, e.g., L70, L60, ..., L10)
     sorted_tasks = sorted(result.tasks, key=lambda t: t.rank_level.value, reverse=True)
 
-    current_predictions: dict[RankLevel, list[tuple[int, float]]] = {
-        task.rank_level: list(task.predictions) for task in sorted_tasks
-    }
+    current_predictions: dict[RankLevel, list[tuple[int, float]]] = {task.rank_level: list(task.predictions) for task in sorted_tasks}
 
-    consistent_parent_nodes: dict[RankLevel, tuple[str, int] | None] = {} # RankLevel -> Linnaeus Node
-    tree = taxonomy_data.taxonomy_tree # Linnaeus TaxonomyTree
+    consistent_parent_nodes: dict[RankLevel, tuple[str, int] | None] = {}  # RankLevel -> Linnaeus Node
+    tree = taxonomy_data.taxonomy_tree  # Linnaeus TaxonomyTree
 
     # Map typus.RankLevel to Linnaeus task_key string (e.g., RankLevel.L10 -> "taxa_L10")
     # This requires that taxonomy_data.linnaeus_task_keys is ordered consistently with typus RankLevels
@@ -50,7 +47,7 @@ def enforce_hierarchical_consistency(
     def ranklevel_to_linnaeus_key(rl: RankLevel) -> str | None:
         # Attempt to find a matching key in the tree's known task keys
         # This is safer if tree.task_keys might not cover all RankLevels
-        potential_key = f"taxa_L{rl.value}" # Matches Linnaeus convention
+        potential_key = f"taxa_L{rl.value}"  # Matches Linnaeus convention
         if potential_key in tree.task_keys:
             return potential_key
         # Fallback: try just "L{value}" if that's how tree was built (less likely)
@@ -60,7 +57,6 @@ def enforce_hierarchical_consistency(
         logger.warning(f"Could not map RankLevel {rl} to a Linnaeus task key in TaxonomyTree. Keys: {tree.task_keys}")
         return None
 
-
     for i, current_task_typus in enumerate(sorted_tasks):
         current_rank_typus = current_task_typus.rank_level
 
@@ -69,20 +65,26 @@ def enforce_hierarchical_consistency(
             logger.warning(f"Skipping consistency for rank {current_rank_typus}, no Linnaeus task key found.")
             # Store original prediction if key not found
             if current_predictions[current_rank_typus]:
-                 consistent_parent_nodes[current_rank_typus] = (None, current_predictions[current_rank_typus][0][0]) # Store taxon_id as a dummy
+                consistent_parent_nodes[current_rank_typus] = (
+                    None,
+                    current_predictions[current_rank_typus][0][0],
+                )  # Store taxon_id as a dummy
             else:
-                 consistent_parent_nodes[current_rank_typus] = None
+                consistent_parent_nodes[current_rank_typus] = None
             continue
 
-        parent_rank_typus: RankLevel | None = sorted_tasks[i-1].rank_level if i > 0 else None
+        parent_rank_typus: RankLevel | None = sorted_tasks[i - 1].rank_level if i > 0 else None
 
         null_tid_current_rank = class_maps.null_taxon_ids.get(current_rank_typus)
 
-        if not current_predictions[current_rank_typus]: # Empty prediction list
+        if not current_predictions[current_rank_typus]:  # Empty prediction list
             if null_tid_current_rank is not None:
-                 consistent_parent_nodes[current_rank_typus] = (current_linnaeus_task_key, class_maps.taxon_id_to_idx[current_rank_typus][null_tid_current_rank])
-            else: # Cannot determine null node if null_tid is unknown
-                 consistent_parent_nodes[current_rank_typus] = None
+                consistent_parent_nodes[current_rank_typus] = (
+                    current_linnaeus_task_key,
+                    class_maps.taxon_id_to_idx[current_rank_typus][null_tid_current_rank],
+                )
+            else:  # Cannot determine null node if null_tid is unknown
+                consistent_parent_nodes[current_rank_typus] = None
             continue
 
         current_top_pred_tid, _ = current_predictions[current_rank_typus][0]
@@ -98,13 +100,12 @@ def enforce_hierarchical_consistency(
                 current_pred_class_idx = class_maps.taxon_id_to_idx[current_rank_typus][null_tid_current_rank]
                 current_pred_node = (current_linnaeus_task_key, current_pred_class_idx)
                 consistent_parent_nodes[current_rank_typus] = current_pred_node
-            else: # Cannot nullify
-                consistent_parent_nodes[current_rank_typus] = None # Treat as unknown consistency
+            else:  # Cannot nullify
+                consistent_parent_nodes[current_rank_typus] = None  # Treat as unknown consistency
             continue
 
-
         if parent_rank_typus and parent_rank_typus in consistent_parent_nodes:
-            parent_consistent_node = consistent_parent_nodes[parent_rank_typus] # This is a Linnaeus Node
+            parent_consistent_node = consistent_parent_nodes[parent_rank_typus]  # This is a Linnaeus Node
 
             # If parent was nulled (check if its class_idx is the null_idx for its rank)
             parent_null_tid = class_maps.null_taxon_ids.get(parent_rank_typus)
@@ -114,9 +115,8 @@ def enforce_hierarchical_consistency(
                 parent_null_idx_ln = class_maps.taxon_id_to_idx[parent_rank_typus].get(parent_null_tid)
                 if parent_class_idx_ln == parent_null_idx_ln:
                     parent_is_null = True
-            elif parent_consistent_node is None and parent_null_tid is not None: # Parent was unresolvable, treat as null
+            elif parent_consistent_node is None and parent_null_tid is not None:  # Parent was unresolvable, treat as null
                 parent_is_null = True
-
 
             if parent_is_null:
                 logger.debug(f"Parent rank {parent_rank_typus.name} is null. Nullifying rank {current_rank_typus.name}.")
@@ -125,11 +125,11 @@ def enforce_hierarchical_consistency(
                     null_class_idx = class_maps.taxon_id_to_idx[current_rank_typus][null_tid_current_rank]
                     consistent_parent_nodes[current_rank_typus] = (current_linnaeus_task_key, null_class_idx)
                 else:
-                    consistent_parent_nodes[current_rank_typus] = current_pred_node # Keep original if cannot nullify
+                    consistent_parent_nodes[current_rank_typus] = current_pred_node  # Keep original if cannot nullify
                 continue
 
             # Parent is not null, check consistency
-            if parent_consistent_node: # Ensure parent_consistent_node is not None
+            if parent_consistent_node:  # Ensure parent_consistent_node is not None
                 actual_parent_of_current = tree.get_parent(current_pred_node)
                 if actual_parent_of_current != parent_consistent_node:
                     logger.debug(
@@ -142,7 +142,7 @@ def enforce_hierarchical_consistency(
                         null_class_idx = class_maps.taxon_id_to_idx[current_rank_typus][null_tid_current_rank]
                         consistent_parent_nodes[current_rank_typus] = (current_linnaeus_task_key, null_class_idx)
                     else:
-                        consistent_parent_nodes[current_rank_typus] = current_pred_node # Keep original
+                        consistent_parent_nodes[current_rank_typus] = current_pred_node  # Keep original
                 else:
                     # Consistent
                     consistent_parent_nodes[current_rank_typus] = current_pred_node
@@ -150,22 +150,19 @@ def enforce_hierarchical_consistency(
                 # Parent node could not be determined (e.g. was highest rank or mapping issue)
                 consistent_parent_nodes[current_rank_typus] = current_pred_node
 
-        else: # This is the highest rank
+        else:  # This is the highest rank
             consistent_parent_nodes[current_rank_typus] = current_pred_node
 
-
     updated_tasks: list[TaskPrediction] = []
-    for task_typus in sorted_tasks: # Iterate in original sorted order
+    for task_typus in sorted_tasks:  # Iterate in original sorted order
         updated_tasks.append(
             TaskPrediction(
-                rank_level=task_typus.rank_level,
-                temperature=task_typus.temperature,
-                predictions=current_predictions[task_typus.rank_level],
+                rank_level=task_typus.rank_level, temperature=task_typus.temperature, predictions=current_predictions[task_typus.rank_level]
             )
         )
 
     return HierarchicalClassificationResult(
         taxonomy_context=result.taxonomy_context,
-        tasks=updated_tasks, # Use the modified list of predictions
+        tasks=updated_tasks,  # Use the modified list of predictions
         subtree_roots=result.subtree_roots,
     )

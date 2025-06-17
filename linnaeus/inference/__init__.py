@@ -7,21 +7,8 @@ and data processing.
 """
 
 from .api_schemas import InferenceRequestMetadata, ModelInformation
-from .artifacts import (
-    ClassIndexMapData,
-    TaxonomyData,
-    load_class_index_maps_artifact,
-    load_taxonomy_tree_artifact,
-)
-from .config import (
-    InferenceConfig,
-    InferenceOptionsConfig,
-    InputConfig,
-    MetaConfig,
-    ModelConfig,
-    TaxonomyConfig,
-    load_inference_config,
-)
+from .artifacts import ClassIndexMapData, TaxonomyData, load_class_index_maps_artifact, load_taxonomy_tree_artifact
+from .config import InferenceConfig, InferenceOptionsConfig, InputConfig, MetaConfig, ModelConfig, TaxonomyConfig, load_inference_config
 from .handler import LinnaeusInferenceHandler
 from .model_utils import load_model_for_inference
 from .postprocessing import enforce_hierarchical_consistency

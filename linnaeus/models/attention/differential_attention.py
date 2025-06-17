@@ -25,15 +25,7 @@ class DifferentialAttention(nn.Module):
     """
 
     def __init__(
-        self,
-        dim,
-        num_heads=8,
-        qkv_bias=False,
-        attn_drop=0.0,
-        proj_drop=0.0,
-        img_size: tuple = None,
-        extra_token_num: int = None,
-        **kwargs,
+        self, dim, num_heads=8, qkv_bias=False, attn_drop=0.0, proj_drop=0.0, img_size: tuple = None, extra_token_num: int = None, **kwargs
     ):
         super().__init__()
         self.num_heads = num_heads
@@ -67,11 +59,7 @@ class DifferentialAttention(nn.Module):
             torch.Tensor: Output tensor after applying differential attention, shape (B, N, C).
         """
         B, N, C = x.shape
-        qkv = (
-            self.qkv(x)
-            .reshape(B, N, 5, self.num_heads, C // self.num_heads)
-            .permute(2, 0, 3, 1, 4)
-        )
+        qkv = self.qkv(x).reshape(B, N, 5, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4)
         q1, q2, k1, k2, v = qkv[0], qkv[1], qkv[2], qkv[3], qkv[4]
 
         attn1 = (q1 @ k1.transpose(-2, -1)) * self.scale
@@ -82,9 +70,7 @@ class DifferentialAttention(nn.Module):
 
         lambda_1 = torch.exp(torch.sum(self.lambda_q1 * self.lambda_k1))
         lambda_2 = torch.exp(torch.sum(self.lambda_q2 * self.lambda_k2))
-        lambda_full = (
-            lambda_1 - lambda_2 + 0.8
-        )  # You may want to make this initial value configurable
+        lambda_full = lambda_1 - lambda_2 + 0.8  # You may want to make this initial value configurable
 
         attn = attn1 - lambda_full * attn2
         attn = self.attn_drop(attn)

@@ -49,11 +49,7 @@ def debug_print_model_dims(model: nn.Module, config: CN = None):
             logger.debug(f"[debug_print_model_dims] {key:50s} shape={shape}")
 
 
-def build_model(
-    config: CN,
-    num_classes: dict[str, int] | None = None,
-    taxonomy_tree: TaxonomyTree | None = None,
-) -> nn.Module:
+def build_model(config: CN, num_classes: dict[str, int] | None = None, taxonomy_tree: TaxonomyTree | None = None) -> nn.Module:
     """
     Build a model from the final configuration.
 
@@ -67,25 +63,17 @@ def build_model(
         nn.Module: The instantiated model
     """
     if check_debug_flag(config, "DEBUG.MODEL_BUILD"):
-        logger.debug(
-            f"[build_model] Starting model build with config type={config.MODEL.TYPE}"
-        )
+        logger.debug(f"[build_model] Starting model build with config type={config.MODEL.TYPE}")
         logger.debug(f"[build_model] Number of classes provided: {num_classes}")
         if taxonomy_tree:
-            logger.debug(
-                f"[build_model] Using taxonomy tree with {len(taxonomy_tree._all_nodes)} nodes"
-            )
+            logger.debug(f"[build_model] Using taxonomy tree with {len(taxonomy_tree._all_nodes)} nodes")
     # Create the model via the factory system
-    model = create_model(
-        config=config, num_classes=num_classes, taxonomy_tree=taxonomy_tree
-    )
+    model = create_model(config=config, num_classes=num_classes, taxonomy_tree=taxonomy_tree)
 
     if check_debug_flag(config, "DEBUG.MODEL_BUILD"):
         logger.debug("[build_model] Model instance created successfully")
         logger.debug(f"[build_model] Model class: {model.__class__.__name__}")
-        logger.debug(
-            f"[build_model] Total parameters: {sum(p.numel() for p in model.parameters()):,}"
-        )
+        logger.debug(f"[build_model] Total parameters: {sum(p.numel() for p in model.parameters()):,}")
 
     # Print dimension info for the newly-built model
     debug_print_model_dims(model, config)
@@ -93,19 +81,13 @@ def build_model(
     # Load pretrained weights if specified.
     if config.MODEL.PRETRAINED:
         if check_debug_flag(config, "DEBUG.MODEL_BUILD"):
-            logger.debug(
-                f"[build_model] Loading pretrained weights from {config.MODEL.PRETRAINED}"
-            )
-            logger.debug(
-                f"[build_model] Pretrained source: {config.MODEL.PRETRAINED_SOURCE or 'None (direct mapping)'}"
-            )
+            logger.debug(f"[build_model] Loading pretrained weights from {config.MODEL.PRETRAINED}")
+            logger.debug(f"[build_model] Pretrained source: {config.MODEL.PRETRAINED_SOURCE or 'None (direct mapping)'}")
 
         load_pretrained(config, model, logger=logger, strict=False)
 
         if check_debug_flag(config, "DEBUG.MODEL_BUILD"):
             logger.debug("[build_model] Pretrained weights loaded successfully")
-            logger.debug(
-                f"[build_model] Total parameters after loading: {sum(p.numel() for p in model.parameters()):,}"
-            )
+            logger.debug(f"[build_model] Total parameters after loading: {sum(p.numel() for p in model.parameters()):,}")
 
     return model

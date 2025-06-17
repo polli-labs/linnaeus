@@ -49,22 +49,13 @@ class Conv2dStaticSamePadding(nn.Conv2d):
     Used in original MetaFormer implementation for deterministic padding behavior.
     """
 
-    def __init__(
-        self,
-        in_channels: int,
-        out_channels: int,
-        kernel_size: int,
-        image_size: int | None = None,
-        **kwargs,
-    ):
+    def __init__(self, in_channels: int, out_channels: int, kernel_size: int, image_size: int | None = None, **kwargs):
         super().__init__(in_channels, out_channels, kernel_size, **kwargs)
 
         self.stride = self.stride if len(self.stride) == 2 else [self.stride[0]] * 2
 
         # Calculate padding based on image size and save it
-        assert image_size is not None, (
-            "image_size must be provided for static same padding"
-        )
+        assert image_size is not None, "image_size must be provided for static same padding"
         ih, iw = (image_size, image_size) if isinstance(image_size, int) else image_size
         kh, kw = self.weight.size()[-2:]
         sh, sw = self.stride
@@ -73,27 +64,15 @@ class Conv2dStaticSamePadding(nn.Conv2d):
         pad_w = max((ow - 1) * self.stride[1] + (kw - 1) * self.dilation[1] + 1 - iw, 0)
 
         if pad_h > 0 or pad_w > 0:
-            self.static_padding = nn.ZeroPad2d(
-                (pad_w // 2, pad_w - pad_w // 2, pad_h // 2, pad_h - pad_h // 2)
-            )
-            logger.debug(
-                f"Created static padding: ({pad_h // 2}, {pad_h - pad_h // 2}, {pad_w // 2}, {pad_w - pad_w // 2})"
-            )
+            self.static_padding = nn.ZeroPad2d((pad_w // 2, pad_w - pad_w // 2, pad_h // 2, pad_h - pad_h // 2))
+            logger.debug(f"Created static padding: ({pad_h // 2}, {pad_h - pad_h // 2}, {pad_w // 2}, {pad_w - pad_w // 2})")
         else:
             self.static_padding = nn.Identity()
             logger.debug("No static padding needed")
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = self.static_padding(x)
-        x = F.conv2d(
-            x,
-            self.weight,
-            self.bias,
-            self.stride,
-            self.padding,
-            self.dilation,
-            self.groups,
-        )
+        x = F.conv2d(x, self.weight, self.bias, self.stride, self.padding, self.dilation, self.groups)
         return x
 
 
@@ -120,9 +99,7 @@ def drop_connect(inputs: torch.Tensor, p: float, training: bool) -> torch.Tensor
     batch_size = inputs.shape[0]
     keep_prob = 1 - p
     random_tensor = keep_prob
-    random_tensor += torch.rand(
-        [batch_size, 1, 1, 1], dtype=inputs.dtype, device=inputs.device
-    )
+    random_tensor += torch.rand([batch_size, 1, 1, 1], dtype=inputs.dtype, device=inputs.device)
     binary_tensor = torch.floor(random_tensor)
     output = inputs / keep_prob * binary_tensor
     return output
@@ -189,9 +166,7 @@ class MBConvBlock(nn.Module):
         oup = self._input_filters * self._expand_ratio
         if self._expand_ratio != 1:
             self._expand_conv = Conv2d(inp, oup, kernel_size=1, bias=False)
-            self._bn0 = nn.BatchNorm2d(
-                num_features=oup, momentum=self._bn_mom, eps=self._bn_eps
-            )
+            self._bn0 = nn.BatchNorm2d(num_features=oup, momentum=self._bn_mom, eps=self._bn_eps)
             self._swish = MemoryEfficientSwish()  # Swish for expansion
             logger.debug(f"Built expansion conv: {inp} -> {oup}")
         else:
@@ -208,9 +183,7 @@ class MBConvBlock(nn.Module):
             stride=stride,
             bias=False,
         )
-        self._bn1 = nn.BatchNorm2d(
-            num_features=oup, momentum=self._bn_mom, eps=self._bn_eps
-        )
+        self._bn1 = nn.BatchNorm2d(num_features=oup, momentum=self._bn_mom, eps=self._bn_eps)
         self._swish_dw = MemoryEfficientSwish()  # Swish for depthwise
         logger.debug(f"Built depthwise conv: {oup} channels, stride={stride}")
 
@@ -223,9 +196,7 @@ class MBConvBlock(nn.Module):
 
         # Output phase
         self._project_conv = Conv2d(oup, output_filters, kernel_size=1, bias=False)
-        self._bn2 = nn.BatchNorm2d(
-            num_features=output_filters, momentum=self._bn_mom, eps=self._bn_eps
-        )
+        self._bn2 = nn.BatchNorm2d(num_features=output_filters, momentum=self._bn_mom, eps=self._bn_eps)
         logger.debug(f"Built projection conv: {oup} -> {output_filters}")
 
     def _forward_impl(self, inputs: torch.Tensor) -> torch.Tensor:
@@ -250,9 +221,7 @@ class MBConvBlock(nn.Module):
         x = self._bn2(self._project_conv(x))
         return x
 
-    def forward(
-        self, inputs: torch.Tensor, use_checkpoint: bool = False
-    ) -> torch.Tensor:
+    def forward(self, inputs: torch.Tensor, use_checkpoint: bool = False) -> torch.Tensor:
         """
         Forward pass of MBConvBlock, supporting gradient checkpointing.
 

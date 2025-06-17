@@ -8,9 +8,7 @@ from linnaeus.utils.logging.logger import get_main_logger
 logger = get_main_logger()
 
 
-def drop_path(
-    x: torch.Tensor, drop_prob: float = 0.0, training: bool = False
-) -> torch.Tensor:
+def drop_path(x: torch.Tensor, drop_prob: float = 0.0, training: bool = False) -> torch.Tensor:
     """
     Drop paths (Stochastic Depth) per sample.
 

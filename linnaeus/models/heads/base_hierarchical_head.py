@@ -15,4 +15,3 @@ class BaseHierarchicalHead(nn.Module):
     def is_gradnorm_mode(self) -> bool:
         """Return whether GradNorm mode is active."""
         return self._gradnorm_mode
-

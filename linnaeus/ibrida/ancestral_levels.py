@@ -77,17 +77,13 @@ class AncestralLevels:
         levels = self.as_numbers(skip_half_levels, primary_only, levels)
         return [self.get_level_str(level) for level in levels]
 
-    def as_Lstrings(
-        self, skip_half_levels=False, primary_only=False, lowercase=False, levels=None
-    ):
+    def as_Lstrings(self, skip_half_levels=False, primary_only=False, lowercase=False, levels=None):
         levels = self.as_numbers(skip_half_levels, primary_only, levels)
         return [self.get_level_Lstr(level, lowercase) for level in levels]
 
     def get_taxon_id_colname(self, level, schema):
         if level is None:
-            return self.get_all_taxon_id_colnames(
-                schema, skip_half_levels=False, primary_only=False
-            )
+            return self.get_all_taxon_id_colnames(schema, skip_half_levels=False, primary_only=False)
         level_str = self.get_level_str(level)
         if schema == "taxaDB_sql":
             return f"L{level_str}_taxon_id"
@@ -100,9 +96,7 @@ class AncestralLevels:
 
     def get_name_colname(self, level, schema):
         if level is None:
-            return self.get_all_name_colnames(
-                schema, skip_half_levels=False, primary_only=False
-            )
+            return self.get_all_name_colnames(schema, skip_half_levels=False, primary_only=False)
         level_str = self.get_level_str(level)
         if schema == "taxaDB_sql":
             return f"L{level_str}_name"
@@ -113,9 +107,7 @@ class AncestralLevels:
         else:
             raise ValueError(f"Unknown schema: {schema}")
 
-    def get_all_taxon_id_colnames(
-        self, schema, skip_half_levels=False, primary_only=False, levels=None
-    ):
+    def get_all_taxon_id_colnames(self, schema, skip_half_levels=False, primary_only=False, levels=None):
         levels = self.as_numbers(skip_half_levels, primary_only, levels)
         colnames = []
         for level in levels:
@@ -130,9 +122,7 @@ class AncestralLevels:
                 raise ValueError(f"Unknown schema: {schema}")
         return colnames
 
-    def get_all_name_colnames(
-        self, schema, skip_half_levels=False, primary_only=False, levels=None
-    ):
+    def get_all_name_colnames(self, schema, skip_half_levels=False, primary_only=False, levels=None):
         levels = self.as_numbers(skip_half_levels, primary_only, levels)
         colnames = []
         for level in levels:

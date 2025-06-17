@@ -37,9 +37,7 @@ class ImageVerifier:
         self.logger = logger_override or logger  # Use passed or default logger
 
         if not self.images_dir.is_dir():
-            self.logger.warning(
-                f"Images directory specified for verification does not exist: {self.images_dir}"
-            )
+            self.logger.warning(f"Images directory specified for verification does not exist: {self.images_dir}")
 
         self.logger.info(
             f"ImageVerifier initialized: dir='{self.images_dir}', ext='{self.file_extension}', workers={self.num_workers}, chunk_size={self.chunk_size}"
@@ -57,31 +55,24 @@ class ImageVerifier:
         """
         start_time = time.time()
         total_to_check = len(img_identifiers)
-        self.logger.info(
-            f"Starting verification for {total_to_check:,} images using {self.num_workers} workers..."
-        )
+        self.logger.info(f"Starting verification for {total_to_check:,} images using {self.num_workers} workers...")
 
         missing_indices = set()
         missing_identifiers = set()
 
         # Don't proceed if the directory doesn't exist
         if not self.images_dir.is_dir():
-            self.logger.error(
-                f"Cannot verify images: Directory '{self.images_dir}' not found."
-            )
+            self.logger.error(f"Cannot verify images: Directory '{self.images_dir}' not found.")
             # Return empty sets, the error will likely be caught elsewhere or handled by ALLOW_MISSING
             return missing_indices, missing_identifiers
 
         # Prepare chunks
         indices = list(range(total_to_check))
         chunks_with_indices = [
-            (img_identifiers[i : i + self.chunk_size], indices[i : i + self.chunk_size])
-            for i in range(0, total_to_check, self.chunk_size)
+            (img_identifiers[i : i + self.chunk_size], indices[i : i + self.chunk_size]) for i in range(0, total_to_check, self.chunk_size)
         ]
 
-        with concurrent.futures.ThreadPoolExecutor(
-            max_workers=self.num_workers
-        ) as executor:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=self.num_workers) as executor:
             futures = {
                 executor.submit(self._check_chunk, chunk_ids, chunk_idxs): i
                 for i, (chunk_ids, chunk_idxs) in enumerate(chunks_with_indices)
@@ -89,10 +80,7 @@ class ImageVerifier:
 
             # Process results with tqdm progress bar
             progress_bar = tqdm(
-                concurrent.futures.as_completed(futures),
-                total=len(futures),
-                desc="Verifying images",
-                disable=None,
+                concurrent.futures.as_completed(futures), total=len(futures), desc="Verifying images", disable=None
             )  # Use None to let tqdm decide based on context
 
             for future in progress_bar:
@@ -102,9 +90,7 @@ class ImageVerifier:
 
                 # Update tqdm description dynamically if needed
                 if len(missing_indices) > 0:
-                    progress_bar.set_description(
-                        f"Verifying images ({len(missing_indices)} missing)"
-                    )
+                    progress_bar.set_description(f"Verifying images ({len(missing_indices)} missing)")
 
         elapsed = time.time() - start_time
         rate = total_to_check / elapsed if elapsed > 0 else 0
@@ -114,18 +100,14 @@ class ImageVerifier:
 
         return missing_indices, missing_identifiers
 
-    def _check_chunk(
-        self, chunk_ids: list[str], chunk_indices: list[int]
-    ) -> tuple[set[int], set[str]]:
+    def _check_chunk(self, chunk_ids: list[str], chunk_indices: list[int]) -> tuple[set[int], set[str]]:
         """Checks a single chunk of image identifiers."""
         chunk_missing_indices = set()
         chunk_missing_ids = set()
         for i, img_id in enumerate(chunk_ids):
             # Ensure img_id is a string before path operations
             if not isinstance(img_id, str):
-                self.logger.warning(
-                    f"Skipping invalid image identifier (not a string): {img_id}"
-                )
+                self.logger.warning(f"Skipping invalid image identifier (not a string): {img_id}")
                 continue  # Or handle appropriately, maybe add to missing?
 
             img_path = self._get_image_path(img_id)
@@ -146,9 +128,7 @@ class ImageVerifier:
             img_id_str = str(img_id)
 
         # Append extension only if necessary
-        if self.file_extension and not img_id_str.lower().endswith(
-            self.file_extension.lower()
-        ):
+        if self.file_extension and not img_id_str.lower().endswith(self.file_extension.lower()):
             filename = f"{img_id_str}{self.file_extension}"
         else:
             filename = img_id_str
@@ -167,26 +147,20 @@ class ImageVerifier:
         report = {
             "total_images_checked": total_count,
             "missing_count": len(missing_indices),
-            "missing_ratio": len(missing_indices) / total_count
-            if total_count > 0
-            else 0.0,
+            "missing_ratio": len(missing_indices) / total_count if total_count > 0 else 0.0,
             "images_dir": str(self.images_dir),
             "verification_timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
             "missing_identifiers": sorted(list(missing_identifiers))
             if log_missing
             else f"Logging disabled ({len(missing_identifiers)} found)",
-            "missing_indices": sorted(list(missing_indices))
-            if log_missing
-            else f"Logging disabled ({len(missing_indices)} found)",
+            "missing_indices": sorted(list(missing_indices)) if log_missing else f"Logging disabled ({len(missing_indices)} found)",
         }
 
         if log_missing and missing_identifiers:
             self.logger.warning(f"Listing first {log_limit} missing image identifiers:")
             for i, identifier in enumerate(sorted(list(missing_identifiers))):
                 if i >= log_limit:
-                    self.logger.warning(
-                        f"...and {len(missing_identifiers) - log_limit} more."
-                    )
+                    self.logger.warning(f"...and {len(missing_identifiers) - log_limit} more.")
                     break
                 # Ensure identifier is displayed as a string, not bytes
                 if isinstance(identifier, bytes):
@@ -203,8 +177,6 @@ class ImageVerifier:
                     json.dump(report, f, indent=2)
                 self.logger.info(f"Saved missing images report to: {report_path}")
             except Exception as e:
-                self.logger.error(
-                    f"Failed to save missing images report to {report_path}: {e}"
-                )
+                self.logger.error(f"Failed to save missing images report to {report_path}: {e}")
 
         return report

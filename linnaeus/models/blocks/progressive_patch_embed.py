@@ -32,12 +32,7 @@ class ProgressivePatchEmbed(nn.Module):
         norm_layer (Callable[..., nn.Module], optional): Normalization layer to use.
     """
 
-    def __init__(
-        self,
-        dim: int,
-        reduction: int = 2,
-        norm_layer: Callable[..., nn.Module] = LayerNorm,
-    ):
+    def __init__(self, dim: int, reduction: int = 2, norm_layer: Callable[..., nn.Module] = LayerNorm):
         super().__init__()
         if reduction <= 0:
             raise ValueError(f"reduction must be a positive integer, got {reduction}")
@@ -45,18 +40,14 @@ class ProgressivePatchEmbed(nn.Module):
         self.reduction = reduction
         self.norm = norm_layer(dim)
         self.reduction_linear = nn.Linear(dim, dim // reduction)
-        logger.debug(
-            f"ProgressivePatchEmbed (formerly TokenMerging) with dim={dim}, reduction={reduction}"
-        )
+        logger.debug(f"ProgressivePatchEmbed (formerly TokenMerging) with dim={dim}, reduction={reduction}")
 
         # Weight init if needed
         trunc_normal_(self.reduction_linear.weight, std=0.02)
         if self.reduction_linear.bias is not None:
             nn.init.constant_(self.reduction_linear.bias, 0)
 
-    def forward(
-        self, x: torch.Tensor, H: int, W: int, debug: bool = False
-    ) -> tuple[torch.Tensor, int, int]:
+    def forward(self, x: torch.Tensor, H: int, W: int, debug: bool = False) -> tuple[torch.Tensor, int, int]:
         """
         Forward pass for progressive patch embed.
 
@@ -81,9 +72,7 @@ class ProgressivePatchEmbed(nn.Module):
 
         N_reduced = N // (self.reduction**2)
         if N_reduced <= 0:
-            raise ValueError(
-                f"Reduction ratio {self.reduction} is too high for N={N} tokens."
-            )
+            raise ValueError(f"Reduction ratio {self.reduction} is too high for N={N} tokens.")
 
         # Reshape to (B, N_reduced, self.reduction, self.reduction, C//reduction)
         x = x.view(B, N_reduced, self.reduction, self.reduction, C // self.reduction)

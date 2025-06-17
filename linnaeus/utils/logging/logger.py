@@ -50,9 +50,7 @@ def _clear_log_files(log_dir: str, prefix: str):
     except FileNotFoundError:
         pass  # Directory might not exist yet, that's fine
     except Exception as e:
-        print(
-            f"Warning: Error clearing log files in {log_dir} with prefix {prefix}: {e}"
-        )
+        print(f"Warning: Error clearing log files in {log_dir} with prefix {prefix}: {e}")
 
 
 def get_main_logger() -> logging.Logger:
@@ -63,9 +61,7 @@ def get_main_logger() -> logging.Logger:
         # Basic fallback configuration if called before create_logger
         # This shouldn't happen in the normal flow but prevents errors
         logging.basicConfig(level=logging.INFO)
-        logger.warning(
-            "get_main_logger called before create_logger was run. Using basic config."
-        )
+        logger.warning("get_main_logger called before create_logger was run. Using basic config.")
     return logger
 
 
@@ -76,9 +72,7 @@ def get_h5data_logger() -> logging.Logger:
     if not logger.hasHandlers():
         # Basic fallback
         logging.basicConfig(level=logging.INFO)
-        logger.warning(
-            "get_h5data_logger called before create_h5data_logger was run. Using basic config."
-        )
+        logger.warning("get_h5data_logger called before create_h5data_logger was run. Using basic config.")
     return logger
 
 
@@ -111,9 +105,7 @@ def create_logger(output_dir, dist_rank=0, name="", local_rank=0, log_level="INF
     else:
         plain_fmt = "[%(asctime)s %(name)s] (%(filename)s %(lineno)d): %(levelname)-8s %(message)s"
         color_fmt = (
-            colored("[%(asctime)s %(name)s:%(levelname)-8s]", "green")
-            + colored("(%(filename)s:%(lineno)d)", "yellow")
-            + ": %(message)s"
+            colored("[%(asctime)s %(name)s:%(levelname)-8s]", "green") + colored("(%(filename)s:%(lineno)d)", "yellow") + ": %(message)s"
         )
     formatter = logging.Formatter(fmt=plain_fmt, datefmt="%Y-%m-%d %H:%M:%S")
     color_formatter = logging.Formatter(fmt=color_fmt, datefmt="%Y-%m-%d %H:%M:%S")
@@ -175,9 +167,7 @@ def create_h5data_logger(output_dir, dist_rank=0, log_level="INFO", local_rank=0
     else:
         plain_fmt = "[%(asctime)s h5data] (%(filename)s %(lineno)d): %(levelname)-8s %(message)s"
         color_fmt = (
-            colored("[%(asctime)s h5data:%(levelname)-8s]", "cyan")
-            + colored("(%(filename)s:%(lineno)d)", "yellow")
-            + ": %(message)s"
+            colored("[%(asctime)s h5data:%(levelname)-8s]", "cyan") + colored("(%(filename)s:%(lineno)d)", "yellow") + ": %(message)s"
         )
     formatter = logging.Formatter(fmt=plain_fmt, datefmt="%Y-%m-%d %H:%M:%S")
     color_formatter = logging.Formatter(fmt=color_fmt, datefmt="%Y-%m-%d %H:%M:%S")
@@ -198,9 +188,7 @@ def create_h5data_logger(output_dir, dist_rank=0, log_level="INFO", local_rank=0
     debug_log_file = os.path.join(output_dir, f"h5data_debug_log_rank{dist_rank}.txt")
     # Clear old debug logs for this rank
     _clear_log_files(output_dir, f"h5data_debug_log_rank{dist_rank}")
-    debug_file_handler = RotatingFileHandler(
-        debug_log_file, maxBytes=40 * 1024 * 1024, backupCount=10, mode="w"
-    )
+    debug_file_handler = RotatingFileHandler(debug_log_file, maxBytes=40 * 1024 * 1024, backupCount=10, mode="w")
     debug_file_handler.setLevel(logging.DEBUG)  # Capture everything
     debug_file_handler.setFormatter(formatter)
     logger.addHandler(debug_file_handler)

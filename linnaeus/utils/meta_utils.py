@@ -12,9 +12,7 @@ from linnaeus.utils.logging.logger import get_main_logger
 logger = get_main_logger()
 
 
-def compute_meta_chunk_bounds(
-    config,
-) -> tuple[list[tuple[int, int]], dict[str, tuple[int, int]]]:
+def compute_meta_chunk_bounds(config) -> tuple[list[tuple[int, int]], dict[str, tuple[int, int]]]:
     """
     Reads config.DATA.META.COMPONENTS, sorts by .IDX, returns:
       - A list of (start, end) tuples representing chunk boundaries
@@ -34,14 +32,8 @@ def compute_meta_chunk_bounds(
     Returns:
         Tuple of (list of bounds, dict mapping component names to bounds)
     """
-    if (
-        not hasattr(config, "DATA")
-        or not hasattr(config.DATA, "META")
-        or not hasattr(config.DATA.META, "COMPONENTS")
-    ):
-        logger.warning(
-            "config.DATA.META.COMPONENTS not found, returning empty chunk bounds"
-        )
+    if not hasattr(config, "DATA") or not hasattr(config.DATA, "META") or not hasattr(config.DATA.META, "COMPONENTS"):
+        logger.warning("config.DATA.META.COMPONENTS not found, returning empty chunk bounds")
         return [], {}
 
     items = []
@@ -50,9 +42,7 @@ def compute_meta_chunk_bounds(
             # Check if IDX exists, otherwise use a default
             idx = getattr(comp_cfg, "IDX", -1)
             if idx < 0:
-                logger.warning(
-                    f"Component {comp_name} has no IDX or negative IDX, skipping"
-                )
+                logger.warning(f"Component {comp_name} has no IDX or negative IDX, skipping")
                 continue
 
             dim = comp_cfg.DIM
@@ -64,9 +54,7 @@ def compute_meta_chunk_bounds(
     # Check for duplicate IDX values
     for i in range(1, len(items)):
         if items[i][0] == items[i - 1][0]:
-            logger.warning(
-                f"Components {items[i - 1][1]} and {items[i][1]} have the same IDX={items[i][0]}"
-            )
+            logger.warning(f"Components {items[i - 1][1]} and {items[i][1]} have the same IDX={items[i][0]}")
 
     # Compute bounds
     bounds_list = []
@@ -93,11 +81,7 @@ def get_meta_components_sorted_by_idx(config) -> list[tuple[int, str, dict[str, 
     Returns:
         List of (idx, component_name, component_config) tuples
     """
-    if (
-        not hasattr(config, "DATA")
-        or not hasattr(config.DATA, "META")
-        or not hasattr(config.DATA.META, "COMPONENTS")
-    ):
+    if not hasattr(config, "DATA") or not hasattr(config.DATA, "META") or not hasattr(config.DATA.META, "COMPONENTS"):
         logger.warning("config.DATA.META.COMPONENTS not found, returning empty list")
         return []
 
@@ -107,9 +91,7 @@ def get_meta_components_sorted_by_idx(config) -> list[tuple[int, str, dict[str, 
             # Check if IDX exists, otherwise use a default
             idx = getattr(comp_cfg, "IDX", -1)
             if idx < 0:
-                logger.warning(
-                    f"Component {comp_name} has no IDX or negative IDX, skipping"
-                )
+                logger.warning(f"Component {comp_name} has no IDX or negative IDX, skipping")
                 continue
 
             items.append((idx, comp_name, comp_cfg))

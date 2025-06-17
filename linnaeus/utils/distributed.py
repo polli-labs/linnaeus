@@ -96,24 +96,20 @@ def init_distributed(backend: str = "nccl", config=None) -> tuple[int, int]:
 
         # Init the process group with the proper backend
         if world_size > 1:
-            dist.init_process_group(backend=backend, init_method="env://")
+            import datetime  # Ensure datetime is imported if not already
+
+            dist.init_process_group(backend=backend, init_method="env://", timeout=datetime.timedelta(seconds=1200), device_id=local_rank)
             logger.info(f"Initialized distributed backend: {backend}")
-            logger.info(
-                f"Distributed settings: rank={rank}, local_rank={local_rank}, world_size={world_size}"
-            )
+            logger.info(f"Distributed settings: rank={rank}, local_rank={local_rank}, world_size={world_size}")
 
             if config and check_debug_flag(config, "DEBUG.DISTRIBUTED"):
-                logger.debug(
-                    f"Process group initialized with backend={backend}, init_method=env://"
-                )
+                logger.debug(f"Process group initialized with backend={backend}, init_method=env://")
                 logger.debug(f"Using GPU {local_rank} for rank {rank}")
 
             # Set device
             torch.cuda.set_device(local_rank)
     else:
-        logger.info(
-            "No distributed training setup found. Running in non-distributed mode."
-        )
+        logger.info("No distributed training setup found. Running in non-distributed mode.")
         # Either already initialized, or not using distributed
         world_size = get_world_size()
         rank = get_rank_safely()
@@ -140,9 +136,7 @@ def cleanup_distributed(config=None):
         if config and check_debug_flag(config, "DEBUG.DISTRIBUTED"):
             rank = get_rank_safely()
             world_size = get_world_size()
-            logger.debug(
-                f"Destroying process group (rank={rank}, world_size={world_size})"
-            )
+            logger.debug(f"Destroying process group (rank={rank}, world_size={world_size})")
 
         dist.destroy_process_group()
 
@@ -346,27 +340,18 @@ def transfer_to_gpu(
 
         # Store CPU snapshot for assertion if debug is enabled
         cpu_snapshot = None
-        if (
-            debug_dataloader_enabled and tensor_name_for_log == "meta_validity_masks"
-        ):  # Specific to meta_validity_masks for now
+        if debug_dataloader_enabled and tensor_name_for_log == "meta_validity_masks":  # Specific to meta_validity_masks for now
             cpu_snapshot = tensor.clone()
 
-        new_tensor = tensor.to(
-            device, non_blocking=current_non_blocking, memory_format=memory_format
-        )
+        new_tensor = tensor.to(device, non_blocking=current_non_blocking, memory_format=memory_format)
 
         if debug_dataloader_enabled:
             if sync_for_debug:
                 torch.cuda.synchronize(device)
             # Log tensor ID change (optional, can be verbose)
             # logger.debug(f"[GPU_TRANSFER_UTIL] Transferred '{tensor_name_for_log}': CPU ID {id(tensor)} -> GPU ID {id(new_tensor)}")
-            if (
-                cpu_snapshot is not None
-                and tensor_name_for_log == "meta_validity_masks"
-            ):
-                assert torch.equal(new_tensor.cpu(), cpu_snapshot), (
-                    f"CPU->GPU copy corrupted content of '{tensor_name_for_log}'"
-                )
+            if cpu_snapshot is not None and tensor_name_for_log == "meta_validity_masks":
+                assert torch.equal(new_tensor.cpu(), cpu_snapshot), f"CPU->GPU copy corrupted content of '{tensor_name_for_log}'"
         return new_tensor
     return tensor  # Already on GPU
 
@@ -404,13 +389,7 @@ class DistributedContext:
             cls._instance._initialized = False
         return cls._instance
 
-    def initialize(
-        self,
-        is_distributed: bool = False,
-        world_size: int = 1,
-        rank: int = 0,
-        config=None,
-    ):
+    def initialize(self, is_distributed: bool = False, world_size: int = 1, rank: int = 0, config=None):
         """
         Initialize the distributed context.
 
@@ -422,9 +401,7 @@ class DistributedContext:
         """
         if self._initialized:
             if config and check_debug_flag(config, "DEBUG.DISTRIBUTED"):
-                logger.debug(
-                    "DistributedContext already initialized. Skipping re-initialization."
-                )
+                logger.debug("DistributedContext already initialized. Skipping re-initialization.")
             return
 
         self.is_distributed = is_distributed
@@ -445,11 +422,7 @@ class DistributedContext:
 
         if config and check_debug_flag(config, "DEBUG.DISTRIBUTED"):
             # Log environment variables for debugging
-            gpu_info = (
-                torch.cuda.get_device_properties(self.local_rank)
-                if torch.cuda.is_available()
-                else "No GPU"
-            )
+            gpu_info = torch.cuda.get_device_properties(self.local_rank) if torch.cuda.is_available() else "No GPU"
             logger.debug(f"GPU info for rank {rank}: {gpu_info}")
             if is_distributed:
                 logger.debug(f"Process group backend: {dist.get_backend()}")
@@ -582,18 +555,10 @@ class DistributedContext:
         Synchronize all processes.
         """
         if self.is_distributed:
-            if (
-                hasattr(self, "config")
-                and self.config
-                and check_debug_flag(self.config, "DEBUG.DISTRIBUTED")
-            ):
+            if hasattr(self, "config") and self.config and check_debug_flag(self.config, "DEBUG.DISTRIBUTED"):
                 logger.debug(f"Rank {self.rank} waiting at barrier")
             dist.barrier()
-            if (
-                hasattr(self, "config")
-                and self.config
-                and check_debug_flag(self.config, "DEBUG.DISTRIBUTED")
-            ):
+            if hasattr(self, "config") and self.config and check_debug_flag(self.config, "DEBUG.DISTRIBUTED"):
                 logger.debug(f"Rank {self.rank} passed barrier")
 
     def log(self, message, level="info"):

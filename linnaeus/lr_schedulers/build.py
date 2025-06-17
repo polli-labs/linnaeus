@@ -28,24 +28,15 @@ def build_scheduler(config, optimizer, optimizer_steps_per_epoch):
 
     # Verify total_steps value
     expected_total_steps = total_epochs * optimizer_steps_per_epoch
-    if (
-        abs(total_steps - expected_total_steps) > 1
-    ):  # Allow for minor rounding differences
-        logger.warning(
-            f"Total steps in config ({total_steps}) doesn't match calculated value ({expected_total_steps})."
-        )
-        logger.warning(
-            "This may occur if total_steps was already manually configured. Using config value."
-        )
+    if abs(total_steps - expected_total_steps) > 1:  # Allow for minor rounding differences
+        logger.warning(f"Total steps in config ({total_steps}) doesn't match calculated value ({expected_total_steps}).")
+        logger.warning("This may occur if total_steps was already manually configured. Using config value.")
 
     # Determine warmup steps using either WARMUP_FRACTION, WARMUP_EPOCHS, or WARMUP_STEPS
     warmup_steps = 0
 
     # First check for explicit WARMUP_STEPS (legacy/advanced usage)
-    if (
-        hasattr(config.LR_SCHEDULER, "WARMUP_STEPS")
-        and config.LR_SCHEDULER.WARMUP_STEPS > 0
-    ):
+    if hasattr(config.LR_SCHEDULER, "WARMUP_STEPS") and config.LR_SCHEDULER.WARMUP_STEPS > 0:
         warmup_steps = config.LR_SCHEDULER.WARMUP_STEPS
         logger.info(f"Using explicitly defined warmup steps: {warmup_steps}")
     # Next check for WARMUP_FRACTION (preferred method)
@@ -56,12 +47,8 @@ def build_scheduler(config, optimizer, optimizer_steps_per_epoch):
     ):
         # Use fraction-based warmup
         warmup_steps = int(total_steps * config.LR_SCHEDULER.WARMUP_FRACTION)
-        logger.info(
-            f"Using fraction-based warmup: {config.LR_SCHEDULER.WARMUP_FRACTION} of total steps"
-        )
-        logger.info(
-            f"Converting to {warmup_steps} warmup steps (equivalent to {warmup_steps / optimizer_steps_per_epoch:.2f} epochs)"
-        )
+        logger.info(f"Using fraction-based warmup: {config.LR_SCHEDULER.WARMUP_FRACTION} of total steps")
+        logger.info(f"Converting to {warmup_steps} warmup steps (equivalent to {warmup_steps / optimizer_steps_per_epoch:.2f} epochs)")
     # Finally check for WARMUP_EPOCHS (alternative method)
     elif (
         hasattr(config.LR_SCHEDULER, "WARMUP_EPOCHS")
@@ -73,37 +60,27 @@ def build_scheduler(config, optimizer, optimizer_steps_per_epoch):
 
         # Verify optimizer_steps_per_epoch is valid
         if optimizer_steps_per_epoch <= 0:
-            logger.warning(
-                f"Invalid optimizer_steps_per_epoch: {optimizer_steps_per_epoch}, recalculating based on dataloader length"
-            )
+            logger.warning(f"Invalid optimizer_steps_per_epoch: {optimizer_steps_per_epoch}, recalculating based on dataloader length")
             # Safely get the dataloader length and account for accumulation steps
             if hasattr(config.TRAIN, "ACCUMULATION_STEPS"):
                 # Estimate the number of optimizer steps per epoch
                 estimated_steps = config.LR_SCHEDULER.TOTAL_STEPS / config.TRAIN.EPOCHS
-                logger.warning(
-                    f"Estimated optimizer steps per epoch: {estimated_steps}"
-                )
+                logger.warning(f"Estimated optimizer steps per epoch: {estimated_steps}")
                 optimizer_steps_per_epoch = max(1, int(estimated_steps))
             else:
                 # Fallback to a minimum valid value
                 optimizer_steps_per_epoch = 1
-                logger.warning(
-                    f"Using minimum valid optimizer_steps_per_epoch: {optimizer_steps_per_epoch}"
-                )
+                logger.warning(f"Using minimum valid optimizer_steps_per_epoch: {optimizer_steps_per_epoch}")
 
         warmup_steps = int(warmup_epochs * optimizer_steps_per_epoch)
         logger.info(f"Using epoch-based warmup: {warmup_epochs} epochs")
-        logger.info(
-            f"Converting {warmup_epochs} warmup epochs to {warmup_steps} optimizer steps for warmup"
-        )
+        logger.info(f"Converting {warmup_epochs} warmup epochs to {warmup_steps} optimizer steps for warmup")
     else:
         logger.info("No warmup will be applied (warmup steps = 0)")
 
     # Log the conversion
     steps_per_epoch_calc = total_steps / total_epochs if total_epochs > 0 else 0
-    logger.info(
-        f"Converting {total_epochs} epochs to {total_steps} steps (with {steps_per_epoch_calc:.1f} optimizer steps per epoch)"
-    )
+    logger.info(f"Converting {total_epochs} epochs to {total_steps} steps (with {steps_per_epoch_calc:.1f} optimizer steps per epoch)")
 
     # Update config if TOTAL_STEPS is used elsewhere
     if hasattr(config.LR_SCHEDULER, "TOTAL_STEPS"):
@@ -118,17 +95,13 @@ def build_scheduler(config, optimizer, optimizer_steps_per_epoch):
         and hasattr(optimizer, "optimizers")
     ):
         logger.info("Building multi-LR scheduler (step-based) for parameter groups")
-        return _build_multi_scheduler(
-            config, optimizer, total_steps, warmup_steps, optimizer_steps_per_epoch
-        )
+        return _build_multi_scheduler(config, optimizer, total_steps, warmup_steps, optimizer_steps_per_epoch)
     else:
         logger.info("Building single LR scheduler for all parameters (step-based)")
         return _build_single_scheduler(config, optimizer, total_steps, warmup_steps)
 
 
-def _build_scheduler_group(
-    config, optimizer, total_steps, warmup_steps, group_config=None
-):
+def _build_scheduler_group(config, optimizer, total_steps, warmup_steps, group_config=None):
     """
     Common builder logic for scheduler creation. Now includes 'wsd'.
 
@@ -162,17 +135,13 @@ def _build_scheduler_group(
     # Calculate duration of stable phase based on fraction of post-warmup steps
     stable_steps = int(post_warmup_steps * stable_duration_fraction)
     # Calculate duration of decay phase based on fraction of post-warmup steps
-    decay_steps_wsd = int(
-        post_warmup_steps * decay_duration_fraction
-    )  # Use different var name
+    decay_steps_wsd = int(post_warmup_steps * decay_duration_fraction)  # Use different var name
     stable_steps = max(1, stable_steps)  # Ensure at least 1 step
     decay_steps_wsd = max(1, decay_steps_wsd)  # Ensure at least 1 step
 
     # Log WSD parameters if relevant
     if name == "wsd":
-        logger.info(
-            f"WSD Params Calculated: stable_steps={stable_steps}, decay_steps={decay_steps_wsd}, decay_type='{decay_type}'"
-        )
+        logger.info(f"WSD Params Calculated: stable_steps={stable_steps}, decay_steps={decay_steps_wsd}, decay_type='{decay_type}'")
         logger.info(
             f"  (Based on post_warmup_steps={post_warmup_steps}, stable_frac={stable_duration_fraction}, decay_frac={decay_duration_fraction})"
         )
@@ -184,9 +153,7 @@ def _build_scheduler_group(
             T_max=post_warmup_steps,  # T_max is duration *after* warmup
             eta_min=min_lr,
         )
-        logger.info(
-            f"Created CosineAnnealingLR with T_max={post_warmup_steps}, eta_min={min_lr}"
-        )
+        logger.info(f"Created CosineAnnealingLR with T_max={post_warmup_steps}, eta_min={min_lr}")
     elif name == "linear":
         lr_min_rate = min_lr / base_lr if base_lr != 0.0 else 0.0
         base_scheduler = LinearLR(
@@ -194,9 +161,7 @@ def _build_scheduler_group(
             t_initial=post_warmup_steps,  # t_initial is duration *after* warmup
             lr_min_rate=lr_min_rate,
         )
-        logger.info(
-            f"Created LinearLR with t_initial={post_warmup_steps}, lr_min_rate={lr_min_rate}"
-        )
+        logger.info(f"Created LinearLR with t_initial={post_warmup_steps}, lr_min_rate={lr_min_rate}")
     elif name == "step":
         # Resolve step_decay_interval using the DECAY_STEPS/FRACTION parameters
         step_decay_interval = decay_steps_param
@@ -205,9 +170,7 @@ def _build_scheduler_group(
             step_size=max(1, step_decay_interval),  # Ensure interval >= 1
             gamma=decay_rate,
         )
-        logger.info(
-            f"Created StepLR with step_size={step_decay_interval}, gamma={decay_rate}"
-        )
+        logger.info(f"Created StepLR with step_size={step_decay_interval}, gamma={decay_rate}")
     elif name == "wsd":  # <-- NEW CASE
         # Use the new StableDecayScheduler for the post-warmup phase
         base_scheduler = StableDecayScheduler(
@@ -244,23 +207,15 @@ def _build_scheduler_group(
                 def step_update(current_iteration):
                     # Standard PyTorch schedulers use 'last_epoch' for steps/iterations
                     scheduler_instance.last_epoch = current_iteration
-                    new_lrs = (
-                        scheduler_instance.get_lr()
-                    )  # get_lr depends on last_epoch
-                    for pg, lr in zip(
-                        scheduler_instance.optimizer.param_groups, new_lrs, strict=False
-                    ):
+                    new_lrs = scheduler_instance.get_lr()  # get_lr depends on last_epoch
+                    for pg, lr in zip(scheduler_instance.optimizer.param_groups, new_lrs, strict=False):
                         pg["lr"] = lr
-                    scheduler_instance._last_lr = (
-                        new_lrs  # Store for get_last_lr compatibility
-                    )
+                    scheduler_instance._last_lr = new_lrs  # Store for get_last_lr compatibility
 
                 return step_update
 
             scheduler.step_update = make_step_update(scheduler)
-            logger.debug(
-                f"Added step_update shim to base scheduler ({type(scheduler).__name__})."
-            )
+            logger.debug(f"Added step_update shim to base scheduler ({type(scheduler).__name__}).")
 
     return scheduler
 
@@ -288,13 +243,7 @@ def _build_single_scheduler(config, optimizer, total_steps, warmup_steps):
     return scheduler
 
 
-def _build_multi_scheduler(
-    config,
-    multi_optimizer,
-    total_steps,
-    warmup_steps,
-    optimizer_steps_per_epoch,
-):
+def _build_multi_scheduler(config, multi_optimizer, total_steps, warmup_steps, optimizer_steps_per_epoch):
     """
     Build multiple LR schedulers for different parameter groups.
 
@@ -322,41 +271,23 @@ def _build_multi_scheduler(
         # First check for explicit group-specific WARMUP_STEPS
         if hasattr(gconf, "WARMUP_STEPS") and gconf.WARMUP_STEPS > 0:
             group_warmup_steps = gconf.WARMUP_STEPS
-            logger.info(
-                f"Group '{opt_name}': using explicitly defined warmup steps: {group_warmup_steps}"
-            )
+            logger.info(f"Group '{opt_name}': using explicitly defined warmup steps: {group_warmup_steps}")
         # Check for group-specific warmup fraction
-        elif (
-            hasattr(gconf, "WARMUP_FRACTION")
-            and gconf.WARMUP_FRACTION is not None
-            and gconf.WARMUP_FRACTION > 0.0
-        ):
+        elif hasattr(gconf, "WARMUP_FRACTION") and gconf.WARMUP_FRACTION is not None and gconf.WARMUP_FRACTION > 0.0:
             group_warmup_steps = int(total_steps * gconf.WARMUP_FRACTION)
-            logger.info(
-                f"Group '{opt_name}': using fraction-based warmup of {gconf.WARMUP_FRACTION}"
-            )
+            logger.info(f"Group '{opt_name}': using fraction-based warmup of {gconf.WARMUP_FRACTION}")
             logger.info(
                 f"Group '{opt_name}': using {group_warmup_steps} warmup steps (equivalent to {group_warmup_steps / optimizer_steps_per_epoch:.2f} epochs)"
             )
         # Check for group-specific warmup epochs
-        elif (
-            hasattr(gconf, "WARMUP_EPOCHS")
-            and gconf.WARMUP_EPOCHS is not None
-            and gconf.WARMUP_EPOCHS > 0.0
-        ):
+        elif hasattr(gconf, "WARMUP_EPOCHS") and gconf.WARMUP_EPOCHS is not None and gconf.WARMUP_EPOCHS > 0.0:
             group_warmup_steps = int(gconf.WARMUP_EPOCHS * optimizer_steps_per_epoch)
-            logger.info(
-                f"Group '{opt_name}': using {group_warmup_steps} warmup steps ({gconf.WARMUP_EPOCHS} epochs)"
-            )
+            logger.info(f"Group '{opt_name}': using {group_warmup_steps} warmup steps ({gconf.WARMUP_EPOCHS} epochs)")
         else:
-            logger.info(
-                f"Group '{opt_name}': using default warmup steps: {group_warmup_steps}"
-            )
+            logger.info(f"Group '{opt_name}': using default warmup steps: {group_warmup_steps}")
 
         logger.info(f"Building scheduler for group '{opt_name}'")
-        schedulers[opt_name] = _build_scheduler_group(
-            config, optimizer, total_steps, group_warmup_steps, gconf
-        )
+        schedulers[opt_name] = _build_scheduler_group(config, optimizer, total_steps, group_warmup_steps, gconf)
 
     # Use our multi-scheduler wrapper
     multi_scheduler = MultiLRScheduler(schedulers)

@@ -24,16 +24,7 @@ class LinearLR(_LRScheduler):
     def get_lr(self):
         t = float(self.last_epoch)
         # linearly go from base_lr to base_lr * lr_min_rate over t_initial steps
-        return [
-            float(
-                base_lr
-                - (
-                    (base_lr - base_lr * self.lr_min_rate)
-                    * min(1.0, t / self.t_initial)
-                )
-            )
-            for base_lr in self.base_lrs
-        ]
+        return [float(base_lr - ((base_lr - base_lr * self.lr_min_rate) * min(1.0, t / self.t_initial))) for base_lr in self.base_lrs]
 
     def step_update(self, current_iteration):
         """
@@ -49,13 +40,7 @@ class LinearLR(_LRScheduler):
         self._last_lr = new_lrs
 
         # Debug logging for learning rate updates
-        if (
-            hasattr(self.optimizer, "param_groups")
-            and self.optimizer.param_groups
-            and "config" in self.optimizer.param_groups[0]
-        ):
+        if hasattr(self.optimizer, "param_groups") and self.optimizer.param_groups and "config" in self.optimizer.param_groups[0]:
             config = self.optimizer.param_groups[0]["config"]
             if check_debug_flag(config, "DEBUG.SCHEDULING"):
-                logger.debug(
-                    f"LinearLR updated to iteration {current_iteration}/{self.t_initial}. New LRs: {self._last_lr}"
-                )
+                logger.debug(f"LinearLR updated to iteration {current_iteration}/{self.t_initial}. New LRs: {self._last_lr}")

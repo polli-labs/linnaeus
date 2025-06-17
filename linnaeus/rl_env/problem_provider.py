@@ -39,7 +39,7 @@ class LinnaeusRLProblemProvider:
         self.taxonomy_tree = taxonomy_tree
         # self.config = config
 
-        if not hasattr(self.taxonomy_tree, 'task_keys') or not self.taxonomy_tree.task_keys:
+        if not hasattr(self.taxonomy_tree, "task_keys") or not self.taxonomy_tree.task_keys:
             raise ValueError("TaxonomyTree instance must have a valid 'task_keys' attribute (ordered list of rank names).")
         self.rank_order: list[str] = self.taxonomy_tree.task_keys
 
@@ -63,13 +63,12 @@ class LinnaeusRLProblemProvider:
         try:
             self.current_batch_data = next(self.data_iterator)
         except StopIteration:
-            if hasattr(self.dataloader, 'current_epoch'): # Check if attribute exists
-                 pass # Ensure block is not empty
+            if hasattr(self.dataloader, "current_epoch"):  # Check if attribute exists
+                pass  # Ensure block is not empty
 
             # print(f"LinnaeusRLProblemProvider: Data iterator exhausted (epoch {self.dataloader.current_epoch} ended).") # Verbose
 
-            if hasattr(self.dataloader, 'set_epoch') and callable(self.dataloader.set_epoch) and \
-               hasattr(self.dataloader, 'current_epoch'):
+            if hasattr(self.dataloader, "set_epoch") and callable(self.dataloader.set_epoch) and hasattr(self.dataloader, "current_epoch"):
                 new_epoch = self.dataloader.current_epoch + 1
                 self.dataloader.set_epoch(new_epoch)
                 # print(f"LinnaeusRLProblemProvider: Advanced dataloader to epoch {new_epoch}.")
@@ -80,19 +79,20 @@ class LinnaeusRLProblemProvider:
                 pass
 
             self.data_iterator = iter(self.dataloader)
-            self.current_batch_data = next(self.data_iterator) # Fetch the first batch of the (potentially) new epoch
+            self.current_batch_data = next(self.data_iterator)  # Fetch the first batch of the (potentially) new epoch
             # print("LinnaeusRLProblemProvider: Fetched first batch of new/reset epoch.")
 
         self.current_sample_idx_in_batch = 0
-        if self.current_batch_data and \
-           isinstance(self.current_batch_data, tuple) and \
-           len(self.current_batch_data) > 0 and \
-           isinstance(self.current_batch_data[0], torch.Tensor):
+        if (
+            self.current_batch_data
+            and isinstance(self.current_batch_data, tuple)
+            and len(self.current_batch_data) > 0
+            and isinstance(self.current_batch_data[0], torch.Tensor)
+        ):
             self.current_batch_size = self.current_batch_data[0].size(0)
         else:
             self.current_batch_size = 0
             # print("Warning: Could not determine batch size from dataloader output or output format is unexpected.")
-
 
     def reset(self) -> tuple[dict[str, Any], dict[str, Any]]:
         """
@@ -118,13 +118,11 @@ class LinnaeusRLProblemProvider:
         Raises:
             RuntimeError: If `_fetch_next_batch()` fails to load a valid batch.
         """
-        if self.current_batch_data is None or \
-           self.current_sample_idx_in_batch >= self.current_batch_size:
+        if self.current_batch_data is None or self.current_sample_idx_in_batch >= self.current_batch_size:
             self._fetch_next_batch()
 
         if self.current_batch_data is None or self.current_batch_size == 0:
-            raise RuntimeError("Failed to load a valid batch from the dataloader. "
-                               "Check dataloader configuration and dataset.")
+            raise RuntimeError("Failed to load a valid batch from the dataloader. Check dataloader configuration and dataset.")
 
         # Assumes H5DataLoader's collate_fn returns a tuple where:
         # item 0 = images_tensor (B, C, H, W)
@@ -136,7 +134,7 @@ class LinnaeusRLProblemProvider:
 
         raw_labels_for_rl: dict[str, int | None] = {}
         for rank_name in self.rank_order:
-            label_val: int | None = None # Default to None (abstain)
+            label_val: int | None = None  # Default to None (abstain)
             if rank_name not in batch_merged_targets:
                 # If rank is missing from targets, it's considered None for RL
                 label_val = None
@@ -144,14 +142,14 @@ class LinnaeusRLProblemProvider:
                 # Get the target for the current sample at the current rank
                 target_for_sample_at_rank = batch_merged_targets[rank_name][self.current_sample_idx_in_batch]
 
-                if target_for_sample_at_rank.numel() == 1: # Scalar/hard label
+                if target_for_sample_at_rank.numel() == 1:  # Scalar/hard label
                     val_item = target_for_sample_at_rank.item()
                     # Convert supervised null index to None for RL
                     if int(val_item) == self.supervised_null_index:
                         label_val = None
                     else:
                         label_val = int(val_item)
-                elif target_for_sample_at_rank.dim() == 1: # 1D tensor, could be one-hot or soft labels
+                elif target_for_sample_at_rank.dim() == 1:  # 1D tensor, could be one-hot or soft labels
                     argmax_idx = torch.argmax(target_for_sample_at_rank).item()
                     # If argmax is the supervised null index, and its confidence is high enough (for soft)
                     # or simply if it's the null index (for true one-hot), RL label is None.
@@ -171,15 +169,13 @@ class LinnaeusRLProblemProvider:
         self.current_sample_idx_in_batch += 1
 
         # Store the processed ground truth for the verifier
-        self.current_sample_ground_truth = {
-            rn: [raw_labels_for_rl.get(rn)] for rn in self.rank_order
-        }
+        self.current_sample_ground_truth = {rn: [raw_labels_for_rl.get(rn)] for rn in self.rank_order}
 
         initial_observation = {
-            "image": image_tensor, # This is a torch.Tensor
-            "current_rank_index": 0, # Start with the first rank
+            "image": image_tensor,  # This is a torch.Tensor
+            "current_rank_index": 0,  # Start with the first rank
             "current_rank_name": self.rank_order[0],
-            "history": [] # To store (rank_name, committed_taxon_index) tuples
+            "history": [],  # To store (rank_name, committed_taxon_index) tuples
         }
 
         return initial_observation, self.current_sample_ground_truth
@@ -216,9 +212,11 @@ if __name__ == "__main__":
     mock_h5_loader = MagicMock(spec=H5DataLoader)
     # H5DataLoader needs a 'current_epoch' attribute and 'set_epoch' method for provider's epoch logic
     mock_h5_loader.current_epoch = 0
+
     def mock_set_epoch_func(epoch_num):
         mock_h5_loader.current_epoch = epoch_num
         # print(f"MockH5Loader: Epoch set to {mock_h5_loader.current_epoch}")
+
     mock_h5_loader.set_epoch = MagicMock(side_effect=mock_set_epoch_func)
 
     # --- Mock TaxonomyTree ---
@@ -227,74 +225,73 @@ if __name__ == "__main__":
 
     # --- Define Sample Batches (simulating H5DataLoader output) ---
     # Batch 1: 2 samples
-    b1_images = torch.randn(2, 3, 224, 224) # Batch size 2
-    b1_targets = { # Hard labels, supervised null index is 0
-        "family": torch.tensor([[1], [2]]),       # Sample 1: Fam 1; Sample 2: Fam 2
-        "genus":  torch.tensor([[10], [0]]),      # Sample 1: Gen 10; Sample 2: Gen 0 (supervised null)
-        "species":torch.tensor([[100], [0]])      # Sample 1: Sp 100; Sample 2: Sp 0 (supervised null)
+    b1_images = torch.randn(2, 3, 224, 224)  # Batch size 2
+    b1_targets = {  # Hard labels, supervised null index is 0
+        "family": torch.tensor([[1], [2]]),  # Sample 1: Fam 1; Sample 2: Fam 2
+        "genus": torch.tensor([[10], [0]]),  # Sample 1: Gen 10; Sample 2: Gen 0 (supervised null)
+        "species": torch.tensor([[100], [0]]),  # Sample 1: Sp 100; Sample 2: Sp 0 (supervised null)
     }
-    batch1_data = (b1_images, b1_targets, None, None, None, None, None) # 7-tuple
+    batch1_data = (b1_images, b1_targets, None, None, None, None, None)  # 7-tuple
 
     # Batch 2: 1 sample
-    b2_images = torch.randn(1, 3, 224, 224) # Batch size 1
+    b2_images = torch.randn(1, 3, 224, 224)  # Batch size 1
     b2_targets = {
-        "family": torch.tensor([[3]]),            # Sample 1: Fam 3
-        "genus":  torch.tensor([[30]]),           # Sample 1: Gen 30
-        "species":torch.tensor([[0]])             # Sample 1: Sp 0 (supervised null)
+        "family": torch.tensor([[3]]),  # Sample 1: Fam 3
+        "genus": torch.tensor([[30]]),  # Sample 1: Gen 30
+        "species": torch.tensor([[0]]),  # Sample 1: Sp 0 (supervised null)
     }
     batch2_data = (b2_images, b2_targets, None, None, None, None, None)
 
     # Batch 3 (for next epoch): 1 sample
-    b3_images = torch.randn(1, 3, 224, 224) # Batch size 1
+    b3_images = torch.randn(1, 3, 224, 224)  # Batch size 1
     b3_targets = {
-        "family": torch.tensor([[4]]),            # Sample 1: Fam 4
+        "family": torch.tensor([[4]]),  # Sample 1: Fam 4
         # Genus missing, should be None for RL
-        "species":torch.tensor([[400]])           # Sample 1: Sp 400
+        "species": torch.tensor([[400]]),  # Sample 1: Sp 400
     }
     batch3_data = (b3_images, b3_targets, None, None, None, None, None)
 
     # Batch 4 (for next epoch after b3): 1 sample, soft labels example
     b4_images = torch.randn(1, 3, 224, 224)
     b4_targets = {
-        "family": torch.tensor([[0.1, 0.8, 0.1]]), # Fam: class 1 (argmax)
-        "genus":  torch.tensor([[0.7, 0.2, 0.1]]), # Gen: class 0 (argmax, supervised null) -> None for RL
-        "species":torch.tensor([[0.1, 0.2, 0.7]])  # Sp: class 2 (argmax)
+        "family": torch.tensor([[0.1, 0.8, 0.1]]),  # Fam: class 1 (argmax)
+        "genus": torch.tensor([[0.7, 0.2, 0.1]]),  # Gen: class 0 (argmax, supervised null) -> None for RL
+        "species": torch.tensor([[0.1, 0.2, 0.7]]),  # Sp: class 2 (argmax)
     }
     batch4_data = (b4_images, b4_targets, None, None, None, None, None)
-
 
     # Configure iterator behavior for multiple epochs
     def mock_iter_side_effect():
         # print(f"MockH5Loader: __iter__ called for epoch {mock_h5_loader.current_epoch}")
         if mock_h5_loader.current_epoch == 0:
-            return iter([batch1_data, batch2_data]) # Epoch 0 yields batch1 then batch2
+            return iter([batch1_data, batch2_data])  # Epoch 0 yields batch1 then batch2
         elif mock_h5_loader.current_epoch == 1:
-            return iter([batch3_data, batch4_data]) # Epoch 1 yields batch3 then batch4
-        else: # Fallback for subsequent epochs
+            return iter([batch3_data, batch4_data])  # Epoch 1 yields batch3 then batch4
+        else:  # Fallback for subsequent epochs
             return iter([batch1_data])
 
     mock_h5_loader.__iter__.side_effect = mock_iter_side_effect
 
     # --- Instantiate Provider ---
     provider = LinnaeusRLProblemProvider(dataloader=mock_h5_loader, taxonomy_tree=mock_taxonomy_tree)
-    provider.supervised_null_index = 0 # Ensure it's set for the test
+    provider.supervised_null_index = 0  # Ensure it's set for the test
 
     print("Testing Problem Provider with actual H5DataLoader integration (mocked):")
 
     # Expected sequence of RL-formatted ground truths
     expected_gt_sequence = [
         # From batch1_data
-        {"family": [1], "genus": [10], "species": [100]}, # Sample 1
-        {"family": [2], "genus": [None], "species": [None]},# Sample 2 (genus 0 -> None, species 0 -> None)
+        {"family": [1], "genus": [10], "species": [100]},  # Sample 1
+        {"family": [2], "genus": [None], "species": [None]},  # Sample 2 (genus 0 -> None, species 0 -> None)
         # From batch2_data
-        {"family": [3], "genus": [30], "species": [None]}, # Sample 3 (species 0 -> None)
+        {"family": [3], "genus": [30], "species": [None]},  # Sample 3 (species 0 -> None)
         # Epoch 0 ends, Epoch 1 begins
         # From batch3_data
-        {"family": [4], "genus": [None], "species": [400]},# Sample 4 (genus missing -> None)
+        {"family": [4], "genus": [None], "species": [400]},  # Sample 4 (genus missing -> None)
         # From batch4_data
         {"family": [1], "genus": [None], "species": [2]},  # Sample 5 (soft labels, genus 0 -> None)
         # Epoch 1 ends, Epoch 2 begins (falls back to batch1_data)
-        {"family": [1], "genus": [10], "species": [100]}, # Sample 6
+        {"family": [1], "genus": [10], "species": [100]},  # Sample 6
     ]
 
     num_samples_to_test = len(expected_gt_sequence)
@@ -304,8 +301,7 @@ if __name__ == "__main__":
         # print(f"  Image shape: {obs['image'].shape}")
         # print(f"  Returned GT: {gt}")
         # print(f"  Expected GT: {expected_gt_sequence[i]}")
-        assert gt == expected_gt_sequence[i], \
-            f"GT Mismatch for sample {i+1}. Got {gt}, expected {expected_gt_sequence[i]}"
+        assert gt == expected_gt_sequence[i], f"GT Mismatch for sample {i + 1}. Got {gt}, expected {expected_gt_sequence[i]}"
         # print(f"  Sample {i+1} OK.")
 
     print(f"\nSuccessfully tested {num_samples_to_test} samples across multiple batches and epochs.")
@@ -319,7 +315,8 @@ if __name__ == "__main__":
     # After b2 (end of epoch 0) -> set_epoch(1)
     # After b4 (end of epoch 1) -> set_epoch(2)
     expected_set_epoch_calls = 2
-    assert mock_h5_loader.set_epoch.call_count == expected_set_epoch_calls, \
+    assert mock_h5_loader.set_epoch.call_count == expected_set_epoch_calls, (
         f"Expected set_epoch to be called {expected_set_epoch_calls} times, but got {mock_h5_loader.set_epoch.call_count}"
+    )
 
     print("Test completed successfully.")

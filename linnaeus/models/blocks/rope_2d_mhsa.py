@@ -5,7 +5,6 @@ Transformer block (RoPE2DMHSABlock). Supports both mixed (learnable) and axial
 (static) frequency modes for RoPE.
 """
 
-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -19,17 +18,17 @@ logger = get_main_logger()
 # Internal imports from linnaeus structure
 from linnaeus.models.blocks.drop_path import DropPath
 from linnaeus.models.blocks.mlp import Mlp
-
 from linnaeus.utils.flash_attn_utils import is_flash_attn3_available
 
 _flash_attn_func_impl = None
-_flash_attn_qkvpacked_func_impl = None # For completeness if other code uses it
-_is_flash_attn_v2_plus_available = False # True if any FA (v2 or v3) is usable
+_flash_attn_qkvpacked_func_impl = None  # For completeness if other code uses it
+_is_flash_attn_v2_plus_available = False  # True if any FA (v2 or v3) is usable
 
 try:
     if is_flash_attn3_available():
         # FA3 is available (implies Hopper SM>=9, and flash_attn v3.x is installed)
         from flash_attn import flash_attn_varlen_func, flash_attn_varlen_qkvpacked_func
+
         _flash_attn_func_impl = flash_attn_varlen_func
         _flash_attn_qkvpacked_func_impl = flash_attn_varlen_qkvpacked_func
         _is_flash_attn_v2_plus_available = True
@@ -37,7 +36,9 @@ try:
     else:
         # Attempt to import FA2 if FA3 is not available/selected
         # This will be used on Ampere (SM>=8) or if FA3 specific checks fail
-        from flash_attn import flash_attn_func as _fa2_func, flash_attn_qkvpacked_func as _fa2_qkvpacked_func
+        from flash_attn import flash_attn_func as _fa2_func
+        from flash_attn import flash_attn_qkvpacked_func as _fa2_qkvpacked_func
+
         _flash_attn_func_impl = _fa2_func
         _flash_attn_qkvpacked_func_impl = _fa2_qkvpacked_func
         _is_flash_attn_v2_plus_available = True
@@ -53,9 +54,7 @@ flash_attn_func = _flash_attn_func_impl
 # --- RoPE Helper Functions (Adapted from rope-vit/models/vit_rope.py) ---
 
 
-def init_t_xy(
-    end_x: int, end_y: int, device: torch.device = torch.device("cpu")
-) -> tuple[torch.Tensor, torch.Tensor]:
+def init_t_xy(end_x: int, end_y: int, device: torch.device = torch.device("cpu")) -> tuple[torch.Tensor, torch.Tensor]:
     """
     Generates 1D coordinate tensors for a 2D grid.
 
@@ -73,9 +72,7 @@ def init_t_xy(
     return t_x, t_y
 
 
-def init_random_2d_freqs(
-    dim: int, num_heads: int, theta: float = 10000.0, rotate: bool = True
-) -> torch.Tensor:
+def init_random_2d_freqs(dim: int, num_heads: int, theta: float = 10000.0, rotate: bool = True) -> torch.Tensor:
     """
     Initializes learnable mixed frequencies for 2D RoPE.
 
@@ -111,9 +108,7 @@ def init_random_2d_freqs(
     return freqs
 
 
-def compute_mixed_cis(
-    freqs: torch.Tensor, t_x: torch.Tensor, t_y: torch.Tensor
-) -> torch.Tensor:
+def compute_mixed_cis(freqs: torch.Tensor, t_x: torch.Tensor, t_y: torch.Tensor) -> torch.Tensor:
     """
     Computes complex coordinates cis(theta) = exp(i * theta) based on mixed frequencies.
 
@@ -133,12 +128,8 @@ def compute_mixed_cis(
     t_y_f = t_y.float()
     freqs_f = freqs.float()  # Ensure learnable freqs are float32 for calculation
 
-    freqs_x = torch.einsum(
-        "n,hd->nhd", t_x_f, freqs_f[0]
-    )  # (N_img, num_heads, head_dim_half)
-    freqs_y = torch.einsum(
-        "n,hd->nhd", t_y_f, freqs_f[1]
-    )  # (N_img, num_heads, head_dim_half)
+    freqs_x = torch.einsum("n,hd->nhd", t_x_f, freqs_f[0])  # (N_img, num_heads, head_dim_half)
+    freqs_y = torch.einsum("n,hd->nhd", t_y_f, freqs_f[1])  # (N_img, num_heads, head_dim_half)
     angles = freqs_x + freqs_y  # (N_img, num_heads, head_dim_half)
 
     # --- FIX: Ensure angles is float32 before polar ---
@@ -155,9 +146,7 @@ def compute_mixed_cis(
     return freqs_cis  # Shape: (N_img, num_heads, head_dim_half) [complex]
 
 
-def reshape_for_broadcast(
-    freqs_cis: torch.Tensor, qk_tensor: torch.Tensor
-) -> torch.Tensor:
+def reshape_for_broadcast(freqs_cis: torch.Tensor, qk_tensor: torch.Tensor) -> torch.Tensor:
     """
     Reshapes freqs_cis to match dimensions of q/k tensor for broadcasting.
 
@@ -193,19 +182,13 @@ def apply_rotary_emb(
     head_dim_half = D // 2
 
     # Reshape q, k to view pairs for complex multiplication
-    q_ = query.float().reshape(
-        B, H_heads, N_img, head_dim_half, 2
-    )  # (B, H, N_img, D/2, 2)
-    k_ = key.float().reshape(
-        B, H_heads, N_img, head_dim_half, 2
-    )  # (B, H, N_img, D/2, 2)
+    q_ = query.float().reshape(B, H_heads, N_img, head_dim_half, 2)  # (B, H, N_img, D/2, 2)
+    k_ = key.float().reshape(B, H_heads, N_img, head_dim_half, 2)  # (B, H, N_img, D/2, 2)
     q_complex = torch.view_as_complex(q_)  # (B, H, N_img, D/2) [complex]
     k_complex = torch.view_as_complex(k_)  # (B, H, N_img, D/2) [complex]
 
     # Prepare freqs_cis for broadcasting
-    freqs_cis_broadcast = reshape_for_broadcast(
-        freqs_cis, q_complex
-    )  # (1, H, N_img, D/2) [complex]
+    freqs_cis_broadcast = reshape_for_broadcast(freqs_cis, q_complex)  # (1, H, N_img, D/2) [complex]
 
     # Apply rotation: q_out = q_ * freqs_cis
     q_rotated = q_complex * freqs_cis_broadcast  # (B, H, N_img, D/2) [complex]
@@ -244,9 +227,7 @@ class RoPE2DAttention(nn.Module):
         use_flash_attn: bool = False,  # Whether to use Flash Attention
     ):
         super().__init__()
-        assert dim % num_heads == 0, (
-            f"dim {dim} should be divisible by num_heads {num_heads}"
-        )
+        assert dim % num_heads == 0, f"dim {dim} should be divisible by num_heads {num_heads}"
 
         self.dim = dim
         self.num_heads = num_heads
@@ -259,26 +240,28 @@ class RoPE2DAttention(nn.Module):
         # Flash Attention setup
         self.use_flash_attn = use_flash_attn
         self.use_flash_attn_impl = False
-        self.using_fa_version = None # To store "v2" or "v3"
-        if self.use_flash_attn: # If user configured RoPE2DAttention to use flash attention
+        self.using_fa_version = None  # To store "v2" or "v3"
+        if self.use_flash_attn:  # If user configured RoPE2DAttention to use flash attention
             if _is_flash_attn_v2_plus_available and _flash_attn_func_impl is not None:
                 try:
-                    if not (hasattr(torch, 'cuda') and torch.cuda.is_available()):
+                    if not (hasattr(torch, "cuda") and torch.cuda.is_available()):
                         logger.warning("Flash Attention selected but CUDA not available. Falling back.")
                     else:
                         device_cap = torch.cuda.get_device_capability()
 
                         # Check if FA3 was selected by the import logic above
                         # is_flash_attn3_available() was the condition for importing varlen funcs.
-                        if is_flash_attn3_available(): # This confirms FA3 setup conditions were met
-                            if device_cap[0] >= 9: # Ensure current runtime matches
+                        if is_flash_attn3_available():  # This confirms FA3 setup conditions were met
+                            if device_cap[0] >= 9:  # Ensure current runtime matches
                                 self.use_flash_attn_impl = True
                                 self.using_fa_version = "v3"
                                 logger.info(f"Using Flash Attention v3 for RoPE2DAttention with {self.num_heads} heads.")
                             else:
-                                logger.warning(f"FA3 was selected by import logic, but current device SM {device_cap} < 9.0. Fallback needed or error in setup.")
+                                logger.warning(
+                                    f"FA3 was selected by import logic, but current device SM {device_cap} < 9.0. Fallback needed or error in setup."
+                                )
                         # Else, FA2 was selected (if _is_flash_attn_v2_plus_available is true)
-                        elif device_cap[0] >= 8: # FA2 requires SM 8.0+
+                        elif device_cap[0] >= 8:  # FA2 requires SM 8.0+
                             self.use_flash_attn_impl = True
                             self.using_fa_version = "v2"
                             logger.info(f"Using Flash Attention v2 for RoPE2DAttention with {self.num_heads} heads.")
@@ -287,7 +270,9 @@ class RoPE2DAttention(nn.Module):
                 except Exception as e:
                     logger.warning(f"Error verifying CUDA for Flash Attention (Is CUDA installed correctly? Error: {e}). Falling back.")
             else:
-                logger.warning("Flash Attention requested in config, but no suitable FlashAttention library (v2 or v3) was found/selected by rope_2d_mhsa. Falling back.")
+                logger.warning(
+                    "Flash Attention requested in config, but no suitable FlashAttention library (v2 or v3) was found/selected by rope_2d_mhsa. Falling back."
+                )
 
         self.qkv = nn.Linear(dim, dim * 3, bias=qkv_bias)
         self.attn_drop = nn.Dropout(attn_drop)
@@ -297,24 +282,16 @@ class RoPE2DAttention(nn.Module):
         # RoPE Frequency Initialization
         if self.rope_mixed:
             # Learnable frequencies (per head)
-            freqs = init_random_2d_freqs(
-                self.head_dim, num_heads, theta=rope_theta, rotate=True
-            )
+            freqs = init_random_2d_freqs(self.head_dim, num_heads, theta=rope_theta, rotate=True)
             self.freqs = nn.Parameter(freqs.float())
             # No need for persistent t_x, t_y buffers if always recalculated
         else:
             # Fixed axial frequencies (precompute cis for efficiency)
-            self.register_buffer(
-                "freqs_cis",
-                self._precompute_axial_freqs_cis(rope_theta),
-                persistent=False,
-            )
+            self.register_buffer("freqs_cis", self._precompute_axial_freqs_cis(rope_theta), persistent=False)
             # Axial mode also needs coordinates, but only for size check/recompute
             H_grid, W_grid = self.img_grid_size
             t_x, t_y = init_t_xy(W_grid, H_grid)
-            self.register_buffer(
-                "t_x_ref", t_x, persistent=False
-            )  # Store reference size
+            self.register_buffer("t_x_ref", t_x, persistent=False)  # Store reference size
             self.register_buffer("t_y_ref", t_y, persistent=False)
 
         self.softmax = nn.Softmax(dim=-1)
@@ -329,14 +306,8 @@ class RoPE2DAttention(nn.Module):
             freq_dim = 1
 
         # Frequencies for x and y axes
-        freqs_x_base = 1.0 / (
-            theta
-            ** (torch.arange(0, head_dim_half, 2)[:freq_dim].float() / head_dim_half)
-        )
-        freqs_y_base = 1.0 / (
-            theta
-            ** (torch.arange(0, head_dim_half, 2)[:freq_dim].float() / head_dim_half)
-        )
+        freqs_x_base = 1.0 / (theta ** (torch.arange(0, head_dim_half, 2)[:freq_dim].float() / head_dim_half))
+        freqs_y_base = 1.0 / (theta ** (torch.arange(0, head_dim_half, 2)[:freq_dim].float() / head_dim_half))
 
         # Coordinates
         t_x, t_y = init_t_xy(W, H)  # N_img=H*W
@@ -346,24 +317,16 @@ class RoPE2DAttention(nn.Module):
         angles_y = torch.einsum("n,d->nd", t_y, freqs_y_base)  # (N_img, freq_dim)
 
         # Convert to complex cis(angle)
-        cis_x = torch.polar(
-            torch.ones_like(angles_x), angles_x
-        )  # (N_img, freq_dim) [complex]
-        cis_y = torch.polar(
-            torch.ones_like(angles_y), angles_y
-        )  # (N_img, freq_dim) [complex]
+        cis_x = torch.polar(torch.ones_like(angles_x), angles_x)  # (N_img, freq_dim) [complex]
+        cis_y = torch.polar(torch.ones_like(angles_y), angles_y)  # (N_img, freq_dim) [complex]
 
         # Pad if head_dim_half is not divisible by 2*freq_dim (e.g., if head_dim_half is odd)
         current_freq_dim = cis_x.shape[-1]
         if current_freq_dim < head_dim_half:
             pad_size = head_dim_half - current_freq_dim
             # Pad with (1+0j) which corresponds to zero angle (no rotation)
-            pad_tensor_x = torch.ones(
-                N_img, pad_size, dtype=torch.complex64, device=cis_x.device
-            )
-            pad_tensor_y = torch.ones(
-                N_img, pad_size, dtype=torch.complex64, device=cis_y.device
-            )
+            pad_tensor_x = torch.ones(N_img, pad_size, dtype=torch.complex64, device=cis_x.device)
+            pad_tensor_y = torch.ones(N_img, pad_size, dtype=torch.complex64, device=cis_y.device)
             cis_x = torch.cat([cis_x, pad_tensor_x], dim=-1)
             cis_y = torch.cat([cis_y, pad_tensor_y], dim=-1)
 
@@ -373,45 +336,33 @@ class RoPE2DAttention(nn.Module):
         # Let's reshape apply_rotary_emb's expectation later if needed.
         # Current shape required: (N_img, num_heads, head_dim // 2) [complex]
         # Combine cis_x and cis_y for a single head first
-        single_head_cis = torch.cat(
-            [cis_x, cis_y], dim=-1
-        )  # Shape (N_img, head_dim) complex? No, should be head_dim//2
+        single_head_cis = torch.cat([cis_x, cis_y], dim=-1)  # Shape (N_img, head_dim) complex? No, should be head_dim//2
 
         # Check total dimension - we need head_dim_half complex numbers
         if single_head_cis.shape[-1] != head_dim_half:
             # Fallback or error - this indicates issue with freq_dim logic
-            logger.warning(
-                f"Axial RoPE: Dimension mismatch. Expected {head_dim_half}, got {single_head_cis.shape[-1]}. Padding."
-            )
+            logger.warning(f"Axial RoPE: Dimension mismatch. Expected {head_dim_half}, got {single_head_cis.shape[-1]}. Padding.")
             pad_needed = head_dim_half - single_head_cis.shape[-1]
             if pad_needed > 0:
-                single_head_cis = F.pad(
-                    single_head_cis, (0, pad_needed), value=1 + 0j
-                )  # Pad with 1
+                single_head_cis = F.pad(single_head_cis, (0, pad_needed), value=1 + 0j)  # Pad with 1
 
         # Repeat for all heads -> Shape (N_img, num_heads, head_dim//2)
         freqs_cis = single_head_cis.unsqueeze(1).expand(-1, self.num_heads, -1)
         # Use float32 during computation, maybe store as bfloat16 if memory is tight
         return freqs_cis.float()  # Return float complex
 
-    def _get_current_freqs_cis(
-        self, H: int, W: int, device: torch.device
-    ) -> torch.Tensor:
+    def _get_current_freqs_cis(self, H: int, W: int, device: torch.device) -> torch.Tensor:
         """Gets or recomputes freqs_cis based on current grid size."""
         N_img = H * W
         if self.rope_mixed:
             # Needs coordinates for the current size
             t_x, t_y = init_t_xy(W, H, device=device)
-            freqs_cis = compute_mixed_cis(
-                self.freqs.to(device), t_x, t_y
-            )  # Compute complex
+            freqs_cis = compute_mixed_cis(self.freqs.to(device), t_x, t_y)  # Compute complex
             return freqs_cis.to(self.freqs.dtype)  # Match learnable freqs dtype
         else:
             # Axial: Check if precomputed size matches
             if N_img != self.freqs_cis.shape[0]:
-                logger.warning(
-                    f"RoPE Axial freqs size mismatch ({self.freqs_cis.shape[0]} vs {N_img}). Recomputing."
-                )
+                logger.warning(f"RoPE Axial freqs size mismatch ({self.freqs_cis.shape[0]} vs {N_img}). Recomputing.")
                 # Recompute and update buffer (this might be slow if called often)
                 new_freqs_cis = self._precompute_axial_freqs_cis(10000.0).to(device)
                 self.register_buffer("freqs_cis", new_freqs_cis, persistent=False)
@@ -424,16 +375,10 @@ class RoPE2DAttention(nn.Module):
         B, N, C = x.shape
         N_img = H * W
         N_extra = self.extra_token_num
-        assert N == N_img + N_extra, (
-            f"Input sequence length {N} != H*W+extra {N_img + N_extra}"
-        )
+        assert N == N_img + N_extra, f"Input sequence length {N} != H*W+extra {N_img + N_extra}"
 
         # QKV projection
-        qkv = (
-            self.qkv(x)
-            .reshape(B, N, 3, self.num_heads, self.head_dim)
-            .permute(2, 0, 3, 1, 4)
-        )
+        qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, self.head_dim).permute(2, 0, 3, 1, 4)
         q, k, v = qkv.unbind(0)  # Shape: (B, num_heads, N, head_dim)
 
         # Split extra tokens and image tokens
@@ -606,9 +551,7 @@ class RoPE2DMHSABlock(nn.Module):
         # Check if grid size changed unexpectedly - triggers recompute in attn if needed
         if (H, W) != self.img_grid_size:
             # Log only if size actually changed from expected block init size
-            if not hasattr(
-                self, "_logged_grid_warning"
-            ) or self._logged_grid_warning != (H, W):
+            if not hasattr(self, "_logged_grid_warning") or self._logged_grid_warning != (H, W):
                 logger.warning(
                     f"RoPE Block input H,W ({H},{W}) differs from expected grid size {self.img_grid_size}. RoPE freqs might be recomputed."
                 )
@@ -634,9 +577,7 @@ class RoPE2DMHSABlock(nn.Module):
         x_norm2 = self.norm2(x)
         if use_checkpoint and self.training:
             # logger.debug(f"[GC_INTERNAL RoPE Block] Applying CHECKPOINT to MLP")
-            mlp_output = torch.utils.checkpoint.checkpoint(
-                self._mlp_impl, x_norm2, use_reentrant=False, preserve_rng_state=True
-            )
+            mlp_output = torch.utils.checkpoint.checkpoint(self._mlp_impl, x_norm2, use_reentrant=False, preserve_rng_state=True)
         else:
             mlp_output = self._mlp_impl(x_norm2)
 

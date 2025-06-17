@@ -12,9 +12,7 @@ from ..model_factory import create_resolver
 logger = get_main_logger()
 
 
-def configure_feature_resolver(
-    config: dict[str, Any], embed_dim: int
-) -> Callable[[torch.Tensor, torch.Tensor], torch.Tensor]:
+def configure_feature_resolver(config: dict[str, Any], embed_dim: int) -> Callable[[torch.Tensor, torch.Tensor], torch.Tensor]:
     """
     Configure the feature resolver based on the config.
 
@@ -28,8 +26,6 @@ def configure_feature_resolver(
     resolver_type = config.get("TYPE", "Identity")
     resolver_params = config.get("PARAMETERS", {})
 
-    resolver = create_resolver(
-        name=resolver_type, embed_dim=embed_dim, **resolver_params
-    )
+    resolver = create_resolver(name=resolver_type, embed_dim=embed_dim, **resolver_params)
 
     return resolver

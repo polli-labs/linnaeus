@@ -63,9 +63,7 @@ class CPUSelectiveCutMix(SelectiveCutMix):
         self.minmax = mix_config.get("MINMAX", None)
 
         # Use the precomputed chunk boundaries if provided
-        if "meta_chunk_bounds_list" in mix_config and isinstance(
-            mix_config["meta_chunk_bounds_list"], list
-        ):
+        if "meta_chunk_bounds_list" in mix_config and isinstance(mix_config["meta_chunk_bounds_list"], list):
             self.chunk_bounds = mix_config["meta_chunk_bounds_list"]
             logger.debug("CPUSelectiveCutMix using precomputed chunk bounds")
         else:
@@ -80,9 +78,7 @@ class CPUSelectiveCutMix(SelectiveCutMix):
         # Debug logging if enabled
         debug_flag = False
         try:
-            debug_flag = self.config is not None and check_debug_flag(
-                self.config, "DEBUG.AUGMENTATION"
-            )
+            debug_flag = self.config is not None and check_debug_flag(self.config, "DEBUG.AUGMENTATION")
         except Exception:
             pass
 
@@ -93,9 +89,7 @@ class CPUSelectiveCutMix(SelectiveCutMix):
             if self.chunk_bounds is not None:
                 logger.debug(f"  - Chunk bounds: {self.chunk_bounds}")
             elif "CHUNK_BOUNDS" in self.mix_config:
-                logger.debug(
-                    f"  - CHUNK_BOUNDS (deprecated): {self.mix_config['CHUNK_BOUNDS']}"
-                )
+                logger.debug(f"  - CHUNK_BOUNDS (deprecated): {self.mix_config['CHUNK_BOUNDS']}")
 
     def __call__(
         self,
@@ -123,17 +117,13 @@ class CPUSelectiveCutMix(SelectiveCutMix):
         # Check debug flag
         debug_flag = False
         try:
-            debug_flag = self.config is not None and check_debug_flag(
-                self.config, "DEBUG.AUGMENTATION"
-            )
+            debug_flag = self.config is not None and check_debug_flag(self.config, "DEBUG.AUGMENTATION")
         except Exception:
             pass
 
         # Optionally exclude null-labeled samples from CutMix
         if exclude_null_samples:
-            batch = exclude_null_samples_from_mixup(
-                batch, null_task_keys, config=self.config
-            )
+            batch = exclude_null_samples_from_mixup(batch, null_task_keys, config=self.config)
 
         images, targets, aux_info, meta_masks, group_ids = batch
         B = images.size(0)
@@ -186,9 +176,7 @@ class CPUSelectiveCutMix(SelectiveCutMix):
         group_ids_np = group_ids.numpy()
         if np.all(group_ids_np == -1):
             if debug_flag:
-                logger.debug(
-                    "[CPUSelectiveCutMix] Skipped because all group_ids are -1"
-                )
+                logger.debug("[CPUSelectiveCutMix] Skipped because all group_ids are -1")
             return images, targets, aux_info, meta_masks
 
         # 3) Build in-group permutation
@@ -226,30 +214,18 @@ class CPUSelectiveCutMix(SelectiveCutMix):
 
             if debug_flag and i == 0:  # Log details for first sample only
                 logger.debug(f"[CPUSelectiveCutMix] Sample {i} paired with {j}")
-                logger.debug(
-                    f"  - Original lam: {lam:.4f}, Adjusted lam: {lam_adjusted:.4f}"
-                )
-                logger.debug(
-                    f"  - Box: ({bbx1}, {bby1}) to ({bbx2}, {bby2}), Area: {box_area}/{img_area} = {box_area / img_area:.4f}"
-                )
+                logger.debug(f"  - Original lam: {lam:.4f}, Adjusted lam: {lam_adjusted:.4f}")
+                logger.debug(f"  - Box: ({bbx1}, {bby1}) to ({bbx2}, {bby2}), Area: {box_area}/{img_area} = {box_area / img_area:.4f}")
 
             # Apply CutMix to image: replace patch from image[i] with patch from image[j]
-            mixed_images[i, :, bbx1:bbx2, bby1:bby2] = images[
-                j, :, bbx1:bbx2, bby1:bby2
-            ]
+            mixed_images[i, :, bbx1:bbx2, bby1:bby2] = images[j, :, bbx1:bbx2, bby1:bby2]
 
             # Mix targets proportionally to adjusted lambda
             for k in mixed_targets.keys():
-                mixed_targets[k][i] = (
-                    lam_adjusted * targets[k][i] + (1 - lam_adjusted) * targets[k][j]
-                )
+                mixed_targets[k][i] = lam_adjusted * targets[k][i] + (1 - lam_adjusted) * targets[k][j]
 
             # Add critical NULL_MASKING debug logging that respects the NULL_MASKING flag
-            if (
-                self.config is not None
-                and mixed_targets[k].dim() > 1
-                and check_debug_flag(self.config, "DEBUG.LOSS.NULL_MASKING")
-            ):
+            if self.config is not None and mixed_targets[k].dim() > 1 and check_debug_flag(self.config, "DEBUG.LOSS.NULL_MASKING"):
                 # Check for null values AFTER mixing
                 idx0_vals_mixed = mixed_targets[k][:, 0]
 
@@ -259,73 +235,49 @@ class CPUSelectiveCutMix(SelectiveCutMix):
                 nulls_after = (idx0_vals_mixed > 0.5).sum().item()
 
                 # Calculate near-threshold values
-                near_half = (
-                    ((idx0_vals_mixed > 0.4) & (idx0_vals_mixed < 0.6)).sum().item()
-                )
+                near_half = ((idx0_vals_mixed > 0.4) & (idx0_vals_mixed < 0.6)).sum().item()
 
                 # If we lost nulls, log this explicitly
                 logger.debug(
                     f"[NULL_MASKING_CUTMIX] Task {k}: nulls BEFORE mixing: {nulls_before_orig} (original), {nulls_before_perm} (permuted)"
                 )
-                logger.debug(
-                    f"[NULL_MASKING_CUTMIX] Task {k}: nulls AFTER mixing: {nulls_after}"
-                )
+                logger.debug(f"[NULL_MASKING_CUTMIX] Task {k}: nulls AFTER mixing: {nulls_after}")
 
                 if nulls_before_orig > 0 or nulls_before_perm > 0:
                     # Calculate expected nulls vs. actual
                     lost_nulls = (nulls_before_orig + nulls_before_perm) - nulls_after
                     if lost_nulls > 0:
-                        logger.debug(
-                            f"[NULL_MASKING_CUTMIX] Task {k}: LOST {lost_nulls} nulls due to mixing (became < 0.5)"
-                        )
-                        logger.debug(
-                            f"[NULL_MASKING_CUTMIX] Task {k}: Values near threshold (0.4-0.6): {near_half}"
-                        )
+                        logger.debug(f"[NULL_MASKING_CUTMIX] Task {k}: LOST {lost_nulls} nulls due to mixing (became < 0.5)")
+                        logger.debug(f"[NULL_MASKING_CUTMIX] Task {k}: Values near threshold (0.4-0.6): {near_half}")
 
                         # Show distribution of values from important ranges
-                        below_threshold = (
-                            ((idx0_vals_mixed > 0.3) & (idx0_vals_mixed <= 0.5))
-                            .sum()
-                            .item()
-                        )
-                        logger.debug(
-                            f"[NULL_MASKING_CUTMIX] Task {k}: Values just below threshold (0.3-0.5): {below_threshold}"
-                        )
+                        below_threshold = ((idx0_vals_mixed > 0.3) & (idx0_vals_mixed <= 0.5)).sum().item()
+                        logger.debug(f"[NULL_MASKING_CUTMIX] Task {k}: Values just below threshold (0.3-0.5): {below_threshold}")
 
                         # Find examples where mixing caused nulls to be lost
                         orig_nulls = targets[k][:, 0] > 0.5
                         perm_nulls = targets[k][perm][:, 0] > 0.5
                         either_null = orig_nulls | perm_nulls
                         result_not_null = ~(idx0_vals_mixed > 0.5)
-                        lost_null_indices = (either_null & result_not_null).nonzero(
-                            as_tuple=True
-                        )[0]
+                        lost_null_indices = (either_null & result_not_null).nonzero(as_tuple=True)[0]
 
                         # Show examples of lost nulls
                         if len(lost_null_indices) > 0:
-                            logger.debug(
-                                "[NULL_MASKING_CUTMIX] Examples of lost nulls:"
-                            )
+                            logger.debug("[NULL_MASKING_CUTMIX] Examples of lost nulls:")
                             for i in range(min(3, len(lost_null_indices))):
                                 idx = lost_null_indices[i].item()
                                 orig_val = targets[k][idx, 0].item()
                                 perm_val = targets[k][perm][idx, 0].item()
                                 mixed_val = idx0_vals_mixed[idx].item()
-                                logger.debug(
-                                    f"  - Sample {idx}: orig={orig_val:.4f}, perm={perm_val:.4f}, mixed={mixed_val:.4f}"
-                                )
-                                logger.debug(
-                                    f"    Formula: {lam:.4f} * {orig_val:.4f} + {1 - lam:.4f} * {perm_val:.4f} = {mixed_val:.4f}"
-                                )
+                                logger.debug(f"  - Sample {idx}: orig={orig_val:.4f}, perm={perm_val:.4f}, mixed={mixed_val:.4f}")
+                                logger.debug(f"    Formula: {lam:.4f} * {orig_val:.4f} + {1 - lam:.4f} * {perm_val:.4f} = {mixed_val:.4f}")
 
         # 6) Force partial-zero chunks => all-zero
         #    so we have purely "all zero" or "completely non-zero"
         self._enforce_all_or_nothing(aux_info, meta_masks)
 
         # 7) Hard pick chunk-wise
-        mixed_aux, mixed_masks = self._mix_aux_info_chunkwise(
-            aux_info, aux_info[perm], meta_masks, meta_masks[perm]
-        )
+        mixed_aux, mixed_masks = self._mix_aux_info_chunkwise(aux_info, aux_info[perm], meta_masks, meta_masks[perm])
 
         return mixed_images, mixed_targets, mixed_aux, mixed_masks
 
@@ -382,11 +334,7 @@ class CPUSelectiveCutMix(SelectiveCutMix):
                 meta_masks[is_partial_zero, start:end] = False
 
     def _mix_aux_info_chunkwise(
-        self,
-        info1: torch.Tensor,
-        info2: torch.Tensor,
-        mask1: torch.Tensor,
-        mask2: torch.Tensor,
+        self, info1: torch.Tensor, info2: torch.Tensor, mask1: torch.Tensor, mask2: torch.Tensor
     ) -> tuple[torch.Tensor, torch.Tensor]:
         """
         For each chunk, do a "hard pick" approach:

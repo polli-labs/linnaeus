@@ -49,16 +49,8 @@ class ECA(nn.Module):
             raise ValueError(f"k_size must be odd, got {k_size}")
 
         self.avg_pool = nn.AdaptiveAvgPool2d(1)
-        self.conv = nn.Conv1d(
-            in_channels=1,
-            out_channels=1,
-            kernel_size=k_size,
-            padding=k_size // 2,
-            bias=False,
-        )
-        self.sigmoid = (
-            nn.Sigmoid()
-        )  # NOTE: Sigmoid was previously optional, see what they did in the paper
+        self.conv = nn.Conv1d(in_channels=1, out_channels=1, kernel_size=k_size, padding=k_size // 2, bias=False)
+        self.sigmoid = nn.Sigmoid()  # NOTE: Sigmoid was previously optional, see what they did in the paper
         logger.debug(f"ECA initialized with dim={dim}, k_size={k_size}")
 
         # Log any unused kwargs to help with debugging

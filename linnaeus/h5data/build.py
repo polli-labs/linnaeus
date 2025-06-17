@@ -112,10 +112,7 @@ logger = get_h5data_logger()
 
 
 def build_datasets(
-    config: CN,
-    h5data_logger: logging.Logger,
-    monitor_interval: float = 5.0,
-    monitor_enabled: bool = True,
+    config: CN, h5data_logger: logging.Logger, monitor_interval: float = 5.0, monitor_enabled: bool = True
 ) -> tuple[
     Any,  # dataset_train
     Any,  # dataset_val
@@ -173,9 +170,7 @@ def build_datasets(
         main_logger.debug(f"  - monitor_enabled: {monitor_enabled}")
         main_logger.debug(f"  - Tasks: {config.DATA.TASK_KEYS_H5}")
         for task in config.DATA.TASK_KEYS_H5:
-            main_logger.debug(
-                f"  - Task '{task}' config: {getattr(config.DATA, task, 'Not found')}"
-            )
+            main_logger.debug(f"  - Task '{task}' config: {getattr(config.DATA, task, 'Not found')}")
 
     # Possibly override monitor_interval from config if a custom pipeline freq is set.
     if hasattr(config, "MISC") and hasattr(config.MISC, "PIPELINE_METRICS_FREQ"):
@@ -208,12 +203,8 @@ def build_datasets(
         main_logger.debug(f"  - single_file_hybrid: {single_file_hybrid}")
         main_logger.debug(f"  - H5.LABELS_PATH: {config.DATA.H5.LABELS_PATH}")
         main_logger.debug(f"  - H5.IMAGES_PATH: {config.DATA.H5.IMAGES_PATH}")
-        main_logger.debug(
-            f"  - H5.TRAIN_LABELS_PATH: {config.DATA.H5.TRAIN_LABELS_PATH}"
-        )
-        main_logger.debug(
-            f"  - H5.TRAIN_IMAGES_PATH: {config.DATA.H5.TRAIN_IMAGES_PATH}"
-        )
+        main_logger.debug(f"  - H5.TRAIN_LABELS_PATH: {config.DATA.H5.TRAIN_LABELS_PATH}")
+        main_logger.debug(f"  - H5.TRAIN_IMAGES_PATH: {config.DATA.H5.TRAIN_IMAGES_PATH}")
         main_logger.debug(f"  - H5.VAL_LABELS_PATH: {config.DATA.H5.VAL_LABELS_PATH}")
         main_logger.debug(f"  - H5.VAL_IMAGES_PATH: {config.DATA.H5.VAL_IMAGES_PATH}")
         main_logger.debug(f"  - HYBRID.USE_HYBRID: {config.DATA.HYBRID.USE_HYBRID}")
@@ -230,9 +221,7 @@ def build_datasets(
     if labels_path and os.path.isfile(labels_path):
         _parse_labels_h5_metadata_dynamic(labels_path, config)
     else:
-        main_logger.warning(
-            "No valid labels file found for dynamic metadata parse (or file doesn't exist). Skipping metadata parse."
-        )
+        main_logger.warning("No valid labels file found for dynamic metadata parse (or file doesn't exist). Skipping metadata parse.")
 
     # -------------------------------------------------------------------------
     # Step 3: Create the VectorizedDatasetProcessorOnePass to build group_ids etc.
@@ -253,12 +242,8 @@ def build_datasets(
         processor_val_file = config.DATA.H5.VAL_LABELS_PATH
 
     # --- Extract verification settings from config ---
-    verify_cfg = getattr(
-        config.DATA.HYBRID, "VERIFY_IMAGES", CN()
-    )  # Get sub-node safely
-    verify_images = (
-        verify_cfg.get("ENABLED", False) if config.DATA.HYBRID.USE_HYBRID else False
-    )
+    verify_cfg = getattr(config.DATA.HYBRID, "VERIFY_IMAGES", CN())  # Get sub-node safely
+    verify_images = verify_cfg.get("ENABLED", False) if config.DATA.HYBRID.USE_HYBRID else False
     images_dir = config.DATA.HYBRID.IMAGES_DIR if verify_images else None
     file_extension = config.DATA.HYBRID.FILE_EXTENSION if verify_images else ""
     max_missing_ratio = verify_cfg.get("MAX_MISSING_RATIO", 0.0)
@@ -305,9 +290,7 @@ def build_datasets(
         main_logger.debug("[build_datasets] Augmentation setup:")
         main_logger.debug("  - Using AugmentationPipelineFactory.create(config)")
         if hasattr(config, "AUG"):
-            main_logger.debug(
-                f"  - AUG.ENABLED: {getattr(config.AUG, 'ENABLED', False)}"
-            )
+            main_logger.debug(f"  - AUG.ENABLED: {getattr(config.AUG, 'ENABLED', False)}")
             if hasattr(config.AUG, "POLICY"):
                 main_logger.debug(f"  - AUG.POLICY: {config.AUG.POLICY}")
 
@@ -392,9 +375,7 @@ def build_datasets(
         # Split "all" => train + val using LOCAL indices (0 to num_valid-1)
         valid_indices = processor.valid_sample_indices["all"]
         total_valid = len(valid_indices)
-        main_logger.debug(
-            f"Single-file scenario => total_valid={total_valid}. Splitting train/val."
-        )
+        main_logger.debug(f"Single-file scenario => total_valid={total_valid}. Splitting train/val.")
         rng = np.random.RandomState(config.DATA.H5.TRAIN_VAL_SPLIT_SEED)
 
         # Create LOCAL indices (0 to num_valid-1)
@@ -438,14 +419,10 @@ def build_datasets(
         )
 
         # Now wrap train indices in a subset wrapper => it will build group_ids[rank_key]['train']
-        dataset_train = _SingleFileH5SubsetWrapper(
-            base_dataset=base_dataset, subset_indices=train_subset, subset_key="train"
-        )
+        dataset_train = _SingleFileH5SubsetWrapper(base_dataset=base_dataset, subset_indices=train_subset, subset_key="train")
 
         # Wrap val indices => build group_ids[rank_key]['val']
-        dataset_val = _SingleFileH5SubsetWrapper(
-            base_dataset=base_dataset, subset_indices=val_subset, subset_key="val"
-        )
+        dataset_val = _SingleFileH5SubsetWrapper(base_dataset=base_dataset, subset_indices=val_subset, subset_key="val")
 
     # Scenario B-H: single-file Hybrid usage.
     elif single_file_hybrid:
@@ -466,9 +443,7 @@ def build_datasets(
 
         valid_indices = processor.valid_sample_indices["all"]
         total_valid = len(valid_indices)
-        main_logger.debug(
-            f"Single-file hybrid => total_valid={total_valid}. Splitting train/val."
-        )
+        main_logger.debug(f"Single-file hybrid => total_valid={total_valid}. Splitting train/val.")
         rng = np.random.RandomState(config.DATA.H5.TRAIN_VAL_SPLIT_SEED)
 
         # Create LOCAL indices (0 to num_valid-1)
@@ -508,12 +483,8 @@ def build_datasets(
             monitor_enabled=monitor_enabled,
         )
 
-        dataset_train = _SingleFileHybridSubsetWrapper(
-            base_dataset=base_dataset, subset_indices=train_subset, subset_key="train"
-        )
-        dataset_val = _SingleFileHybridSubsetWrapper(
-            base_dataset=base_dataset, subset_indices=val_subset, subset_key="val"
-        )
+        dataset_train = _SingleFileHybridSubsetWrapper(base_dataset=base_dataset, subset_indices=train_subset, subset_key="train")
+        dataset_val = _SingleFileHybridSubsetWrapper(base_dataset=base_dataset, subset_indices=val_subset, subset_key="val")
 
     # Scenario C: train-only usage.
     else:
@@ -560,9 +531,7 @@ def build_datasets(
                     return 0
 
                 def __getitem__(self, idx):
-                    raise IndexError(
-                        "Empty dataset has no items. This is train-only scenario."
-                    )
+                    raise IndexError("Empty dataset has no items. This is train-only scenario.")
 
             dataset_val = EmptyValDataset()
         else:
@@ -581,26 +550,20 @@ def build_datasets(
         # Log dataset sizes
         train_size = len(dataset_train) if dataset_train is not None else 0
         val_size = len(dataset_val) if dataset_val is not None else 0
-        main_logger.debug(
-            f"[build_datasets] Final dataset sizes: train={train_size}, val={val_size}"
-        )
+        main_logger.debug(f"[build_datasets] Final dataset sizes: train={train_size}, val={val_size}")
 
         # Log class distribution
         main_logger.debug(f"[build_datasets] Number of classes per task: {num_classes}")
 
         # Log label density info
         for subset_key in task_label_density:
-            main_logger.debug(
-                f"[build_datasets] Task label density for '{subset_key}' subset:"
-            )
+            main_logger.debug(f"[build_datasets] Task label density for '{subset_key}' subset:")
             for task_key, density in task_label_density[subset_key].items():
                 main_logger.debug(f"  - {task_key}: {density:.4f}")
 
         # Log nulls density
         for subset_key in task_nulls_density:
-            main_logger.debug(
-                f"[build_datasets] Task nulls density for '{subset_key}' subset:"
-            )
+            main_logger.debug(f"[build_datasets] Task nulls density for '{subset_key}' subset:")
             for task_key, density in task_nulls_density[subset_key].items():
                 main_logger.debug(f"  - {task_key}: {density:.4f}")
 
@@ -627,10 +590,7 @@ def build_datasets(
 
 
 def build_loaders(
-    config: CN,
-    dataset_train: torch.utils.data.Dataset,
-    dataset_val: torch.utils.data.Dataset,
-    h5data_logger: logging.Logger,
+    config: CN, dataset_train: torch.utils.data.Dataset, dataset_val: torch.utils.data.Dataset, h5data_logger: logging.Logger
 ) -> tuple[H5DataLoader, H5DataLoader]:
     """
     Build train & val DataLoaders with an appropriate sampler for training
@@ -662,9 +622,7 @@ def build_loaders(
 
     if check_debug_flag(config, "DEBUG.DATALOADER"):
         main_logger.debug("[build_loaders] Configuration for dataloaders:")
-        main_logger.debug(
-            f"  - Dataset sizes: train={len(dataset_train)}, val={len(dataset_val) if dataset_val is not None else 0}"
-        )
+        main_logger.debug(f"  - Dataset sizes: train={len(dataset_train)}, val={len(dataset_val) if dataset_val is not None else 0}")
         main_logger.debug(f"  - NUM_WORKERS: {config.DATA.NUM_WORKERS}")
         main_logger.debug(f"  - PIN_MEMORY: {config.DATA.PIN_MEMORY}")
         main_logger.debug(f"  - CUDA available: {torch.cuda.is_available()}")
@@ -701,9 +659,7 @@ def build_loaders(
         if hasattr(config.SCHEDULE, "MIX"):
             main_logger.debug("[build_loaders] Mixing configuration:")
             main_logger.debug(f"  - GROUP_LEVELS: {config.SCHEDULE.MIX.GROUP_LEVELS}")
-            main_logger.debug(
-                f"  - MIN_GROUP_SIZE: {config.SCHEDULE.MIX.MIN_GROUP_SIZE}"
-            )
+            main_logger.debug(f"  - MIN_GROUP_SIZE: {config.SCHEDULE.MIX.MIN_GROUP_SIZE}")
 
             # Log Mixup configuration
             if hasattr(config.SCHEDULE.MIX, "MIXUP"):
@@ -714,50 +670,45 @@ def build_loaders(
             # Log CutMix configuration
             if hasattr(config.SCHEDULE.MIX, "CUTMIX"):
                 main_logger.debug("  - CUTMIX:")
-                main_logger.debug(
-                    f"    - ENABLED: {config.SCHEDULE.MIX.CUTMIX.ENABLED}"
-                )
+                main_logger.debug(f"    - ENABLED: {config.SCHEDULE.MIX.CUTMIX.ENABLED}")
                 main_logger.debug(f"    - ALPHA: {config.SCHEDULE.MIX.CUTMIX.ALPHA}")
                 main_logger.debug(f"    - MINMAX: {config.SCHEDULE.MIX.CUTMIX.MINMAX}")
 
             main_logger.debug(f"  - SWITCH_PROB: {config.SCHEDULE.MIX.SWITCH_PROB}")
             main_logger.debug(f"  - USE_GPU: {config.SCHEDULE.MIX.USE_GPU}")
-            main_logger.debug(
-                f"  - EXCLUDE_NULL_SAMPLES: {config.SCHEDULE.MIX.EXCLUDE_NULL_SAMPLES}"
-            )
+            main_logger.debug(f"  - EXCLUDE_NULL_SAMPLES: {config.SCHEDULE.MIX.EXCLUDE_NULL_SAMPLES}")
         # Backward compatibility for MIXUP config
         elif hasattr(config.SCHEDULE, "MIXUP"):
             main_logger.debug("[build_loaders] Mixup configuration (legacy):")
             main_logger.debug(f"  - GROUP_LEVELS: {config.SCHEDULE.MIX.GROUP_LEVELS}")
-            main_logger.debug(
-                f"  - MIN_GROUP_SIZE: {config.SCHEDULE.MIX.MIN_GROUP_SIZE}"
-            )
-            main_logger.debug(
-                f"  - ALPHA: {getattr(config.SCHEDULE.MIX, 'ALPHA', 'Not set')}"
-            )
-            main_logger.debug(
-                f"  - USE_GPU: {getattr(config.SCHEDULE.MIX, 'USE_GPU', False)}"
-            )
-            main_logger.debug(
-                f"  - EXCLUDE_NULL_SAMPLES: {getattr(config.SCHEDULE.MIX, 'EXCLUDE_NULL_SAMPLES', False)}"
-            )
+            main_logger.debug(f"  - MIN_GROUP_SIZE: {config.SCHEDULE.MIX.MIN_GROUP_SIZE}")
+            main_logger.debug(f"  - ALPHA: {getattr(config.SCHEDULE.MIX, 'ALPHA', 'Not set')}")
+            main_logger.debug(f"  - USE_GPU: {getattr(config.SCHEDULE.MIX, 'USE_GPU', False)}")
+            main_logger.debug(f"  - EXCLUDE_NULL_SAMPLES: {getattr(config.SCHEDULE.MIX, 'EXCLUDE_NULL_SAMPLES', False)}")
 
     # -------------------------------------------------------------------------
     # 2) Build the train data loader with appropriate sampler (grouped or standard).
     # -------------------------------------------------------------------------
     sampler_type = config.DATA.SAMPLER.TYPE.lower()
+
+    # Adjust batch_size_train if 'mixed-pairs' sampler requires even batch size
+    if sampler_type == "grouped" and config.DATA.SAMPLER.GROUPED_MODE == "mixed-pairs":
+        if batch_size_train % 2 != 0:
+            original_bs = batch_size_train
+            batch_size_train -= 1
+            main_logger.warning(
+                f"[GroupedBatchSampler] Batch size was odd ({original_bs}) but 'mixed-pairs' mode "
+                f"requires an even number. Adjusting train batch size to {batch_size_train}."
+            )
+
     is_distributed = dist.is_available() and dist.is_initialized()
 
     # Log sampler selection
     if check_debug_flag(config, "DEBUG.DATALOADER"):
-        main_logger.debug(
-            f"[build_loaders] Using {sampler_type.upper()} sampler for training"
-        )
+        main_logger.debug(f"[build_loaders] Using {sampler_type.upper()} sampler for training")
         main_logger.debug(f"  - distributed: {is_distributed}")
         if is_distributed:
-            main_logger.debug(
-                f"  - rank: {dist.get_rank()}, world_size: {dist.get_world_size()}"
-            )
+            main_logger.debug(f"  - rank: {dist.get_rank()}, world_size: {dist.get_world_size()}")
         if sampler_type == "grouped":
             main_logger.debug(f"  - grouped mode: {config.DATA.SAMPLER.GROUPED_MODE}")
             main_logger.debug(f"  - DDP-aware: {is_distributed}")
@@ -773,9 +724,7 @@ def build_loaders(
             sampler_train = torch.utils.data.RandomSampler(dataset_train)
 
         # Create a batch sampler from the standard sampler
-        train_batch_sampler = torch.utils.data.BatchSampler(
-            sampler_train, batch_size=batch_size_train, drop_last=True
-        )
+        train_batch_sampler = torch.utils.data.BatchSampler(sampler_train, batch_size=batch_size_train, drop_last=True)
     elif sampler_type == "grouped":
         # Use the GroupedBatchSampler with appropriate mode
         grouped_mode = config.DATA.SAMPLER.GROUPED_MODE.lower()
@@ -784,15 +733,11 @@ def build_loaders(
         if is_distributed:
             rank = dist.get_rank()
             world_size = dist.get_world_size()
-            main_logger.info(
-                f"Using GROUPED sampler with mode '{grouped_mode}' for training (DDP-aware, rank {rank}/{world_size})."
-            )
+            main_logger.info(f"Using GROUPED sampler with mode '{grouped_mode}' for training (DDP-aware, rank {rank}/{world_size}).")
         else:
             rank = 0
             world_size = 1
-            main_logger.info(
-                f"Using GROUPED sampler with mode '{grouped_mode}' for training (single-process)."
-            )
+            main_logger.info(f"Using GROUPED sampler with mode '{grouped_mode}' for training (single-process).")
 
         train_batch_sampler = GroupedBatchSampler(
             dataset=dataset_train,
@@ -829,17 +774,12 @@ def build_loaders(
         is_distributed = dist.is_initialized()
         if is_distributed:
             sampler_val = torch.utils.data.distributed.DistributedSampler(
-                dataset_val,
-                num_replicas=dist.get_world_size(),
-                rank=dist.get_rank(),
-                shuffle=False,
+                dataset_val, num_replicas=dist.get_world_size(), rank=dist.get_rank(), shuffle=False
             )
         else:
             sampler_val = torch.utils.data.SequentialSampler(dataset_val)
 
-        val_batch_sampler = torch.utils.data.BatchSampler(
-            sampler_val, batch_size=batch_size_val, drop_last=False
-        )
+        val_batch_sampler = torch.utils.data.BatchSampler(sampler_val, batch_size=batch_size_val, drop_last=False)
 
         data_loader_val = H5DataLoader(
             dataset=dataset_val,
@@ -851,11 +791,7 @@ def build_loaders(
     else:
         # If val is empty, build a dummy DataLoader with an empty batch sampler.
         data_loader_val = H5DataLoader(
-            dataset_val,
-            batch_sampler=[],
-            num_workers=0,
-            pin_memory=config.DATA.PIN_MEMORY,
-            use_gpu=(torch.cuda.is_available()),
+            dataset_val, batch_sampler=[], num_workers=0, pin_memory=config.DATA.PIN_MEMORY, use_gpu=(torch.cuda.is_available())
         )
 
     main_logger.info("Completed dataloader building.")
@@ -869,26 +805,18 @@ def build_loaders(
         if sampler_type == "standard":
             # 'sampler_train' exists and is the base sampler (RandomSampler or DistributedSampler)
             # 'train_batch_sampler' is the BatchSampler wrapper
-            main_logger.debug(
-                f"  - Train sampler type: standard ({type(sampler_train).__name__})"
-            )
-            main_logger.debug(
-                f"  - Train batch sampler: {type(train_batch_sampler).__name__} with batch_size={batch_size_train}"
-            )
+            main_logger.debug(f"  - Train sampler type: standard ({type(sampler_train).__name__})")
+            main_logger.debug(f"  - Train batch sampler: {type(train_batch_sampler).__name__} with batch_size={batch_size_train}")
         elif sampler_type == "grouped":
             # 'train_batch_sampler' is the GroupedBatchSampler instance
-            main_logger.debug(
-                f"  - Train sampler type: grouped ({type(train_batch_sampler).__name__})"
-            )
+            main_logger.debug(f"  - Train sampler type: grouped ({type(train_batch_sampler).__name__})")
             # Check if the GroupedBatchSampler has the get_stats method
             if hasattr(train_batch_sampler, "get_stats"):
                 stats = train_batch_sampler.get_stats()
                 main_logger.debug(f"  - Train sampler stats: {stats}")
             else:
                 # Fallback logging if get_stats is somehow missing
-                main_logger.debug(
-                    f"  - Train sampler: GroupedBatchSampler with batch_size={batch_size_train}"
-                )
+                main_logger.debug(f"  - Train sampler: GroupedBatchSampler with batch_size={batch_size_train}")
 
         # Log if we're using distributed
         is_distributed = dist.is_initialized()
@@ -928,51 +856,30 @@ class _SingleFileH5SubsetWrapper(torch.utils.data.Dataset):
 
         # Instead of creating new group_ids here, we use those already created by the processor
         # in finalize_single_file_stats, which were properly mapped with original indices
-        if hasattr(self.base_dataset, "group_ids") and isinstance(
-            self.base_dataset.group_ids, dict
-        ):
+        if hasattr(self.base_dataset, "group_ids") and isinstance(self.base_dataset.group_ids, dict):
             for rank_key, subdict in self.base_dataset.group_ids.items():
                 if self.subset_key in subdict:
                     # Just reference the existing group IDs for this subset
-                    self.group_ids[rank_key] = {
-                        self.subset_key: subdict[self.subset_key]
-                    }
+                    self.group_ids[rank_key] = {self.subset_key: subdict[self.subset_key]}
                 else:
-                    logger.warning(
-                        f"No '{self.subset_key}' key in group_ids[{rank_key}], creating empty list."
-                    )
+                    logger.warning(f"No '{self.subset_key}' key in group_ids[{rank_key}], creating empty list.")
                     self.group_ids[rank_key] = {self.subset_key: []}
         else:
-            logger.warning(
-                "Base dataset has no group_ids or unexpected structure. Using empty dict."
-            )
+            logger.warning("Base dataset has no group_ids or unexpected structure. Using empty dict.")
 
         # Similarly get subset_ids if present
-        if (
-            hasattr(self.base_dataset, "subset_ids")
-            and self.subset_key in self.base_dataset.subset_ids
-        ):
+        if hasattr(self.base_dataset, "subset_ids") and self.subset_key in self.base_dataset.subset_ids:
             self.subset_ids = self.base_dataset.subset_ids[self.subset_key]
         else:
-            logger.warning(
-                f"Base dataset has no subset_ids[{self.subset_key}]; storing empty list."
-            )
+            logger.warning(f"Base dataset has no subset_ids[{self.subset_key}]; storing empty list.")
             self.subset_ids = []
 
-        logger.debug(
-            f"[_SingleFileH5SubsetWrapper] Created for subset_key='{subset_key}', size={len(self.subset_indices)}."
-        )
+        logger.debug(f"[_SingleFileH5SubsetWrapper] Created for subset_key='{subset_key}', size={len(self.subset_indices)}.")
 
         # Add detailed debug logs if the base dataset has a config with DEBUG.DATALOADER flag
-        if hasattr(self.base_dataset, "config") and check_debug_flag(
-            self.base_dataset.config, "DEBUG.DATALOADER"
-        ):
-            logger.debug(
-                f"[_SingleFileH5SubsetWrapper] Details for '{subset_key}' subset:"
-            )
-            logger.debug(
-                f"  - Using {len(self.subset_indices)} samples from underlying dataset of size {len(self.base_dataset)}"
-            )
+        if hasattr(self.base_dataset, "config") and check_debug_flag(self.base_dataset.config, "DEBUG.DATALOADER"):
+            logger.debug(f"[_SingleFileH5SubsetWrapper] Details for '{subset_key}' subset:")
+            logger.debug(f"  - Using {len(self.subset_indices)} samples from underlying dataset of size {len(self.base_dataset)}")
 
             # Log group_ids structure
             if self.group_ids:
@@ -980,9 +887,7 @@ class _SingleFileH5SubsetWrapper(torch.utils.data.Dataset):
                 for rank_key in self.group_ids:
                     if subset_key in self.group_ids[rank_key]:
                         group_id_list = self.group_ids[rank_key][subset_key]
-                        logger.debug(
-                            f"    - {rank_key}: {len(group_id_list)} group IDs"
-                        )
+                        logger.debug(f"    - {rank_key}: {len(group_id_list)} group IDs")
 
     def __len__(self):
         return len(self.subset_indices)
@@ -1032,10 +937,7 @@ class _SingleFileH5SubsetWrapper(torch.utils.data.Dataset):
         if hasattr(self.base_dataset, "set_current_group_rank_array"):
             self.base_dataset.set_current_group_rank_array(global_arr)
         else:
-            raise AttributeError(
-                "Base dataset does not have 'set_current_group_rank_array'. "
-                "Check your dataset or Pattern B logic."
-            )
+            raise AttributeError("Base dataset does not have 'set_current_group_rank_array'. Check your dataset or Pattern B logic.")
 
     def set_current_group_level_array(self, local_arr: list[int]):
         """
@@ -1072,51 +974,30 @@ class _SingleFileHybridSubsetWrapper(torch.utils.data.Dataset):
         self.group_ids = {}
         # Instead of creating new group_ids here, we use those already created by the processor
         # in finalize_single_file_stats, which were properly mapped with original indices
-        if hasattr(self.base_dataset, "group_ids") and isinstance(
-            self.base_dataset.group_ids, dict
-        ):
+        if hasattr(self.base_dataset, "group_ids") and isinstance(self.base_dataset.group_ids, dict):
             for rank_key, subdict in self.base_dataset.group_ids.items():
                 if self.subset_key in subdict:
                     # Just reference the existing group IDs for this subset
-                    self.group_ids[rank_key] = {
-                        self.subset_key: subdict[self.subset_key]
-                    }
+                    self.group_ids[rank_key] = {self.subset_key: subdict[self.subset_key]}
                 else:
-                    logger.warning(
-                        f"No '{self.subset_key}' key in group_ids[{rank_key}], creating empty list."
-                    )
+                    logger.warning(f"No '{self.subset_key}' key in group_ids[{rank_key}], creating empty list.")
                     self.group_ids[rank_key] = {self.subset_key: []}
         else:
-            logger.warning(
-                "Base dataset has no group_ids or unexpected structure. Using empty dict."
-            )
+            logger.warning("Base dataset has no group_ids or unexpected structure. Using empty dict.")
 
         # Similarly get subset_ids if present
-        if (
-            hasattr(self.base_dataset, "subset_ids")
-            and self.subset_key in self.base_dataset.subset_ids
-        ):
+        if hasattr(self.base_dataset, "subset_ids") and self.subset_key in self.base_dataset.subset_ids:
             self.subset_ids = self.base_dataset.subset_ids[self.subset_key]
         else:
-            logger.warning(
-                f"Base dataset has no subset_ids[{self.subset_key}]; storing empty list."
-            )
+            logger.warning(f"Base dataset has no subset_ids[{self.subset_key}]; storing empty list.")
             self.subset_ids = []
 
-        logger.debug(
-            f"[_SingleFileHybridSubsetWrapper] Created for subset_key='{subset_key}', size={len(self.subset_indices)}."
-        )
+        logger.debug(f"[_SingleFileHybridSubsetWrapper] Created for subset_key='{subset_key}', size={len(self.subset_indices)}.")
 
         # Add detailed debug logs if the base dataset has a config with DEBUG.DATALOADER flag
-        if hasattr(self.base_dataset, "config") and check_debug_flag(
-            self.base_dataset.config, "DEBUG.DATALOADER"
-        ):
-            logger.debug(
-                f"[_SingleFileHybridSubsetWrapper] Details for '{subset_key}' subset:"
-            )
-            logger.debug(
-                f"  - Using {len(self.subset_indices)} samples from underlying dataset of size {len(self.base_dataset)}"
-            )
+        if hasattr(self.base_dataset, "config") and check_debug_flag(self.base_dataset.config, "DEBUG.DATALOADER"):
+            logger.debug(f"[_SingleFileHybridSubsetWrapper] Details for '{subset_key}' subset:")
+            logger.debug(f"  - Using {len(self.subset_indices)} samples from underlying dataset of size {len(self.base_dataset)}")
 
             # Log group_ids structure
             if self.group_ids:
@@ -1124,9 +1005,7 @@ class _SingleFileHybridSubsetWrapper(torch.utils.data.Dataset):
                 for rank_key in self.group_ids:
                     if subset_key in self.group_ids[rank_key]:
                         group_id_list = self.group_ids[rank_key][subset_key]
-                        logger.debug(
-                            f"    - {rank_key}: {len(group_id_list)} group IDs"
-                        )
+                        logger.debug(f"    - {rank_key}: {len(group_id_list)} group IDs")
 
     def __len__(self):
         return len(self.subset_indices)
@@ -1175,10 +1054,7 @@ class _SingleFileHybridSubsetWrapper(torch.utils.data.Dataset):
         if hasattr(self.base_dataset, "set_current_group_rank_array"):
             self.base_dataset.set_current_group_rank_array(global_arr)
         else:
-            raise AttributeError(
-                "Base dataset does not have 'set_current_group_rank_array'. "
-                "Check your dataset or Pattern B logic."
-            )
+            raise AttributeError("Base dataset does not have 'set_current_group_rank_array'. Check your dataset or Pattern B logic.")
 
     def set_current_group_level_array(self, local_arr: list[int]):
         """
@@ -1252,9 +1128,7 @@ def _init_dataset(
     using_hybrid = bool(config.DATA.HYBRID.USE_HYBRID and images_f is None)
 
     if using_hybrid:
-        main_logger.debug(
-            "Creating PrefetchingHybridDataset for this subset. is_val=%r", is_val
-        )
+        main_logger.debug("Creating PrefetchingHybridDataset for this subset. is_val=%r", is_val)
         ds = PrefetchingHybridDataset(
             labels_file=labels_f,
             images_dir=config.DATA.HYBRID.IMAGES_DIR,
@@ -1281,9 +1155,7 @@ def _init_dataset(
             monitor_enabled=monitor_enabled,
         )
     else:
-        main_logger.debug(
-            "Creating PrefetchingH5Dataset for this subset. is_val=%r", is_val
-        )
+        main_logger.debug("Creating PrefetchingH5Dataset for this subset. is_val=%r", is_val)
         ds = PrefetchingH5Dataset(
             labels_file=labels_f,
             images_file=images_f,
@@ -1322,15 +1194,11 @@ def _parse_labels_h5_metadata_dynamic(labels_file: str, config: CN) -> None:
     main_logger = get_h5data_logger()
     try:
         if not os.path.isfile(labels_file):
-            main_logger.warning(
-                f"Skipping metadata parse. File not found: {labels_file}"
-            )
+            main_logger.warning(f"Skipping metadata parse. File not found: {labels_file}")
             return
         with h5py.File(labels_file, "r") as f:
             if "metadata" not in f:
-                main_logger.warning(
-                    f"No /metadata group found in {labels_file}; skipping parse."
-                )
+                main_logger.warning(f"No /metadata group found in {labels_file}; skipping parse.")
                 return
 
             was_frozen = config.is_frozen()
@@ -1342,18 +1210,12 @@ def _parse_labels_h5_metadata_dynamic(labels_file: str, config: CN) -> None:
                 meta_root.METADATA = CN(new_allowed=True)
 
             exclude_attrs = {"config_json", "export_script"}
-            _recursive_copy_hdf5_group(
-                h5group=f["metadata"],
-                cfg_node=meta_root.METADATA,
-                exclude_attrs=exclude_attrs,
-            )
+            _recursive_copy_hdf5_group(h5group=f["metadata"], cfg_node=meta_root.METADATA, exclude_attrs=exclude_attrs)
 
             if was_frozen:
                 config.freeze()
     except Exception as e:
-        main_logger.warning(
-            f"Error reading metadata from {labels_file}: {e}", exc_info=True
-        )
+        main_logger.warning(f"Error reading metadata from {labels_file}: {e}", exc_info=True)
 
 
 def _recursive_copy_hdf5_group(h5group: h5py.Group, cfg_node: CN, exclude_attrs: set):

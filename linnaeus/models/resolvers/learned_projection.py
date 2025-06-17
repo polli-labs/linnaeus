@@ -24,23 +24,17 @@ class LearnedProjectionResolver(nn.Module):
         **kwargs: Additional keyword arguments. May be unused, logged if unexpected.
     """
 
-    def __init__(
-        self, embed_dim: int, projection_dim: int, init_method: str = "xavier", **kwargs
-    ):
+    def __init__(self, embed_dim: int, projection_dim: int, init_method: str = "xavier", **kwargs):
         super().__init__()
         self.projection = nn.Linear(embed_dim, projection_dim, bias=False)
 
         # Initialize weights
         if init_method == "xavier":
             nn.init.xavier_uniform_(self.projection.weight)
-            logger.debug(
-                "Initialized LearnedProjectionResolver with Xavier uniform initialization."
-            )
+            logger.debug("Initialized LearnedProjectionResolver with Xavier uniform initialization.")
         elif init_method == "truncated_normal":
             nn.init.trunc_normal_(self.projection.weight, std=0.02)
-            logger.debug(
-                "Initialized LearnedProjectionResolver with Truncated Normal initialization."
-            )
+            logger.debug("Initialized LearnedProjectionResolver with Truncated Normal initialization.")
         else:
             raise ValueError(f"Unsupported init_method: {init_method}")
 
@@ -48,9 +42,7 @@ class LearnedProjectionResolver(nn.Module):
         if kwargs:
             logger.debug(f"LearnedProjectionResolver received unused kwargs: {kwargs}")
 
-    def forward(
-        self, lower_level: torch.Tensor, higher_level: torch.Tensor
-    ) -> torch.Tensor:
+    def forward(self, lower_level: torch.Tensor, higher_level: torch.Tensor) -> torch.Tensor:
         """
         Forward pass of LearnedProjectionResolver.
 
@@ -61,9 +53,7 @@ class LearnedProjectionResolver(nn.Module):
         Returns:
             torch.Tensor: Projected lower-level features of shape (B, C_out).
         """
-        logger.debug(
-            f"LearnedProjectionResolver Input shapes: lower_level={lower_level.shape}, higher_level={higher_level.shape}"
-        )
+        logger.debug(f"LearnedProjectionResolver Input shapes: lower_level={lower_level.shape}, higher_level={higher_level.shape}")
         projected = self.projection(lower_level)
         logger.debug(f"LearnedProjectionResolver Output shape: {projected.shape}")
         return projected

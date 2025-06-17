@@ -24,12 +24,7 @@ class Mlp(nn.Module):
     """
 
     def __init__(
-        self,
-        in_features: int,
-        hidden_features: int = None,
-        out_features: int = None,
-        act_layer: nn.Module = nn.GELU,
-        drop: float = 0.0,
+        self, in_features: int, hidden_features: int = None, out_features: int = None, act_layer: nn.Module = nn.GELU, drop: float = 0.0
     ):
         super().__init__()
         out_features = out_features or in_features
@@ -43,9 +38,7 @@ class Mlp(nn.Module):
             f"Initialized Mlp with in_features={in_features}, hidden_features={hidden_features}, out_features={out_features}, drop={drop}"
         )
 
-    def forward(
-        self, x: torch.Tensor, H: int = None, W: int = None, debug: bool = False
-    ) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, H: int = None, W: int = None, debug: bool = False) -> torch.Tensor:
         """
         Forward pass of the MLP.
 

@@ -64,16 +64,10 @@ class HierarchicalSoftmaxHead(BaseHierarchicalHead):
         self.taxonomy_tree = taxonomy_tree
 
         if not isinstance(taxonomy_tree, TaxonomyTree):
-            logger.error(
-                "HierarchicalSoftmaxHead requires a valid TaxonomyTree instance."
-            )
-            raise TypeError(
-                "Invalid taxonomy_tree provided to HierarchicalSoftmaxHead."
-            )
+            logger.error("HierarchicalSoftmaxHead requires a valid TaxonomyTree instance.")
+            raise TypeError("Invalid taxonomy_tree provided to HierarchicalSoftmaxHead.")
         if task_key not in task_keys:
-            raise ValueError(
-                f"Primary task key '{task_key}' not found in task_keys list."
-            )
+            raise ValueError(f"Primary task key '{task_key}' not found in task_keys list.")
         if task_key not in num_classes:
             raise ValueError(f"num_classes missing for primary task key '{task_key}'")
 
@@ -81,9 +75,7 @@ class HierarchicalSoftmaxHead(BaseHierarchicalHead):
         if level_classifiers_override is not None:
             # Use shared classifiers from configure_classification_heads
             self.task_classifiers = level_classifiers_override
-            logger.debug(
-                f"HSM (Instance for {task_key}): Using shared level classifiers."
-            )
+            logger.debug(f"HSM (Instance for {task_key}): Using shared level classifiers.")
         else:
             # Fallback to creating local classifiers (not recommended with DDP)
             logger.warning(
@@ -109,21 +101,12 @@ class HierarchicalSoftmaxHead(BaseHierarchicalHead):
                 buffer_name = f"hmatrix_{pair_key}"
                 self.register_buffer(buffer_name, matrix)
                 self._matrix_keys.append(pair_key)  # Store keys for forward pass
-            logger.info(
-                f"HSM (Instance for {task_key}): Registered {len(hierarchy_matrices)} hierarchy matrices."
-            )
+            logger.info(f"HSM (Instance for {task_key}): Registered {len(hierarchy_matrices)} hierarchy matrices.")
         except Exception as e:
-            logger.error(
-                f"HSM (Instance for {task_key}): Failed to build or register hierarchy matrices: {e}",
-                exc_info=True,
-            )
-            raise RuntimeError(
-                "Failed to initialize hierarchy matrices for HSM head."
-            ) from e
+            logger.error(f"HSM (Instance for {task_key}): Failed to build or register hierarchy matrices: {e}", exc_info=True)
+            raise RuntimeError("Failed to initialize hierarchy matrices for HSM head.") from e
 
-        logger.info(
-            f"Initialized HierarchicalSoftmaxHead instance for task '{task_key}'."
-        )
+        logger.info(f"Initialized HierarchicalSoftmaxHead instance for task '{task_key}'.")
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
@@ -140,9 +123,7 @@ class HierarchicalSoftmaxHead(BaseHierarchicalHead):
         """
         if self.is_gradnorm_mode():
             if self.primary_task_key not in self.task_classifiers:
-                raise RuntimeError(
-                    f"Classifier for primary task '{self.primary_task_key}' not found in HierarchicalSoftmaxHead."
-                )
+                raise RuntimeError(f"Classifier for primary task '{self.primary_task_key}' not found in HierarchicalSoftmaxHead.")
             return self.task_classifiers[self.primary_task_key](x)
 
         batch_size = x.shape[0]
@@ -153,9 +134,7 @@ class HierarchicalSoftmaxHead(BaseHierarchicalHead):
         for task_key in self.task_keys:
             if task_key not in self.task_classifiers:
                 # This should not happen if __init__ is correct
-                raise RuntimeError(
-                    f"Missing classifier for task '{task_key}' in HierarchicalSoftmaxHead."
-                )
+                raise RuntimeError(f"Missing classifier for task '{task_key}' in HierarchicalSoftmaxHead.")
             base_logits[task_key] = self.task_classifiers[task_key](x)
 
         # 2. Apply hierarchical structure to refine logits level by level (top-down)
@@ -169,26 +148,16 @@ class HierarchicalSoftmaxHead(BaseHierarchicalHead):
             matrix_buffer_name = f"hmatrix_{pair_key}"
             if hasattr(self, matrix_buffer_name):
                 # Get parent probabilities (using potentially refined logits from previous step)
-                parent_probs = F.softmax(
-                    refined_logits[parent_task], dim=1
-                )  # [B, num_parent]
+                parent_probs = F.softmax(refined_logits[parent_task], dim=1)  # [B, num_parent]
 
-                hierarchy_matrix = getattr(
-                    self, matrix_buffer_name
-                )  # [num_parent, num_child]
+                hierarchy_matrix = getattr(self, matrix_buffer_name)  # [num_parent, num_child]
 
                 # Calculate prior probability for children based on parent probs
-                hierarchy_weights = torch.matmul(
-                    parent_probs, hierarchy_matrix
-                )  # [B, num_child]
-                hierarchy_weights = (
-                    hierarchy_weights + 1e-10
-                )  # Epsilon for log stability
+                hierarchy_weights = torch.matmul(parent_probs, hierarchy_matrix)  # [B, num_child]
+                hierarchy_weights = hierarchy_weights + 1e-10  # Epsilon for log stability
 
                 # Refine child logits: Z_child_refined = Z_child_base + log(Prior)
-                refined_logits[child_task] = base_logits[child_task] + torch.log(
-                    hierarchy_weights
-                )
+                refined_logits[child_task] = base_logits[child_task] + torch.log(hierarchy_weights)
             # else: # No warning needed here if matrix simply doesn't exist (sparse hierarchy)
             # logger.debug(f"No hierarchy matrix for {pair_key}, {child_task} logits remain unrefined by {parent_task}.")
             # refined_logits[child_task] = base_logits[child_task] # Already copied
@@ -200,11 +169,6 @@ class HierarchicalSoftmaxHead(BaseHierarchicalHead):
                 f"(keys: {list(refined_logits.keys())}). Returning base logits as fallback."
             )
             # Fallback to base logits if refinement somehow failed to produce the key
-            return base_logits.get(
-                self.primary_task_key,
-                torch.zeros(
-                    batch_size, self.num_classes[self.primary_task_key], device=device
-                ),
-            )
+            return base_logits.get(self.primary_task_key, torch.zeros(batch_size, self.num_classes[self.primary_task_key], device=device))
 
         return refined_logits[self.primary_task_key]

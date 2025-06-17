@@ -23,9 +23,7 @@ def register_slurm_signal_handlers():
     """
 
     def handle_preempting(signum, frame):
-        logger.info(
-            f"Received signal {signum}, attempting to mark run preempting in wandb."
-        )
+        logger.info(f"Received signal {signum}, attempting to mark run preempting in wandb.")
         try:
             import wandb
 

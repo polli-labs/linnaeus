@@ -184,8 +184,7 @@ def save_asset_files(output_dir, num_classes, hierarchy_map, subset_maps, class_
 
         # Optimize for empty subset_ids - skip expensive conversion if all splits are empty
         if key == "subset_ids" and isinstance(value, dict):
-            if all(isinstance(split_data, list) and len(split_data) == 0
-                   for split_data in value.values()):
+            if all(isinstance(split_data, list) and len(split_data) == 0 for split_data in value.values()):
                 logger.debug(f"Saving empty {key}.json (all splits empty)")
                 filepath = os.path.join(output_dir, f"{key}.json")
                 with open(filepath, "w") as f:

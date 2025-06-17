@@ -47,25 +47,12 @@ class GPUAutoAugmentBatch(AutoAugmentBatch):
         Must support all operations used in the policies.py definitions.
         """
         ops = {
-            "ShearX": lambda img, magnitude: F.affine(
-                img, angle=0, translate=[0, 0], scale=1, shear=[magnitude, 0]
-            ),
-            "ShearY": lambda img, magnitude: F.affine(
-                img, angle=0, translate=[0, 0], scale=1, shear=[0, magnitude]
-            ),
-            "TranslateX": lambda img, magnitude: F.affine(
-                img, angle=0, translate=[magnitude, 0], scale=1, shear=[0, 0]
-            ),
-            "TranslateY": lambda img, magnitude: F.affine(
-                img, angle=0, translate=[0, magnitude], scale=1, shear=[0, 0]
-            ),
-            "TranslateYRel": lambda img,
-            magnitude: F.affine(  # Relative to image height
-                img,
-                angle=0,
-                translate=[0, magnitude * img.size(-1)],
-                scale=1,
-                shear=[0, 0],
+            "ShearX": lambda img, magnitude: F.affine(img, angle=0, translate=[0, 0], scale=1, shear=[magnitude, 0]),
+            "ShearY": lambda img, magnitude: F.affine(img, angle=0, translate=[0, 0], scale=1, shear=[0, magnitude]),
+            "TranslateX": lambda img, magnitude: F.affine(img, angle=0, translate=[magnitude, 0], scale=1, shear=[0, 0]),
+            "TranslateY": lambda img, magnitude: F.affine(img, angle=0, translate=[0, magnitude], scale=1, shear=[0, 0]),
+            "TranslateYRel": lambda img, magnitude: F.affine(  # Relative to image height
+                img, angle=0, translate=[0, magnitude * img.size(-1)], scale=1, shear=[0, 0]
             ),
             "Rotate": lambda img, magnitude: F.rotate(img, magnitude),
             "Color": lambda img, magnitude: self._adjust_color(img, magnitude),
@@ -76,9 +63,7 @@ class GPUAutoAugmentBatch(AutoAugmentBatch):
             "SolarizeAdd": self._solarize_add,
             "Contrast": lambda img, magnitude: F.adjust_contrast(img, 1 + magnitude),
             "Sharpness": self._adjust_sharpness,
-            "Brightness": lambda img, magnitude: F.adjust_brightness(
-                img, 1 + magnitude
-            ),
+            "Brightness": lambda img, magnitude: F.adjust_brightness(img, 1 + magnitude),
             "AutoContrast": self._auto_contrast,
             "Equalize": self._equalize,
             "Invert": lambda img, _: 1 - img,
@@ -101,9 +86,7 @@ class GPUAutoAugmentBatch(AutoAugmentBatch):
                     if torch.rand(1).item() < prob:
                         images = self._apply_op(images, op_name, magnitude)
                         images = torch.clamp(images, 0, 1)  # Ensure range after each op
-                        logger.debug(
-                            f"Applied operation {op_name} with magnitude {magnitude}"
-                        )
+                        logger.debug(f"Applied operation {op_name} with magnitude {magnitude}")
 
         return torch.clamp(images, 0, 1)  # Final range check
 
@@ -126,12 +109,8 @@ class GPUAutoAugmentBatch(AutoAugmentBatch):
     def _solarize(self, img: torch.Tensor, threshold: float) -> torch.Tensor:
         return torch.clamp(torch.where(img < threshold, img, 1 - img), 0, 1)
 
-    def _solarize_add(
-        self, img: torch.Tensor, add: float, thresh: float = 0.5
-    ) -> torch.Tensor:
-        return torch.clamp(
-            torch.where(img < thresh, torch.clamp(img + add, 0, 1), img), 0, 1
-        )
+    def _solarize_add(self, img: torch.Tensor, add: float, thresh: float = 0.5) -> torch.Tensor:
+        return torch.clamp(torch.where(img < thresh, torch.clamp(img + add, 0, 1), img), 0, 1)
 
     def _adjust_sharpness(self, img: torch.Tensor, factor: float) -> torch.Tensor:
         return torch.clamp(F.adjust_sharpness(img, factor), 0, 1)
@@ -151,17 +130,9 @@ class GPUAutoAugmentBatch(AutoAugmentBatch):
 
     def _gaussian_blur_rand(self, img: torch.Tensor, factor: float) -> torch.Tensor:
         kernel_size = int(factor * 3) * 2 + 1  # Ensure odd kernel size
-        return torch.clamp(
-            F.gaussian_blur(
-                img, kernel_size=(kernel_size, kernel_size), sigma=(factor, factor)
-            ),
-            0,
-            1,
-        )
+        return torch.clamp(F.gaussian_blur(img, kernel_size=(kernel_size, kernel_size), sigma=(factor, factor)), 0, 1)
 
-    def _apply_op(
-        self, images: torch.Tensor, op_name: str, magnitude: int
-    ) -> torch.Tensor:
+    def _apply_op(self, images: torch.Tensor, op_name: str, magnitude: int) -> torch.Tensor:
         if op_name not in self.ops:
             raise ValueError(f"Unknown operation: {op_name}")
         magnitude = magnitude * 0.1  # Scale magnitude to [0, 1] range

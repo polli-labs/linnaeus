@@ -54,11 +54,7 @@ def generate_taxonomy_matrices(
     fallback_to_uniform_flag = config.LOSS.TAXONOMY_SMOOTHING.FALLBACK_TO_UNIFORM
     debug_taxonomy = getattr(config.DEBUG.LOSS, "TAXONOMY_SMOOTHING", False)
 
-    enabled_tasks = [
-        task
-        for i, task in enumerate(task_keys)
-        if i < len(enabled_flags) and enabled_flags[i]
-    ]
+    enabled_tasks = [task for i, task in enumerate(task_keys) if i < len(enabled_flags) and enabled_flags[i]]
 
     if not enabled_tasks:
         if rank == 0:
@@ -66,9 +62,7 @@ def generate_taxonomy_matrices(
         return taxonomy_matrices
 
     if rank == 0:
-        logger.info(
-            f"Generating taxonomy matrices using TaxonomyTree for tasks: {enabled_tasks}"
-        )
+        logger.info(f"Generating taxonomy matrices using TaxonomyTree for tasks: {enabled_tasks}")
         if debug_taxonomy:
             logger.debug(
                 f"[DEBUG_TAXONOMY] Config: alpha={alpha}, beta={beta}, uniform_roots={uniform_roots_flag}, "
@@ -78,23 +72,17 @@ def generate_taxonomy_matrices(
     for task_key in enabled_tasks:
         n_classes = num_classes.get(task_key)
         if n_classes is None:
-            logger.warning(
-                f"Skipping matrix generation for task '{task_key}': num_classes not found."
-            )
+            logger.warning(f"Skipping matrix generation for task '{task_key}': num_classes not found.")
             continue
         if n_classes <= 1:
-            logger.info(
-                f"Skipping matrix generation for task '{task_key}': only {n_classes} class(es)."
-            )
+            logger.info(f"Skipping matrix generation for task '{task_key}': only {n_classes} class(es).")
             continue
 
         # --- Determine if uniform smoothing should be used for this task ---
         should_use_uniform = False
         nodes_at_level = taxonomy_tree.get_nodes_at_level(task_key)
         # Check if *any* node at this level has a parent recorded in the tree structure
-        has_parents_in_tree = any(
-            taxonomy_tree.get_parent(node) is not None for node in nodes_at_level
-        )
+        has_parents_in_tree = any(taxonomy_tree.get_parent(node) is not None for node in nodes_at_level)
 
         if not has_parents_in_tree:
             # This level has no parents recorded in the tree map.
@@ -130,9 +118,7 @@ def generate_taxonomy_matrices(
             #      AND `uniform_roots_flag` is True. (This covers the true highest level case).
 
             # Let's use the simpler logic from before, seems more direct:
-            all_nodes_are_global_roots = all(
-                taxonomy_tree.get_parent(node) is None for node in nodes_at_level
-            )
+            all_nodes_are_global_roots = all(taxonomy_tree.get_parent(node) is None for node in nodes_at_level)
 
             if all_nodes_are_global_roots and uniform_roots_flag:
                 if rank == 0:
@@ -146,9 +132,7 @@ def generate_taxonomy_matrices(
         # --- Generate Matrix ---
         if should_use_uniform:
             # Create a uniform smoothing matrix
-            matrix = torch.full(
-                (n_classes, n_classes), alpha / (n_classes - 1), dtype=torch.float32
-            )
+            matrix = torch.full((n_classes, n_classes), alpha / (n_classes - 1), dtype=torch.float32)
             matrix.fill_diagonal_(1.0 - alpha)
             if rank == 0:
                 off_diag = alpha / (n_classes - 1)
@@ -158,9 +142,7 @@ def generate_taxonomy_matrices(
                 )
                 if debug_taxonomy:
                     sample_size = min(5, n_classes)
-                    logger.debug(
-                        f"[DEBUG_TAXONOMY] First {sample_size}x{sample_size} of uniform matrix:"
-                    )
+                    logger.debug(f"[DEBUG_TAXONOMY] First {sample_size}x{sample_size} of uniform matrix:")
                     sample = matrix[:sample_size, :sample_size].cpu().numpy()
                     for i in range(sample_size):
                         logger.debug(f"[DEBUG_TAXONOMY] {sample[i]}")
@@ -168,24 +150,16 @@ def generate_taxonomy_matrices(
         else:
             # Generate distance-based smoothing matrix
             if rank == 0:
-                logger.info(
-                    f"Generating distance-based smoothing matrix for {task_key}..."
-                )
+                logger.info(f"Generating distance-based smoothing matrix for {task_key}...")
 
             # 1. Get distance matrix for this level
             try:
                 distance_matrix = taxonomy_tree.build_distance_matrix(task_key)
                 if rank == 0 and debug_taxonomy:
                     dist_np = distance_matrix.cpu().numpy()
-                    max_finite = (
-                        np.max(dist_np[np.isfinite(dist_np)])
-                        if np.any(np.isfinite(dist_np))
-                        else -1
-                    )
+                    max_finite = np.max(dist_np[np.isfinite(dist_np)]) if np.any(np.isfinite(dist_np)) else -1
                     min_finite = (
-                        np.min(dist_np[np.isfinite(dist_np) & (dist_np > 0)])
-                        if np.any(np.isfinite(dist_np) & (dist_np > 0))
-                        else -1
+                        np.min(dist_np[np.isfinite(dist_np) & (dist_np > 0)]) if np.any(np.isfinite(dist_np) & (dist_np > 0)) else -1
                     )
                     inf_count = np.sum(np.isinf(dist_np))
                     logger.debug(
@@ -193,23 +167,14 @@ def generate_taxonomy_matrices(
                         f"max_finite={max_finite:.1f}, min_finite={min_finite:.1f}, inf_count={inf_count}"
                     )
             except Exception as e:
-                logger.error(
-                    f"Error building distance matrix for task '{task_key}': {e}",
-                    exc_info=True,
-                )
+                logger.error(f"Error building distance matrix for task '{task_key}': {e}", exc_info=True)
                 continue  # Skip this task
 
             # 2. Identify root nodes *at this level* (indices only) if needed by build_taxonomy_smoothing_matrix
             #    The `uniform_roots` flag in build_taxonomy_smoothing_matrix uses this.
-            root_indices_at_level = [
-                idx
-                for idx, node in enumerate(nodes_at_level)
-                if taxonomy_tree.get_parent(node) is None
-            ]
+            root_indices_at_level = [idx for idx, node in enumerate(nodes_at_level) if taxonomy_tree.get_parent(node) is None]
             if rank == 0 and debug_taxonomy:
-                logger.debug(
-                    f"[DEBUG_TAXONOMY] Identified {len(root_indices_at_level)} root indices at level {task_key}."
-                )
+                logger.debug(f"[DEBUG_TAXONOMY] Identified {len(root_indices_at_level)} root indices at level {task_key}.")
 
             # 3. Build the smoothing matrix
             try:
@@ -222,9 +187,7 @@ def generate_taxonomy_matrices(
                     root_class_ids=root_indices_at_level,
                 )
                 if rank == 0:
-                    logger.info(
-                        f"Generated distance-based smoothing matrix for {task_key}: shape={matrix.shape}"
-                    )
+                    logger.info(f"Generated distance-based smoothing matrix for {task_key}: shape={matrix.shape}")
                     if debug_taxonomy:
                         diag_vals = matrix.diag()
                         logger.debug(
@@ -234,18 +197,11 @@ def generate_taxonomy_matrices(
                         # Log row sum check
                         row_sums = matrix.sum(dim=1)
                         max_err = (row_sums - 1.0).abs().max().item()
-                        logger.debug(
-                            f"[DEBUG_TAXONOMY] Max row sum error: {max_err:.6f}"
-                        )
+                        logger.debug(f"[DEBUG_TAXONOMY] Max row sum error: {max_err:.6f}")
                         if max_err > 1e-4:
-                            logger.warning(
-                                f"Row sums deviate significantly from 1.0 for {task_key}"
-                            )
+                            logger.warning(f"Row sums deviate significantly from 1.0 for {task_key}")
             except Exception as e:
-                logger.error(
-                    f"Error building smoothing matrix for task '{task_key}': {e}",
-                    exc_info=True,
-                )
+                logger.error(f"Error building smoothing matrix for task '{task_key}': {e}", exc_info=True)
                 continue  # Skip this task
 
         # Store the generated matrix
@@ -270,9 +226,7 @@ def save_taxonomy_matrices(taxonomy_matrices: dict[str, torch.Tensor], assets_di
         logger.info("No taxonomy matrices were generated, skipping save.")
         return
 
-    logger.info(
-        f"Saving {len(taxonomy_matrices)} taxonomy matrices to assets directory..."
-    )
+    logger.info(f"Saving {len(taxonomy_matrices)} taxonomy matrices to assets directory...")
 
     # Convert tensor data to lists for JSON serialization
     serializable_matrices = {}
@@ -282,12 +236,8 @@ def save_taxonomy_matrices(taxonomy_matrices: dict[str, torch.Tensor], assets_di
                 # Move to CPU before converting to list if it's on GPU
                 serializable_matrices[task_key] = matrix.cpu().tolist()
             except Exception as e:
-                logger.error(
-                    f"Error converting tensor to list for task '{task_key}': {e}"
-                )
-                serializable_matrices[task_key] = (
-                    f"Error: Could not serialize tensor of shape {matrix.shape}"
-                )
+                logger.error(f"Error converting tensor to list for task '{task_key}': {e}")
+                serializable_matrices[task_key] = f"Error: Could not serialize tensor of shape {matrix.shape}"
         else:
             # Should not happen if generated correctly, but handle just in case
             serializable_matrices[task_key] = str(matrix)
@@ -307,8 +257,6 @@ def save_taxonomy_matrices(taxonomy_matrices: dict[str, torch.Tensor], assets_di
             json.dump(serializable_matrices, f, indent=2)
         logger.info(f"Successfully saved taxonomy matrices to {outpath}")
     except TypeError as e:
-        logger.error(
-            f"Error saving taxonomy matrices to JSON (serialization issue): {e}"
-        )
+        logger.error(f"Error saving taxonomy matrices to JSON (serialization issue): {e}")
     except OSError as e:
         logger.error(f"Error writing taxonomy matrices file to {outpath}: {e}")

@@ -76,16 +76,7 @@ class Muon(Optimizer):
     Embeddings, classifier heads, and scalar or vector parameters should be optimized using AdamW.
     """
 
-    def __init__(
-        self,
-        params,
-        lr=0.02,
-        weight_decay=0.01,
-        momentum=0.95,
-        nesterov=True,
-        ns_steps=5,
-        strict=False,
-    ):
+    def __init__(self, params, lr=0.02, weight_decay=0.01, momentum=0.95, nesterov=True, ns_steps=5, strict=False):
         """
         Initialize Muon optimizer.
 
@@ -105,21 +96,13 @@ class Muon(Optimizer):
         if not 0.0 <= weight_decay:
             raise ValueError(f"Invalid weight_decay value: {weight_decay}")
 
-        defaults = dict(
-            lr=lr,
-            weight_decay=weight_decay,
-            momentum=momentum,
-            nesterov=nesterov,
-            ns_steps=ns_steps,
-        )
+        defaults = dict(lr=lr, weight_decay=weight_decay, momentum=momentum, nesterov=nesterov, ns_steps=ns_steps)
 
         # Validate parameter dimensions if strict mode is enabled
         if strict:
             for param in params:
                 if param.dim() not in [2, 4]:
-                    raise ValueError(
-                        f"Muon optimizer requires 2D or 4D parameters, got shape {param.shape}"
-                    )
+                    raise ValueError(f"Muon optimizer requires 2D or 4D parameters, got shape {param.shape}")
 
         super().__init__(params, defaults)
 
@@ -177,9 +160,7 @@ class Muon(Optimizer):
                 if p.dim() == 4:
                     g = g.view_as(p)
                     # Apply scaling factor based on dimensions
-                    scaling = (
-                        max(1, p.size(0) / (p.size(1) * p.size(2) * p.size(3))) ** 0.5
-                    )
+                    scaling = max(1, p.size(0) / (p.size(1) * p.size(2) * p.size(3))) ** 0.5
                 else:
                     # For 2D parameters
                     scaling = max(1, p.size(-2) / p.size(-1)) ** 0.5
@@ -198,15 +179,7 @@ class DistributedMuon(Optimizer):
     to ensure stability and performance in distributed settings.
     """
 
-    def __init__(
-        self,
-        params,
-        lr=0.02,
-        weight_decay=0.01,
-        momentum=0.95,
-        nesterov=True,
-        ns_steps=5,
-    ):
+    def __init__(self, params, lr=0.02, weight_decay=0.01, momentum=0.95, nesterov=True, ns_steps=5):
         """
         Initialize Distributed Muon optimizer.
 
@@ -227,19 +200,9 @@ class DistributedMuon(Optimizer):
 
         # Get rank and world size
         self.rank = get_rank_safely()
-        self.world_size = (
-            dist.get_world_size()
-            if dist.is_available() and dist.is_initialized()
-            else 1
-        )
+        self.world_size = dist.get_world_size() if dist.is_available() and dist.is_initialized() else 1
 
-        defaults = dict(
-            lr=lr,
-            weight_decay=weight_decay,
-            momentum=momentum,
-            nesterov=nesterov,
-            ns_steps=ns_steps,
-        )
+        defaults = dict(lr=lr, weight_decay=weight_decay, momentum=momentum, nesterov=nesterov, ns_steps=ns_steps)
 
         # Convert params to list to access by index
         params_list = list(params)
@@ -256,29 +219,19 @@ class DistributedMuon(Optimizer):
         for size, group_params in size_groups.items():
             for i, p in enumerate(group_params):
                 if p.numel() != size:
-                    logger.error(
-                        f"Parameter inconsistency detected: Expected size {size}, but got {p.numel()} for parameter {i}"
-                    )
+                    logger.error(f"Parameter inconsistency detected: Expected size {size}, but got {p.numel()} for parameter {i}")
 
         # Create parameter groups
         param_groups = []
         for size, group_params in size_groups.items():
             # Create buffer for all_gather operations
-            buffer = torch.empty(
-                self.world_size, size, dtype=torch.bfloat16, device="cuda"
-            )
+            buffer = torch.empty(self.world_size, size, dtype=torch.bfloat16, device="cuda")
 
             # Create parameter group with matching size
-            group = dict(
-                params=group_params,
-                update_buffer=buffer,
-                update_buffer_views=[buffer[i] for i in range(self.world_size)],
-            )
+            group = dict(params=group_params, update_buffer=buffer, update_buffer_views=[buffer[i] for i in range(self.world_size)])
             param_groups.append(group)
 
-        logger.info(
-            f"Created DistributedMuon with {len(param_groups)} parameter groups (rank={self.rank})"
-        )
+        logger.info(f"Created DistributedMuon with {len(param_groups)} parameter groups (rank={self.rank})")
 
         super().__init__(param_groups, defaults)
 
@@ -329,12 +282,8 @@ class DistributedMuon(Optimizer):
                                 logger.error(
                                     f"Mismatched tensor sizes: g_world.numel()={g_world.numel()}, p_world.numel()={p_world.numel()}"
                                 )
-                                logger.error(
-                                    f"Shapes: g_world={g_world.shape}, p_world={p_world.shape}"
-                                )
-                                raise RuntimeError(
-                                    "Mismatched tensor sizes in DistributedMuon.update_prev"
-                                )
+                                logger.error(f"Shapes: g_world={g_world.shape}, p_world={p_world.shape}")
+                                raise RuntimeError("Mismatched tensor sizes in DistributedMuon.update_prev")
 
                             # Reshape g_world to match p_world's shape
                             reshaped_g = g_world.view_as(p_world)
@@ -346,9 +295,7 @@ class DistributedMuon(Optimizer):
                             p_world.add_(reshaped_g, alpha=-lr * scaling)
                         except Exception as e:
                             logger.error(f"Error in update_prev: {str(e)}")
-                            logger.error(
-                                f"Parameter shape: {p_world.shape}, update shape: {g_world.shape}"
-                            )
+                            logger.error(f"Parameter shape: {p_world.shape}, update shape: {g_world.shape}")
                             raise
 
             # Process parameters in batches by rank
@@ -360,15 +307,9 @@ class DistributedMuon(Optimizer):
 
                     if g is None:
                         # Create a zero tensor if grad is None
-                        g = torch.zeros_like(
-                            p.data.flatten(), dtype=torch.bfloat16, device="cuda"
-                        )
-                        if hasattr(self, "config") and check_debug_flag(
-                            self.config, "DEBUG.OPTIMIZER"
-                        ):
-                            logger.debug(
-                                f"[DistributedMuon.step] Created zero tensor with shape {g.shape} and dtype {g.dtype}"
-                            )
+                        g = torch.zeros_like(p.data.flatten(), dtype=torch.bfloat16, device="cuda")
+                        if hasattr(self, "config") and check_debug_flag(self.config, "DEBUG.OPTIMIZER"):
+                            logger.debug(f"[DistributedMuon.step] Created zero tensor with shape {g.shape} and dtype {g.dtype}")
                     else:
                         # Apply momentum
                         state = self.state[p]
@@ -396,26 +337,16 @@ class DistributedMuon(Optimizer):
 
                 # Ensure g has same dtype as update_buffer
                 if g.dtype != update_buffer.dtype:
-                    logger.debug(
-                        f"Converting gradient from {g.dtype} to {update_buffer.dtype}"
-                    )
+                    logger.debug(f"Converting gradient from {g.dtype} to {update_buffer.dtype}")
                     g = g.to(dtype=update_buffer.dtype)
 
                 # Gather updates from all processes
                 try:
-                    handle = dist.all_gather_into_tensor(
-                        update_buffer, g, async_op=True
-                    )
+                    handle = dist.all_gather_into_tensor(update_buffer, g, async_op=True)
                 except TypeError:
-                    logger.error(
-                        f"Type mismatch in all_gather_into_tensor: update_buffer.dtype={update_buffer.dtype}, g.dtype={g.dtype}"
-                    )
-                    logger.error(
-                        f"Tensor shapes: update_buffer={update_buffer.shape}, g={g.shape}"
-                    )
-                    logger.error(
-                        f"Parameter info: p.shape={p.shape if base_i + self.rank < len(params) else 'N/A'}"
-                    )
+                    logger.error(f"Type mismatch in all_gather_into_tensor: update_buffer.dtype={update_buffer.dtype}, g.dtype={g.dtype}")
+                    logger.error(f"Tensor shapes: update_buffer={update_buffer.shape}, g={g.shape}")
+                    logger.error(f"Parameter info: p.shape={p.shape if base_i + self.rank < len(params) else 'N/A'}")
                     raise
 
                 # Set parameters for this batch

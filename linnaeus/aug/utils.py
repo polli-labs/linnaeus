@@ -53,9 +53,7 @@ def exclude_null_samples_from_mixup(
     ],
     null_task_keys: list[str] | str = None,
     config=None,
-) -> tuple[
-    torch.Tensor, dict[str, torch.Tensor], torch.Tensor, torch.Tensor, torch.Tensor
-]:
+) -> tuple[torch.Tensor, dict[str, torch.Tensor], torch.Tensor, torch.Tensor, torch.Tensor]:
     """
     Exclude null-category samples from mixup by setting their group_id to -1.
 
@@ -90,20 +88,14 @@ def exclude_null_samples_from_mixup(
     if null_task_keys is None:
         null_task_keys = list(targets.keys())
         if debug_enabled:
-            logger.debug(
-                f"[EXCLUDE_NULL_DEBUG] Using all task keys for null check: {null_task_keys}"
-            )
+            logger.debug(f"[EXCLUDE_NULL_DEBUG] Using all task keys for null check: {null_task_keys}")
     # If it's a single string, convert to a list
     elif isinstance(null_task_keys, str):
         null_task_keys = [null_task_keys]
         if debug_enabled:
-            logger.debug(
-                f"[EXCLUDE_NULL_DEBUG] Using single task key for null check: {null_task_keys}"
-            )
+            logger.debug(f"[EXCLUDE_NULL_DEBUG] Using single task key for null check: {null_task_keys}")
     elif debug_enabled:
-        logger.debug(
-            f"[EXCLUDE_NULL_DEBUG] Using provided task keys for null check: {null_task_keys}"
-        )
+        logger.debug(f"[EXCLUDE_NULL_DEBUG] Using provided task keys for null check: {null_task_keys}")
 
     # Identify samples with null category in any of the specified tasks
     null_mask = torch.zeros_like(group_ids, dtype=torch.bool)
@@ -111,9 +103,7 @@ def exclude_null_samples_from_mixup(
     for task_key in null_task_keys:
         if task_key not in targets:
             if debug_enabled:
-                logger.debug(
-                    f"[EXCLUDE_NULL_DEBUG] Task key {task_key} not found in targets, skipping"
-                )
+                logger.debug(f"[EXCLUDE_NULL_DEBUG] Task key {task_key} not found in targets, skipping")
             continue
 
         target = targets[task_key]
@@ -123,9 +113,7 @@ def exclude_null_samples_from_mixup(
             target = target.to(null_mask.device)
 
         if debug_enabled:
-            logger.debug(
-                f"[EXCLUDE_NULL_DEBUG] Task {task_key}: shape={target.shape}, dtype={target.dtype}"
-            )
+            logger.debug(f"[EXCLUDE_NULL_DEBUG] Task {task_key}: shape={target.shape}, dtype={target.dtype}")
 
         # Log the first few samples of the target to understand its structure
         if debug_enabled:
@@ -133,32 +121,22 @@ def exclude_null_samples_from_mixup(
 
         if target.dim() == 1:  # Hard labels
             if debug_enabled:
-                logger.debug(
-                    f"[EXCLUDE_NULL_DEBUG] Task {task_key} using hard labels check (target == 0)"
-                )
-                logger.debug(
-                    f"[EXCLUDE_NULL_DEBUG] First {sample_size} samples: {target[:sample_size]}"
-                )
+                logger.debug(f"[EXCLUDE_NULL_DEBUG] Task {task_key} using hard labels check (target == 0)")
+                logger.debug(f"[EXCLUDE_NULL_DEBUG] First {sample_size} samples: {target[:sample_size]}")
 
             # Check for nulls and log the count
             task_null_mask = target == 0
             null_count = task_null_mask.sum().item()
 
             if debug_enabled:
-                logger.debug(
-                    f"[EXCLUDE_NULL_DEBUG] Task {task_key}: Found {null_count}/{len(target)} nulls (hard labels)"
-                )
+                logger.debug(f"[EXCLUDE_NULL_DEBUG] Task {task_key}: Found {null_count}/{len(target)} nulls (hard labels)")
 
             # Update the overall null mask
             null_mask |= task_null_mask
         else:  # One-hot encoded
             if debug_enabled:
-                logger.debug(
-                    f"[EXCLUDE_NULL_DEBUG] Task {task_key} using one-hot check (target[:, 0] > 0.5)"
-                )
-                logger.debug(
-                    f"[EXCLUDE_NULL_DEBUG] First {sample_size} samples, index 0 values: {target[:sample_size, 0]}"
-                )
+                logger.debug(f"[EXCLUDE_NULL_DEBUG] Task {task_key} using one-hot check (target[:, 0] > 0.5)")
+                logger.debug(f"[EXCLUDE_NULL_DEBUG] First {sample_size} samples, index 0 values: {target[:sample_size, 0]}")
 
                 # Check distribution of values at index 0 to understand if the threshold is appropriate
                 idx0_vals = target[:, 0]
@@ -171,15 +149,11 @@ def exclude_null_samples_from_mixup(
             null_count = task_null_mask.sum().item()
 
             if debug_enabled:
-                logger.debug(
-                    f"[EXCLUDE_NULL_DEBUG] Task {task_key}: Found {null_count}/{len(target)} nulls (one-hot index 0 > 0.5)"
-                )
+                logger.debug(f"[EXCLUDE_NULL_DEBUG] Task {task_key}: Found {null_count}/{len(target)} nulls (one-hot index 0 > 0.5)")
 
             # Critical log for NULL_MASKING debugging - always log this if flag is enabled
             if config is not None and null_count == 0 and check_debug_flag(config, "DEBUG.LOSS.NULL_MASKING"):
-                logger.debug(
-                    f"[NULL_MASKING_CRITICAL] Task {task_key}: NO NULLS FOUND in exclude_null_samples_from_mixup!"
-                )
+                logger.debug(f"[NULL_MASKING_CRITICAL] Task {task_key}: NO NULLS FOUND in exclude_null_samples_from_mixup!")
                 # Add more detailed diagnostic information
                 idx0_vals = target[:, 0]
                 logger.debug(
@@ -189,22 +163,14 @@ def exclude_null_samples_from_mixup(
                 # Check for values that are close to but below the threshold
                 almost_nulls = ((idx0_vals > 0.3) & (idx0_vals <= 0.5)).sum().item()
                 if almost_nulls > 0:
-                    logger.debug(
-                        f"[NULL_MASKING_CRITICAL] Task {task_key}: Found {almost_nulls} values between 0.3-0.5"
-                    )
-                    logger.debug(
-                        "[NULL_MASKING_CRITICAL] These might be mixup-transformed nulls now below the 0.5 threshold"
-                    )
+                    logger.debug(f"[NULL_MASKING_CRITICAL] Task {task_key}: Found {almost_nulls} values between 0.3-0.5")
+                    logger.debug("[NULL_MASKING_CRITICAL] These might be mixup-transformed nulls now below the 0.5 threshold")
 
                     # Show some examples of these "almost nulls"
-                    almost_indices = ((idx0_vals > 0.3) & (idx0_vals <= 0.5)).nonzero(
-                        as_tuple=True
-                    )[0]
+                    almost_indices = ((idx0_vals > 0.3) & (idx0_vals <= 0.5)).nonzero(as_tuple=True)[0]
                     for i in range(min(3, len(almost_indices))):
                         idx = almost_indices[i].item()
-                        logger.debug(
-                            f"[NULL_MASKING_CRITICAL] Sample {idx}: index 0 value = {idx0_vals[idx].item():.4f}"
-                        )
+                        logger.debug(f"[NULL_MASKING_CRITICAL] Sample {idx}: index 0 value = {idx0_vals[idx].item():.4f}")
 
             # Update the overall null mask
             null_mask |= task_null_mask
@@ -222,9 +188,7 @@ def exclude_null_samples_from_mixup(
     if debug_enabled:
         # Log the group IDs before modification
         unique_group_ids = torch.unique(group_ids)
-        logger.debug(
-            f"[EXCLUDE_NULL_DEBUG] Original unique group_ids: {unique_group_ids.tolist()}"
-        )
+        logger.debug(f"[EXCLUDE_NULL_DEBUG] Original unique group_ids: {unique_group_ids.tolist()}")
 
     # Apply the null mask to group IDs
     new_group_ids[null_mask] = -1
@@ -233,14 +197,10 @@ def exclude_null_samples_from_mixup(
     null_group_count = (new_group_ids == -1).sum().item()
 
     if debug_enabled:
-        logger.debug(
-            f"[EXCLUDE_NULL_DEBUG] Set {null_group_count} group IDs to -1 (was {total_nulls} nulls detected)"
-        )
+        logger.debug(f"[EXCLUDE_NULL_DEBUG] Set {null_group_count} group IDs to -1 (was {total_nulls} nulls detected)")
 
         # Log unique group IDs after modification
         unique_new_group_ids = torch.unique(new_group_ids)
-        logger.debug(
-            f"[EXCLUDE_NULL_DEBUG] Updated unique group_ids: {unique_new_group_ids.tolist()}"
-        )
+        logger.debug(f"[EXCLUDE_NULL_DEBUG] Updated unique group_ids: {unique_new_group_ids.tolist()}")
 
     return images, targets, aux_info, meta_masks, new_group_ids

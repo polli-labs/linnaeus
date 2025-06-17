@@ -51,12 +51,8 @@ class CPUAugmentationPipeline(AugmentationPipeline):
         """Create and return a CPUAutoAugmentBatch instance."""
         if check_debug_flag(self.config, "DEBUG.AUGMENTATION"):
             logger.debug("[CPUAugmentationPipeline] Creating CPUAutoAugmentBatch")
-            logger.debug(
-                f"[CPUAugmentationPipeline] Policy: {self.config.AUG.AUTOAUG.POLICY}"
-            )
-            logger.debug(
-                f"[CPUAugmentationPipeline] Color jitter: {self.config.AUG.AUTOAUG.COLOR_JITTER}"
-            )
+            logger.debug(f"[CPUAugmentationPipeline] Policy: {self.config.AUG.AUTOAUG.POLICY}")
+            logger.debug(f"[CPUAugmentationPipeline] Color jitter: {self.config.AUG.AUTOAUG.COLOR_JITTER}")
         policy = self.config.AUG.AUTOAUG.POLICY
         color_jitter = self.config.AUG.AUTOAUG.COLOR_JITTER
         return CPUAutoAugmentBatch(policy, color_jitter, config=self.config)
@@ -65,9 +61,7 @@ class CPUAugmentationPipeline(AugmentationPipeline):
         """Create and return a CPURandomErasing instance."""
         if check_debug_flag(self.config, "DEBUG.AUGMENTATION"):
             logger.debug("[CPUAugmentationPipeline] Creating CPURandomErasing")
-            logger.debug(
-                f"[CPUAugmentationPipeline] Random erase config: {self.config.AUG.RANDOM_ERASE}"
-            )
+            logger.debug(f"[CPUAugmentationPipeline] Random erase config: {self.config.AUG.RANDOM_ERASE}")
         return CPURandomErasing(self.config.AUG.RANDOM_ERASE, config=self.config)
 
     def __call__(
@@ -104,9 +98,7 @@ class CPUAugmentationPipeline(AugmentationPipeline):
         # but here we do a single sample so let's expand dims or adapt:
         images_np = np.expand_dims(images_np.transpose(1, 2, 0), axis=0)  # (1, H, W, C)
         images_np = self.autoaug(images_np)  # returns shape (1, H, W, C)
-        images_np = np.squeeze(images_np, axis=0).transpose(
-            2, 0, 1
-        )  # back to (C, H, W)
+        images_np = np.squeeze(images_np, axis=0).transpose(2, 0, 1)  # back to (C, H, W)
 
         # if check_debug_flag(self.config, "DEBUG.AUGMENTATION"):
         #     logger.debug(f"[CPUAugmentationPipeline.__call__] After AutoAugment: shape={images_np.shape}, range=[{images_np.min():.4f}, {images_np.max():.4f}]")

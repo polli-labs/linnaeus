@@ -58,9 +58,7 @@ class CPUSelectiveMixup(SelectiveMixup):
         self.config = config
 
         # Use the precomputed chunk boundaries if provided
-        if "meta_chunk_bounds_list" in mix_config and isinstance(
-            mix_config["meta_chunk_bounds_list"], list
-        ):
+        if "meta_chunk_bounds_list" in mix_config and isinstance(mix_config["meta_chunk_bounds_list"], list):
             self.chunk_bounds = mix_config["meta_chunk_bounds_list"]
             logger.debug("CPUSelectiveMixup using precomputed chunk bounds")
         else:
@@ -98,9 +96,7 @@ class CPUSelectiveMixup(SelectiveMixup):
         """
         # Optionally exclude null-category samples from mixup
         if exclude_null_samples:
-            batch = exclude_null_samples_from_mixup(
-                batch, null_task_keys, config=self.config
-            )
+            batch = exclude_null_samples_from_mixup(batch, null_task_keys, config=self.config)
 
         images, targets, aux_info, meta_masks, group_ids = batch
 
@@ -171,9 +167,7 @@ class CPUSelectiveMixup(SelectiveMixup):
                     # For one-hot targets, log the index 0 (null category) values
                     logger.debug(f"[MIXUP_TARGET_DEBUG] Task {k} BEFORE mixing:")
                     logger.debug(f"  - Shape: {v.shape}, dtype: {v.dtype}")
-                    logger.debug(
-                        f"  - First {sample_size} samples, index 0 values: {v[:sample_size, 0]}"
-                    )
+                    logger.debug(f"  - First {sample_size} samples, index 0 values: {v[:sample_size, 0]}")
 
                     # Check null distribution in the original and permuted targets
                     idx0_vals_orig = v[:, 0]
@@ -188,14 +182,10 @@ class CPUSelectiveMixup(SelectiveMixup):
                     )
                 else:
                     # For hard labels
-                    logger.debug(
-                        f"[MIXUP_TARGET_DEBUG] Task {k} BEFORE mixing (hard labels):"
-                    )
+                    logger.debug(f"[MIXUP_TARGET_DEBUG] Task {k} BEFORE mixing (hard labels):")
                     logger.debug(f"  - Shape: {v.shape}, dtype: {v.dtype}")
                     logger.debug(f"  - First {sample_size} samples: {v[:sample_size]}")
-                    logger.debug(
-                        f"  - First {sample_size} permuted samples: {v[perm][:sample_size]}"
-                    )
+                    logger.debug(f"  - First {sample_size} permuted samples: {v[perm][:sample_size]}")
 
             # Perform the actual mixing operation
             mixed_targets[k] = lam * v + (1 - lam) * v[perm]
@@ -206,15 +196,11 @@ class CPUSelectiveMixup(SelectiveMixup):
                 if mixed_targets[k].dim() > 1:
                     # For one-hot targets, check the mixed results
                     logger.debug(f"[MIXUP_TARGET_DEBUG] Task {k} AFTER mixing:")
-                    logger.debug(
-                        f"  - First {sample_size} mixed samples, index 0 values: {mixed_targets[k][:sample_size, 0]}"
-                    )
+                    logger.debug(f"  - First {sample_size} mixed samples, index 0 values: {mixed_targets[k][:sample_size, 0]}")
 
                     # Calculate how many values are near critical thresholds
                     idx0_vals_mixed = mixed_targets[k][:, 0]
-                    near_half = (
-                        ((idx0_vals_mixed > 0.4) & (idx0_vals_mixed < 0.6)).sum().item()
-                    )
+                    near_half = ((idx0_vals_mixed > 0.4) & (idx0_vals_mixed < 0.6)).sum().item()
                     logger.debug(
                         f"  - Values near 0.5 threshold: {near_half}/{len(idx0_vals_mixed)} ({100 * near_half / len(idx0_vals_mixed):.1f}%)"
                     )
@@ -227,27 +213,17 @@ class CPUSelectiveMixup(SelectiveMixup):
                         idx = 0
                         logger.debug(f"  - Example: Sample {idx}")
                         logger.debug(f"    Original: index 0 = {v[idx, 0].item():.4f}")
-                        logger.debug(
-                            f"    Permuted: index 0 = {v[perm][idx, 0].item():.4f}"
-                        )
+                        logger.debug(f"    Permuted: index 0 = {v[perm][idx, 0].item():.4f}")
                         logger.debug(
                             f"    Mixed:    index 0 = {mixed_targets[k][idx, 0].item():.4f} (formula: {lam:.4f} * {v[idx, 0].item():.4f} + {1 - lam:.4f} * {v[perm][idx, 0].item():.4f})"
                         )
                 else:
                     # For hard labels
-                    logger.debug(
-                        f"[MIXUP_TARGET_DEBUG] Task {k} AFTER mixing (hard labels):"
-                    )
-                    logger.debug(
-                        f"  - First {sample_size} mixed samples: {mixed_targets[k][:sample_size]}"
-                    )
+                    logger.debug(f"[MIXUP_TARGET_DEBUG] Task {k} AFTER mixing (hard labels):")
+                    logger.debug(f"  - First {sample_size} mixed samples: {mixed_targets[k][:sample_size]}")
 
             # Add critical NULL_MASKING debug logging that respects the NULL_MASKING flag
-            if (
-                self.config is not None
-                and mixed_targets[k].dim() > 1
-                and check_debug_flag(self.config, "DEBUG.LOSS.NULL_MASKING")
-            ):
+            if self.config is not None and mixed_targets[k].dim() > 1 and check_debug_flag(self.config, "DEBUG.LOSS.NULL_MASKING"):
                 # Check for null values AFTER mixing
                 idx0_vals_mixed = mixed_targets[k][:, 0]
 
@@ -257,47 +233,31 @@ class CPUSelectiveMixup(SelectiveMixup):
                 nulls_after = (idx0_vals_mixed > 0.5).sum().item()
 
                 # Calculate near-threshold values
-                near_half = (
-                    ((idx0_vals_mixed > 0.4) & (idx0_vals_mixed < 0.6)).sum().item()
-                )
+                near_half = ((idx0_vals_mixed > 0.4) & (idx0_vals_mixed < 0.6)).sum().item()
 
                 # If we lost nulls, log this explicitly
                 logger.debug(
                     f"[NULL_MASKING_MIXUP] Task {k}: nulls BEFORE mixing: {nulls_before_orig} (original), {nulls_before_perm} (permuted)"
                 )
-                logger.debug(
-                    f"[NULL_MASKING_MIXUP] Task {k}: nulls AFTER mixing: {nulls_after}"
-                )
+                logger.debug(f"[NULL_MASKING_MIXUP] Task {k}: nulls AFTER mixing: {nulls_after}")
 
                 if nulls_before_orig > 0 or nulls_before_perm > 0:
                     # Calculate expected nulls vs. actual
                     lost_nulls = (nulls_before_orig + nulls_before_perm) - nulls_after
                     if lost_nulls > 0:
-                        logger.debug(
-                            f"[NULL_MASKING_MIXUP] Task {k}: LOST {lost_nulls} nulls due to mixing (became < 0.5)"
-                        )
-                        logger.debug(
-                            f"[NULL_MASKING_MIXUP] Task {k}: Values near threshold (0.4-0.6): {near_half}"
-                        )
+                        logger.debug(f"[NULL_MASKING_MIXUP] Task {k}: LOST {lost_nulls} nulls due to mixing (became < 0.5)")
+                        logger.debug(f"[NULL_MASKING_MIXUP] Task {k}: Values near threshold (0.4-0.6): {near_half}")
 
                         # Show distribution of values from important ranges
-                        below_threshold = (
-                            ((idx0_vals_mixed > 0.3) & (idx0_vals_mixed <= 0.5))
-                            .sum()
-                            .item()
-                        )
-                        logger.debug(
-                            f"[NULL_MASKING_MIXUP] Task {k}: Values just below threshold (0.3-0.5): {below_threshold}"
-                        )
+                        below_threshold = ((idx0_vals_mixed > 0.3) & (idx0_vals_mixed <= 0.5)).sum().item()
+                        logger.debug(f"[NULL_MASKING_MIXUP] Task {k}: Values just below threshold (0.3-0.5): {below_threshold}")
 
                         # Find examples where mixing caused nulls to be lost
                         orig_nulls = v[:, 0] > 0.5
                         perm_nulls = v[perm][:, 0] > 0.5
                         either_null = orig_nulls | perm_nulls
                         result_not_null = ~(idx0_vals_mixed > 0.5)
-                        lost_null_indices = (either_null & result_not_null).nonzero(
-                            as_tuple=True
-                        )[0]
+                        lost_null_indices = (either_null & result_not_null).nonzero(as_tuple=True)[0]
 
                         # Show examples of lost nulls
                         if len(lost_null_indices) > 0:
@@ -307,21 +267,15 @@ class CPUSelectiveMixup(SelectiveMixup):
                                 orig_val = v[idx, 0].item()
                                 perm_val = v[perm][idx, 0].item()
                                 mixed_val = idx0_vals_mixed[idx].item()
-                                logger.debug(
-                                    f"  - Sample {idx}: orig={orig_val:.4f}, perm={perm_val:.4f}, mixed={mixed_val:.4f}"
-                                )
-                                logger.debug(
-                                    f"    Formula: {lam:.4f} * {orig_val:.4f} + {1 - lam:.4f} * {perm_val:.4f} = {mixed_val:.4f}"
-                                )
+                                logger.debug(f"  - Sample {idx}: orig={orig_val:.4f}, perm={perm_val:.4f}, mixed={mixed_val:.4f}")
+                                logger.debug(f"    Formula: {lam:.4f} * {orig_val:.4f} + {1 - lam:.4f} * {perm_val:.4f} = {mixed_val:.4f}")
 
         # 7) Force partial-zero chunks => all-zero
         #    so we have purely "all zero" or "completely non-zero"
         self._enforce_all_or_nothing(aux_info, meta_masks)
 
         # 8) Hard pick chunk-wise
-        mixed_aux, mixed_masks = self._mix_aux_info_chunkwise(
-            aux_info, aux_info[perm], meta_masks, meta_masks[perm]
-        )
+        mixed_aux, mixed_masks = self._mix_aux_info_chunkwise(aux_info, aux_info[perm], meta_masks, meta_masks[perm])
 
         return mixed_images, mixed_targets, mixed_aux, mixed_masks
 
@@ -354,9 +308,7 @@ class CPUSelectiveMixup(SelectiveMixup):
         # Use precomputed chunk bounds if available, otherwise default to a single chunk
         if self.chunk_bounds is not None:
             chunk_bounds = self.chunk_bounds
-        elif (
-            aux_info.ndim > 1 and aux_info.shape[1] > 0
-        ):  # aux_info has a feature dimension
+        elif aux_info.ndim > 1 and aux_info.shape[1] > 0:  # aux_info has a feature dimension
             chunk_bounds = [(0, aux_info.shape[1])]  # Default to a single chunk
         else:  # aux_info is empty or 1D
             chunk_bounds = []
@@ -380,11 +332,7 @@ class CPUSelectiveMixup(SelectiveMixup):
                 meta_masks[is_partial_zero, start:end] = False
 
     def _mix_aux_info_chunkwise(
-        self,
-        info1: torch.Tensor,
-        info2: torch.Tensor,
-        mask1: torch.Tensor,
-        mask2: torch.Tensor,
+        self, info1: torch.Tensor, info2: torch.Tensor, mask1: torch.Tensor, mask2: torch.Tensor
     ) -> tuple[torch.Tensor, torch.Tensor]:
         """
         For each chunk, do a "hard pick" approach:

@@ -1,95 +1,140 @@
 # Docker Build Tools for Linnaeus
 
-This directory contains tools for building and validating Docker images for the Linnaeus project.
+This directory contains tools for building Docker images for the Linnaeus project using a **two-stage build process**.
 
-## Quick Start
+## Overview of the Two-Stage Build
 
-Build an image for your GPU architecture:
+The Docker build process is split into two stages: a `base` image and a `runtime` image. This approach offers several advantages:
 
+- **Faster Rebuilds:** The `runtime` image, which contains the frequently changing Linnaeus application code, can be rebuilt much faster because the `base` image (with OS dependencies, CUDA, PyTorch, etc.) is cached and only rebuilt when its core components change.
+- **Separation of Concerns:** The `base` image handles the complex setup of the underlying environment, while the `runtime` image focuses solely on the application.
+- **Cleaner Workspace:** Intermediate build tools and artifacts used to compile dependencies like Flash Attention are kept in the `base` stage and do not bloat the final `runtime` image.
+
+## The `base` Image
+
+- **Purpose:** Contains the foundational software stack that changes infrequently. This includes:
+    - NVIDIA CUDA libraries
+    - PyTorch, TorchVision, TorchAudio
+    - Flash Attention (conditionally installed based on architecture)
+    - Core OS dependencies and Python environment (`python3.11`, `uv`, `ninja`)
+- **Naming Convention:** `frontierkodiak/linnaeus-base:<arch>-<cuda_suffix>-torch<torch_ver_short>-fa<fa_ver_tag>`
+    - Example: `frontierkodiak/linnaeus-base:ampere-cu126-torch2.7.1-fav2`
+    - `<arch>`: `ampere`, `hopper`, `turing`
+    - `<cuda_suffix>`: e.g., `cu126`, `cu128`
+    - `<torch_ver_short>`: e.g., `2.7.1`, `2.8.0rc0`
+    - `<fa_ver_tag>`: `v2`, `v3`, or `none`
+- **When to Rebuild:** The `base` image only needs to be manually rebuilt or updated if there are changes to its core components (e.g., upgrading PyTorch, CUDA version, or changing the Flash Attention version).
+- **How it's Built:** Built using `docker buildx build` targeting the `base` stage in the `Dockerfile`.
+
+## The `runtime` Image
+
+- **Purpose:** Contains the Linnaeus application code and its Python dependencies. This image is built on top of a specific `base` image. It is designed to be rebuilt frequently as you develop the application.
+- **Naming Convention:** `frontierkodiak/linnaeus-dev:<git_sha>-<arch><tag_suffix>`
+    - Example: `frontierkodiak/linnaeus-dev:abcdef123456-ampere`
+    - `<git_sha>`: Short commit SHA of the Linnaeus repository.
+    - `<arch>`: `ampere`, `hopper`, `turing`
+    - `<tag_suffix>`: Optional user-defined suffix (e.g., `-myfeature`).
+- **How it's Built:** Built using `docker buildx build` targeting the `runtime` stage in the `Dockerfile`. This stage installs the Linnaeus application code using `uv pip install --system --no-deps -e .[dev]`, relying on the `base` image for all shared heavy dependencies. The appropriate `base` image is used as a cache, and the Linnaeus repository is cloned at the specified branch/commit.
+
+## Building Docker Images
+
+Both `base` and `runtime` images are built using `docker buildx build` commands directly.
+
+### Building Base Images
+
+**Example for Ampere:**
 ```bash
-# For Ampere GPUs (RTX 3090, A100)
-./build.sh --arch ampere --source local
-
-# For Turing GPUs (RTX 2080, T4)
-./build.sh --arch turing --source local
-
-# For Hopper GPUs (H100)
-./build.sh --arch hopper --source local
+docker buildx build \
+  --platform linux/amd64 \
+  -f tools/docker/Dockerfile \
+  --target base \
+  --build-arg TORCH_CHANNEL=stable \
+  --build-arg TORCH_VER=2.7.1+cu126 \
+  --build-arg TORCH_CUDA_SUFFIX=cu126 \
+  --build-arg CUDA_ARCH_LIST="8.0;8.6" \
+  --build-arg FA_VER=2.7.4.post1 \
+  -t frontierkodiak/linnaeus-base:ampere-cu126 \
+  --push .
 ```
 
-## Build Script Options
-
-The `build.sh` script supports the following options:
-
-- `--arch ARCH`: GPU architecture (ampere, turing, or hopper). Default: ampere
-- `--source SOURCE`: Code source (github or local). Default: github
-- `--branch BRANCH`: Branch name when using github source. Default: main
-- `--max-jobs N`: Number of parallel jobs for ninja compilation. Default: 12
-- `--tag-suffix SUFFIX`: Additional suffix for the image tag
-- `--push`: Push the image after building
-- `--help`: Display help message
-
-## Architecture Configurations
-
-### Ampere (RTX 3090, A100)
-- PyTorch: 2.7.1+cu126 (stable)
-- Flash Attention: v2
-- CUDA: 12.6
-
-### Turing (RTX 2080, T4)
-- PyTorch: 2.7.1+cu126 (stable)
-- Flash Attention: none (not supported)
-- CUDA: 12.6
-
-### Hopper (H100)
-- PyTorch: 2.8.0rc0+cu128 (nightly)
-- Flash Attention: v3 beta
-- CUDA: 12.8
-
-## Building Flash Attention
-
-Flash Attention compilation can be time-consuming. The build process uses ninja for parallel compilation:
-
-- Default `MAX_JOBS=12` works well for machines with 128GB RAM and 12+ CPU cores
-- For machines with less RAM, reduce MAX_JOBS to avoid OOM errors
-- Without ninja, compilation can take 2+ hours; with ninja it takes 3-5 minutes
-
-Example for memory-constrained systems:
+**Example for Hopper (with nightly PyTorch):**
 ```bash
-./build.sh --arch ampere --source local --max-jobs 4
+docker buildx build \
+  --platform linux/amd64 \
+  -f tools/docker/Dockerfile \
+  --target base \
+  --build-arg TORCH_CHANNEL=nightly \
+  --build-arg TORCH_CUDA_SUFFIX=cu128 \
+  --build-arg CUDA_ARCH_LIST="9.0" \
+  --build-arg MAX_JOBS=8 \
+  -t frontierkodiak/linnaeus-base:hopper-cu128-nightly \
+  --push .
+```
+
+Note: For Hopper, `FA_VER` is generally not needed as the latest compatible Flash Attention v3 wheel is installed by default when `TORCH_CHANNEL=nightly`. Pass `FA_VER` only if you specifically need to pin to an older v3 tag.
+
+### Building Runtime Images
+
+**Example:**
+```bash
+docker buildx build \
+  --platform linux/amd64 \
+  -f tools/docker/Dockerfile \
+  --target runtime \
+  --build-arg LINNAEUS_REF=main \
+  --cache-from=frontierkodiak/linnaeus-base:ampere-cu126 \
+  -t frontierkodiak/linnaeus-dev:ampere-main \
+  --push .
+```
+
+## Architecture Configurations (for `base` image)
+
+The following configurations are used for different architectures when building the `base` image:
+
+### Ampere (e.g., RTX 3090, A100)
+- PyTorch: `2.7.1+cu126` (stable)
+- Flash Attention: `2.7.4.post1` (v2)
+
+### Turing (e.g., RTX 2080, T4)
+- PyTorch: `2.7.1+cu126` (stable)
+- Flash Attention: Skipped (not supported/installed)
+
+### Hopper (e.g., H100)
+- PyTorch: Latest nightly wheel from `https://download.pytorch.org/whl/nightly/cu128` (unpinned)
+- Flash Attention: Latest nightly Flash-Attention v3 wheel (unpinned, >=3.0.0)
+
+**Important PyTorch Installation Notes:**
+- **Stable channel (Ampere/Turing):** PyTorch versions are explicitly pinned (e.g., `2.7.1`) to ensure reproducibility.
+- **Nightly channel (Hopper/cu128):** PyTorch is installed without version pinning, allowing pip/uv to automatically select the latest available nightly wheel. This is necessary because CUDA 12.8 wheels are only available as rolling nightly releases.
+
+## Flash Attention Compilation Notes
+
+- Flash Attention is compiled in the `base` stage if applicable for the selected architecture.
+- The `MAX_JOBS` argument controls compilation parallelism (`ninja` is used).
+    - Default `MAX_JOBS=12` is suitable for machines with ample RAM (e.g., 128GB) and CPU cores.
+    - Reduce `MAX_JOBS` (e.g., to 4) on systems with less memory to prevent out-of-memory errors during compilation.
+
+### Overriding MAX_JOBS with docker buildx
+
+You can override the `MAX_JOBS` build argument when building:
+
+```bash
+docker buildx build ... --build-arg MAX_JOBS=4 ...
 ```
 
 ## Validation
 
-After building, validate the image:
-
+After building your `runtime` image, you can validate it using `validate.sh` (if this script is still maintained and compatible with the new image structure).
+Example:
 ```bash
-./validate.sh frontierkodiak/linnaeus-dev:ampere-stable-cu126
+# Assuming validate.sh is in the same directory
+./validate.sh frontierkodiak/linnaeus-dev:<git_sha>-<arch>
+# e.g. ./validate.sh frontierkodiak/linnaeus-dev:abcdef123456-ampere
 ```
+The validation script typically checks for GPU access, CUDA functionality, and may perform a basic application startup test.
 
-This will verify:
-1. GPU access and CUDA functionality
-2. Flash Attention installation (for supported architectures)
-3. Basic training loop startup
+## Benefits of the New System
 
-## Troubleshooting
-
-### Long Build Times
-If the build is taking hours, ensure:
-1. ninja-build is installed in the Docker image
-2. The ninja Python package is installed
-3. MAX_JOBS is set appropriately for your system
-
-### Out of Memory During Build
-Reduce MAX_JOBS:
-```bash
-./build.sh --arch ampere --max-jobs 4
-```
-
-### Flash Attention Build Failures
-Common issues:
-- Missing Python development headers (python3.11-dev)
-- Missing psutil package
-- Incompatible CUDA/PyTorch versions
-
-The Dockerfile includes all necessary dependencies for successful Flash Attention builds.
+- **Significantly Faster Iteration:** When you change Linnaeus code, only the `runtime` stage is rebuilt, which is much quicker as it doesn't re-install PyTorch or other heavy dependencies.
+- **Consistency:** Ensures all developers use the same base environment.
+- **Simplified Dockerfile:** The main `Dockerfile` is now cleaner and easier to understand.

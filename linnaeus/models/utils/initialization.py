@@ -8,13 +8,7 @@ from linnaeus.utils.logging.logger import get_main_logger
 logger = get_main_logger()
 
 
-def trunc_normal_(
-    tensor: torch.Tensor,
-    mean: float = 0.0,
-    std: float = 1.0,
-    a: float = -2.0,
-    b: float = 2.0,
-) -> torch.Tensor:
+def trunc_normal_(tensor: torch.Tensor, mean: float = 0.0, std: float = 1.0, a: float = -2.0, b: float = 2.0) -> torch.Tensor:
     """
     Truncated normal initializer.
 

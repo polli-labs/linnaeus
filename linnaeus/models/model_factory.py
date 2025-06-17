@@ -77,9 +77,7 @@ _component_registry: RegistryType = {}
 _resolver_registry: RegistryType = {}
 
 
-def _create_register_decorator(
-    registry: RegistryType, component_type: str
-) -> Callable[[str], DecoratorType]:
+def _create_register_decorator(registry: RegistryType, component_type: str) -> Callable[[str], DecoratorType]:
     """
     Creates a registration decorator for a specific component type.
 
@@ -94,9 +92,7 @@ def _create_register_decorator(
     def register(name: str) -> DecoratorType:
         def decorator(cls: ComponentType) -> ComponentType:
             if name in registry:
-                logger.warning(
-                    f"{component_type} '{name}' is already registered. Overwriting."
-                )
+                logger.warning(f"{component_type} '{name}' is already registered. Overwriting.")
             registry[name] = cls
             # This is during module import, so we don't have access to config for debug flags
             logger.debug(f"[register_decorator] Registered {component_type} '{name}'")
@@ -109,20 +105,14 @@ def _create_register_decorator(
 
 # Registration decorators
 register_model = _create_register_decorator(_model_registry, "model")
-register_attention = _create_register_decorator(
-    _attention_registry, "attention mechanism"
-)
-register_aggregation = _create_register_decorator(
-    _aggregation_registry, "aggregation layer"
-)
+register_attention = _create_register_decorator(_attention_registry, "attention mechanism")
+register_aggregation = _create_register_decorator(_aggregation_registry, "aggregation layer")
 register_head = _create_register_decorator(_head_registry, "classification head")
 register_component = _create_register_decorator(_component_registry, "component")
 register_resolver = _create_register_decorator(_resolver_registry, "resolver")
 
 
-def _create_factory_function(
-    registry: RegistryType, component_type: str
-) -> Callable[[str, Any], nn.Module]:
+def _create_factory_function(registry: RegistryType, component_type: str) -> Callable[[str, Any], nn.Module]:
     """
     Creates a factory function for instantiating registered components.
 
@@ -152,15 +142,10 @@ def _create_factory_function(
     def create(name: str, **kwargs: Any) -> nn.Module:
         if name not in registry:
             available_names = list(registry.keys())
-            raise ValueError(
-                f"{component_type} '{name}' is not registered. "
-                f"Available {component_type}s: {available_names}"
-            )
+            raise ValueError(f"{component_type} '{name}' is not registered. Available {component_type}s: {available_names}")
         cls = registry[name]
         # We don't have access to config here, so use default debug logging
-        logger.debug(
-            f"[create_factory] Creating {component_type} '{name}' with args {kwargs}"
-        )
+        logger.debug(f"[create_factory] Creating {component_type} '{name}' with args {kwargs}")
         return cls(**kwargs)
 
     return create
@@ -168,9 +153,7 @@ def _create_factory_function(
 
 # Factory functions
 create_attention = _create_factory_function(_attention_registry, "attention mechanism")
-create_aggregation = _create_factory_function(
-    _aggregation_registry, "aggregation layer"
-)
+create_aggregation = _create_factory_function(_aggregation_registry, "aggregation layer")
 create_head = _create_factory_function(_head_registry, "classification head")
 create_component = _create_factory_function(_component_registry, "component")
 create_resolver = _create_factory_function(_resolver_registry, "resolver")
@@ -204,9 +187,7 @@ def create_model(config: CN, **kwargs: Any) -> nn.Module:
     model_class = _model_registry[model_type]
 
     if check_debug_flag(config, "DEBUG.MODEL_BUILD"):
-        logger.debug(
-            f"[create_model] Creating model '{model_type}' with class '{model_class.__name__}'"
-        )
+        logger.debug(f"[create_model] Creating model '{model_type}' with class '{model_class.__name__}'")
         if kwargs:
             logger.debug(f"[create_model] Additional kwargs: {list(kwargs.keys())}")
 

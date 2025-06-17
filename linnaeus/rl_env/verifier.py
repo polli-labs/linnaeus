@@ -18,10 +18,7 @@ class TaxonomicRLVerifier:
     """
 
     def __init__(
-        self,
-        taxonomy_tree: TaxonomyTree,
-        reward_function: AbstentionRewardFunction | None = None,
-        rank_order: list[str] | None = None,
+        self, taxonomy_tree: TaxonomyTree, reward_function: AbstentionRewardFunction | None = None, rank_order: list[str] | None = None
     ):
         """
         Initializes the TaxonomicRLVerifier.
@@ -44,36 +41,32 @@ class TaxonomicRLVerifier:
             ValueError: If `rank_order` cannot be determined (e.g., `taxonomy_tree` has no
                         `task_keys` or `task_keys` is empty, and `rank_order` is not given).
         """
-        self.taxonomy_tree = taxonomy_tree # Store the actual TaxonomyTree instance
+        self.taxonomy_tree = taxonomy_tree  # Store the actual TaxonomyTree instance
         self.reward_function = reward_function if reward_function is not None else SimpleAbstentionReward()
 
         if rank_order is None:
-            if not isinstance(taxonomy_tree, TaxonomyTree): # Ensure it's the correct type
+            if not isinstance(taxonomy_tree, TaxonomyTree):  # Ensure it's the correct type
                 # Try to be more specific if TaxonomyTree became Any due to import fallback
                 if TaxonomyTree is not Any and not isinstance(taxonomy_tree, TaxonomyTree):
-                     raise TypeError(
+                    raise TypeError(
                         f"taxonomy_tree must be an instance of TaxonomyTree if rank_order is not provided, got {type(taxonomy_tree)}"
                     )
-                elif TaxonomyTree is Any and type(taxonomy_tree).__name__ != 'TaxonomyTree' and not hasattr(taxonomy_tree, 'task_keys'):
+                elif TaxonomyTree is Any and type(taxonomy_tree).__name__ != "TaxonomyTree" and not hasattr(taxonomy_tree, "task_keys"):
                     # If TaxonomyTree is Any, we rely on duck typing or presence of task_keys
                     # This path is less ideal but handles the fallback from reward_functions.py
-                     raise TypeError(
+                    raise TypeError(
                         f"taxonomy_tree type is Any (due to import fallback) and does not appear to be a valid TaxonomyTree "
                         f"object (missing task_keys) when rank_order is not provided. Got type {type(taxonomy_tree)}"
                     )
 
-
-            if not hasattr(taxonomy_tree, 'task_keys') or not taxonomy_tree.task_keys:
+            if not hasattr(taxonomy_tree, "task_keys") or not taxonomy_tree.task_keys:
                 # This check assumes 'task_keys' is the correct attribute for ordered ranks
-                raise ValueError(
-                    "TaxonomyTree instance must have a non-empty 'task_keys' "
-                    "attribute to automatically determine rank_order."
-                )
+                raise ValueError("TaxonomyTree instance must have a non-empty 'task_keys' attribute to automatically determine rank_order.")
             self.rank_order = taxonomy_tree.task_keys
         else:
             self.rank_order = rank_order
 
-        if not self.rank_order: # Should be caught by above if rank_order was None
+        if not self.rank_order:  # Should be caught by above if rank_order was None
             raise ValueError("TaxonomicRLVerifier requires a valid rank_order list.")
 
     def compute_reward(
@@ -142,8 +135,9 @@ class TaxonomicRLVerifier:
             predictions=formatted_predictions,
             ground_truth=formatted_ground_truth,
             confidences=formatted_confidences,
-            taxonomy_tree=self.taxonomy_tree, # Pass the actual TaxonomyTree instance
+            taxonomy_tree=self.taxonomy_tree,  # Pass the actual TaxonomyTree instance
         )
+
 
 if __name__ == "__main__":
     from unittest.mock import MagicMock  # Import MagicMock
@@ -154,7 +148,7 @@ if __name__ == "__main__":
     mock_taxonomy_tree = MagicMock(spec=TaxonomyTree)
     # If TaxonomyTree resolved to Any due to import issues, spec=Any might be needed for the mock
     if TaxonomyTree is Any:
-        mock_taxonomy_tree = MagicMock(spec=Any) # Or just MagicMock() if spec=Any causes issues
+        mock_taxonomy_tree = MagicMock(spec=Any)  # Or just MagicMock() if spec=Any causes issues
 
     mock_taxonomy_tree.task_keys = ["family", "genus", "species"]
 
@@ -163,9 +157,7 @@ if __name__ == "__main__":
     verifier = TaxonomicRLVerifier(taxonomy_tree=mock_taxonomy_tree, rank_order=rank_order_list)
     simple_reward_fn = SimpleAbstentionReward()
     verifier_with_simple_reward = TaxonomicRLVerifier(
-        taxonomy_tree=mock_taxonomy_tree,
-        reward_function=simple_reward_fn,
-        rank_order=rank_order_list
+        taxonomy_tree=mock_taxonomy_tree, reward_function=simple_reward_fn, rank_order=rank_order_list
     )
 
     print("Testing TaxonomicRLVerifier with SimpleAbstentionReward:")
@@ -189,16 +181,17 @@ if __name__ == "__main__":
     preds4 = {"family": [10], "genus": [None], "species": [None]}
     gt4 = {"family": [10], "genus": [52], "species": [103]}
     reward4 = verifier_with_simple_reward.compute_reward(preds4, gt4)
-    expected_r4 = (simple_reward_fn.reward_correct_classification +
-                   simple_reward_fn.penalty_unnecessary_abstention +
-                   simple_reward_fn.penalty_unnecessary_abstention)
+    expected_r4 = (
+        simple_reward_fn.reward_correct_classification
+        + simple_reward_fn.penalty_unnecessary_abstention
+        + simple_reward_fn.penalty_unnecessary_abstention
+    )
     print(f"Scenario 4 (Unnecessary Abstention): Reward = {reward4} (Expected: {expected_r4})")
 
     preds5 = {"family": [10], "genus": [52], "species": [103]}
     gt5 = {"family": [10], "genus": [52], "species": [None]}
     reward5 = verifier_with_simple_reward.compute_reward(preds5, gt5)
-    expected_r5 = (2 * simple_reward_fn.reward_correct_classification +
-                   simple_reward_fn.penalty_incorrect_prediction_at_null_rank)
+    expected_r5 = 2 * simple_reward_fn.reward_correct_classification + simple_reward_fn.penalty_incorrect_prediction_at_null_rank
     print(f"Scenario 5 (Predicted when GT Null): Reward = {reward5} (Expected: {expected_r5})")
 
     print("\nTesting with 'action_sequence' format:")
@@ -210,16 +203,16 @@ if __name__ == "__main__":
     preds_seq_wrong = {"action_sequence": [10, 55, 103]}
     gt_seq_wrong = {"action_sequence": [10, 52, 103]}
     reward_seq_wrong = verifier_with_simple_reward.compute_reward(preds_seq_wrong, gt_seq_wrong)
-    expected_r_seq_wrong = (simple_reward_fn.reward_correct_classification +
-                            simple_reward_fn.penalty_misclassification +
-                            simple_reward_fn.reward_correct_classification)
+    expected_r_seq_wrong = (
+        simple_reward_fn.reward_correct_classification
+        + simple_reward_fn.penalty_misclassification
+        + simple_reward_fn.reward_correct_classification
+    )
     print(f"Scenario 7 (Sequential Misclassification): Reward = {reward_seq_wrong} (Expected: {expected_r_seq_wrong})")
 
     episode_reward_fn = EpisodeOutcomeReward()
     verifier_episode_reward = TaxonomicRLVerifier(
-        taxonomy_tree=mock_taxonomy_tree,
-        reward_function=episode_reward_fn,
-        rank_order=rank_order_list
+        taxonomy_tree=mock_taxonomy_tree, reward_function=episode_reward_fn, rank_order=rank_order_list
     )
     print("\nTesting TaxonomicRLVerifier with EpisodeOutcomeReward:")
     reward_ep1 = verifier_episode_reward.compute_reward(preds1, gt1)

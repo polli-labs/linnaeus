@@ -237,6 +237,24 @@ If missing images are found, the report includes their identifiers and indices:
 
 ---
 
+## GroupedBatchSampler
+
+The `GroupedBatchSampler` is a specialized sampler used in Polli Linnaeus, particularly effective for tasks requiring balanced batches or specific within-batch structures, such as applying mixup or other augmentations to samples from the same group.
+
+### Batch Size Requirements for `mixed-pairs` Mode
+
+When using `GROUPED_MODE: 'mixed-pairs'` with the `GroupedBatchSampler`, it is essential that the configured `DATA.BATCH_SIZE` is an even number.
+
+**Why is an even batch size required?**
+
+The `mixed-pairs` mode operates by creating pairs of samples that belong to the same group (e.g., the same species in a dataset). These pairs are then bundled together to form a batch. If an odd batch size is specified (e.g., 37), the sampler attempts to create pairs, which would naturally result in a collection of samples whose count is an even number (e.g., 36 samples from 18 pairs). Because the sampler expects the final batch to exactly match the configured `DATA.BATCH_SIZE` and `drop_last` is typically true, this batch of 36 samples would be considered incomplete and subsequently dropped. If this happens for all groups, no batches are generated, leading to a `DataLoader` of length 0 and a training startup failure.
+
+To prevent this issue:
+- The framework will now automatically correct an odd `DATA.BATCH_SIZE` by rounding it down to the nearest even number if `mixed-pairs` mode is active. A warning will be logged to inform the user of this adjustment.
+- The `autobatch` utility has also been updated to only search for and recommend even batch sizes when this sampler configuration is detected, further safeguarding against this problem.
+
+---
+
 ## Additional Data Loading Features
 
 Other key features of the data loading system include:

@@ -17,10 +17,7 @@ logger = get_main_logger()
 
 
 def compute_core_loss(
-    outputs: dict[str, torch.Tensor],
-    targets: dict[str, torch.Tensor],
-    criteria: dict[str, nn.Module],
-    config: Any | None = None,
+    outputs: dict[str, torch.Tensor], targets: dict[str, torch.Tensor], criteria: dict[str, nn.Module], config: Any | None = None
 ) -> dict[str, torch.Tensor]:
     """
     Compute raw per-sample loss for each task.
@@ -58,17 +55,11 @@ def compute_core_loss(
                 logger.debug(f"[CORE_LOSS] Processing task '{task_key}'")
                 logger.debug(f"[CORE_LOSS] Output type: {type(out).__name__}")
                 if isinstance(out, torch.Tensor):
-                    logger.debug(
-                        f"[CORE_LOSS] Output shape: {out.shape}, device: {out.device}"
-                    )
+                    logger.debug(f"[CORE_LOSS] Output shape: {out.shape}, device: {out.device}")
                 elif isinstance(out, dict):
-                    logger.debug(
-                        f"[CORE_LOSS] Output is dict with keys: {list(out.keys())}"
-                    )
+                    logger.debug(f"[CORE_LOSS] Output is dict with keys: {list(out.keys())}")
 
-                logger.debug(
-                    f"[CORE_LOSS] Target shape: {tgt.shape}, device: {tgt.device}"
-                )
+                logger.debug(f"[CORE_LOSS] Target shape: {tgt.shape}, device: {tgt.device}")
                 logger.debug(f"[CORE_LOSS] Criterion type: {type(crit).__name__}")
 
             # crit returns shape [B]
