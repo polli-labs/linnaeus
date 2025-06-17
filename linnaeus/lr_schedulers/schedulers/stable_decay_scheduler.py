@@ -53,7 +53,7 @@ class StableDecayScheduler(_LRScheduler):
 
         # Initialize _LRScheduler. Note: self.base_lrs will be initially set
         # from the optimizer's current LR, but we'll overwrite them based on stable_lr.
-        super().__init__(optimizer, last_epoch=last_epoch, verbose=verbose)
+        super().__init__(optimizer, last_epoch=last_epoch)
 
         # Explicitly set base_lrs to the intended stable_lr for get_lr logic
         self.base_lrs = [self.stable_lr for _ in self.optimizer.param_groups]
