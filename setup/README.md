@@ -1,56 +1,51 @@
-# Environment Setup
+# Development and Installation
 
-## The Flash-Attention Installation Issue
+This guide outlines the recommended procedures for setting up a development environment for the Linnaeus project.
 
-Flash-Attention has a circular dependency problem: it needs PyTorch during compilation but doesn't declare it as a build dependency. This causes `ModuleNotFoundError: No module named 'torch'` when using standard package managers.
+## Recommended Approach: Docker
 
-## Solution
+The **official and strongly recommended** method for developing on Linnaeus is to use our pre-built Docker images. This approach ensures a consistent, reproducible, and optimized environment that perfectly matches our CI and deployment setups.
 
-Run the installation script that handles the dependency order correctly:
+**Available Images:**
+- `frontierkodiak/linnaeus-dev:ampere-stable` (For NVIDIA Ampere GPUs)
+- `frontierkodiak/linnaeus-dev:turing-stable` (For NVIDIA Turing GPUs)
+- `frontierkodiak/linnaeus-dev:hopper-nightly` (For NVIDIA Hopper GPUs with nightly PyTorch)
 
+**Key Benefits of Using Docker:**
+- **Dependency Management:** All system dependencies, Python packages, and CUDA toolkit versions are pre-configured.
+- **Performance Optimizations:** GPU-specific dependencies like **Flash Attention** are automatically handled. The build process conditionally installs the correct version (v2 for Ampere, v3 from source for Hopper) or skips it (Turing), which is difficult to manage manually.
+- **Reproducibility:** Guarantees that your environment is identical to the one used for official model training and testing.
+
+To get started, simply pull the appropriate image and run it:
 ```bash
-./setup/install_deps.sh
+# Example for an Ampere-based GPU (e.g., RTX 3090, A100)
+docker run -it --gpus all frontierkodiak/linnaeus-dev:ampere-stable /bin/bash
 ```
 
-This script:
-1. Creates/activates virtual environment
-2. Installs core dependencies
-3. Installs PyTorch with CUDA 12.4 support
-4. Installs flash-attn with `--no-build-isolation` flag
-5. Installs linnaeus package in editable mode
-6. Verifies installation
+## Manual Installation (Advanced Users)
 
-## Manual Installation (if script fails)
+Manual installation from source is possible but is **not officially supported with setup scripts at this time** due to the complexity of the dependency stack. This path is recommended only for advanced users who need to build in a custom environment.
+
+### Core Requirements
+- **OS:** Ubuntu 22.04+ or a compatible Linux distribution.
+- **Python:** 3.10+
+- **CUDA Toolkit:** 12.1+ (for GPU support)
+
+### Python Dependencies
+We strongly recommend using `uv` for package management.
 
 ```bash
-# Create and activate venv
-uv venv
-source .venv/bin/activate
-
-# Install dependencies without flash-attn
-uv sync --no-install-project
-
-# Install PyTorch first
-uv pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124
-
-# Install flash-attn separately
-MAX_JOBS=4 uv pip install flash-attn>=2.5.9.post1 --no-build-isolation
-
-# Install linnaeus
+# 1. Install core Python dependencies from pyproject.toml
+# This installs linnaeus in editable mode and its dev dependencies.
 uv pip install -e .[dev]
+
+# 2. Install PyTorch separately to match your CUDA version.
+# Example for CUDA 12.1:
+uv pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
 ```
 
-## Why This Approach?
-
-- **PyTorch first**: Ensures torch is available for flash-attn compilation
-- **--no-build-isolation**: Allows flash-attn to see already-installed torch
-- **MAX_JOBS=4**: Limits parallel compilation jobs to prevent memory issues
-- **CUDA 12.4 wheels**: Matches our Docker and GPU setup
-
-## Verification
-
-After installation, verify everything works:
-
-```bash
-python -c "import torch, flash_attn, linnaeus; print('All imports successful')"
-```
+### Flash Attention (Optional, GPU-only)
+Flash Attention is a performance-critical dependency for training large models efficiently.
+- It is only supported on NVIDIA Ampere and Hopper GPUs.
+- It must be compiled from source or installed from a wheel that matches your specific PyTorch and CUDA versions.
+- The official Docker images handle this complex installation automatically. If installing manually, refer to the [official Flash Attention repository](https://github.com/Dao-AILab/flash-attention) for installation instructions.
