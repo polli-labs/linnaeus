@@ -64,7 +64,7 @@ This schedule implements the Warmup-Stable-Decay pattern. It requires the standa
 **Note:** The sum of `STABLE_DURATION_FRACTION` and `DECAY_DURATION_FRACTION` does not need to be 1.0. After the decay phase completes, the LR remains at `MIN_LR`.
 
 -   **Initialization:** `total_steps` and `optimizer_steps_per_epoch` are calculated accurately in `main.py` after dataloader initialization. These values are used by `lr_schedulers.build.build_scheduler` to configure warmup steps and decay durations correctly.
--   **LR Scaling:** Applied automatically by `utils.schedule_utils.apply_lr_scaling` based on `effective_batch_size = per_gpu_batch_size * world_size * accumulation_steps`.
+-   **LR Scaling:** Applied automatically by `utils.schedule_utils.apply_lr_scaling` based on `effective_batch_size = per_gpu_batch_size * world_size * accumulation_steps`. Note: This scaling mechanism modifies the initial learning rates in the optimizer. It assumes that the chosen learning rate scheduler uses these initial values as its starting point, which is standard for most schedulers.
 -   **Parameter Groups:** Supports different LR schedules per parameter group via `LR_SCHEDULER.PARAMETER_GROUPS`. See `configs/` for examples.
 
 ### Validation Scheduling (`SCHEDULE.VALIDATION`)
