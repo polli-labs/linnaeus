@@ -24,8 +24,8 @@ RUN set -e && \
         if apt-get update; then \
             break; \
         else \
-            echo "Attempt $i failed, retrying in $((i * 10)) seconds..." && \
-            sleep $((i * 10)); \
+            echo "Attempt $i failed, retrying in $(expr $i \* 10) seconds..." && \
+            sleep $(expr $i \* 10); \
         fi; \
     done && \
     apt-get install -y --no-install-recommends \
