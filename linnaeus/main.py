@@ -35,7 +35,6 @@ import numpy as np
 import torch
 import torch.backends.cudnn as cudnn
 import torch.distributed as dist
-from torch.cuda.amp import GradScaler
 from torch.nn.parallel import DistributedDataParallel as DDP
 
 import linnaeus.h5data.base_prefetching_dataset as bpd
@@ -948,7 +947,7 @@ def main(config, args=None):
         logger.debug(f"\n{schedule_text}")
 
     # AMP
-    scaler = torch.amp.GradScaler('cuda', enabled=(config.TRAIN.AMP_OPT_LEVEL != "O0"))
+    scaler = torch.amp.GradScaler("cuda", enabled=(config.TRAIN.AMP_OPT_LEVEL != "O0"))
 
     # Possibly do autobatch for training and validation now that optimizer,
     # loss functions, grad weighting, and scaler are available
