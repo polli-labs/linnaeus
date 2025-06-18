@@ -35,6 +35,10 @@ RUN apt-get update || (sleep 10 && apt-get update) || (sleep 20 && apt-get updat
     libfontconfig1 \
     libxrender1 \
     libgl1-mesa-glx \
+    htop \
+    nvtop \
+    nano \
+    && curl -fsSL https://rclone.org/install.sh | sh \
     && rm -rf /var/lib/apt/lists/*
 
 # Link python3 to python3.11 and create python symlink
