@@ -912,8 +912,10 @@ def generate_schedule_plot(config: CN, schedule_summary: dict[str, Any], total_s
 
         meta_mask_prob = np.ones_like(steps) * end_prob
         if meta_end_steps > 0:
-            ramp_steps = np.minimum(steps, meta_end_steps)
-            meta_mask_prob[: meta_end_steps + 1] = start_prob + (end_prob - start_prob) * (ramp_steps / meta_end_steps)
+            # Create a ramp of the correct size, up to the end step
+            ramp_steps_correct = np.arange(min(meta_end_steps + 1, len(steps)))
+            # Apply the ramp calculation to the correct slice
+            meta_mask_prob[: len(ramp_steps_correct)] = start_prob + (end_prob - start_prob) * (ramp_steps_correct / meta_end_steps)
 
         (line_meta,) = ax.plot(steps, meta_mask_prob, "r-", linewidth=2.5)
         legend_entries.append((line_meta, "Full Meta-Masking Probability"))
@@ -956,8 +958,10 @@ def generate_schedule_plot(config: CN, schedule_summary: dict[str, Any], total_s
 
         null_mask_prob = np.ones_like(steps) * end_prob
         if null_end_steps > 0:
-            ramp_steps = np.minimum(steps, null_end_steps)
-            null_mask_prob[: null_end_steps + 1] = start_prob + (end_prob - start_prob) * (ramp_steps / null_end_steps)
+            # Create a ramp of the correct size, up to the end step
+            ramp_steps_correct = np.arange(min(null_end_steps + 1, len(steps)))
+            # Apply the ramp calculation to the correct slice
+            null_mask_prob[: len(ramp_steps_correct)] = start_prob + (end_prob - start_prob) * (ramp_steps_correct / null_end_steps)
 
         (line_null,) = ax.plot(steps, null_mask_prob, "b-", linewidth=2.5)
         legend_entries.append((line_null, "Null Masking Inclusion Probability"))
@@ -970,8 +974,10 @@ def generate_schedule_plot(config: CN, schedule_summary: dict[str, Any], total_s
 
         mix_prob = np.ones_like(steps) * end_prob
         if mix_end_steps > 0:
-            ramp_steps = np.minimum(steps, mix_end_steps)
-            mix_prob[: mix_end_steps + 1] = start_prob + (end_prob - start_prob) * (ramp_steps / mix_end_steps)
+            # Create a ramp of the correct size, up to the end step
+            ramp_steps_correct = np.arange(min(mix_end_steps + 1, len(steps)))
+            # Apply the ramp calculation to the correct slice
+            mix_prob[: len(ramp_steps_correct)] = start_prob + (end_prob - start_prob) * (ramp_steps_correct / mix_end_steps)
 
         (line_mix,) = ax.plot(steps, mix_prob, "m-", linewidth=2.5)
 

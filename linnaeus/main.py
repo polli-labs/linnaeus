@@ -35,7 +35,6 @@ import numpy as np
 import torch
 import torch.backends.cudnn as cudnn
 import torch.distributed as dist
-from torch.cuda.amp import GradScaler
 from torch.nn.parallel import DistributedDataParallel as DDP
 
 import linnaeus.h5data.base_prefetching_dataset as bpd
@@ -710,28 +709,6 @@ def main(config, args=None):
             logger.debug("Added step_update shim to LR scheduler.")
     logger.info("LR scheduler built.")
 
-    # Apply LR Scaling
-    from linnaeus.utils.schedule_utils import apply_lr_scaling
-
-    # Get distributed info safely
-    is_distributed = dist.is_available() and dist.is_initialized()
-    world_size = dist.get_world_size() if is_distributed else 1
-    rank = dist.get_rank() if is_distributed else 0
-    # Calculate effective batch size
-    effective_batch_size_for_scaling = config.DATA.BATCH_SIZE * world_size * accumulation_steps
-    # Pass effective size and logging components to the modified apply_lr_scaling
-    per_gpu_bs = config.DATA.BATCH_SIZE  # For logging string only
-    _ = apply_lr_scaling(
-        config,
-        optimizer,
-        effective_batch_size=effective_batch_size_for_scaling,
-        rank=rank,
-        per_gpu_bs_for_log=per_gpu_bs,
-        world_size_for_log=world_size,
-        accum_steps_for_log=accumulation_steps,
-    )
-    logger.info("LR scaling applied.")
-
     # ---> START REVISED DDP WRAPPING SECTION (Force True for GradNorm) <---
     if dist.is_available() and dist.is_initialized():
         # Determine the final value for find_unused_parameters
@@ -970,7 +947,7 @@ def main(config, args=None):
         logger.debug(f"\n{schedule_text}")
 
     # AMP
-    scaler = GradScaler(enabled=(config.TRAIN.AMP_OPT_LEVEL != "O0"))
+    scaler = torch.amp.GradScaler("cuda", enabled=(config.TRAIN.AMP_OPT_LEVEL != "O0"))
 
     # Possibly do autobatch for training and validation now that optimizer,
     # loss functions, grad weighting, and scaler are available
@@ -1034,6 +1011,11 @@ def main(config, args=None):
         if rank == 0:
             logger.info(f"[Autobatch] Using val BATCH_SIZE_VAL={best_val_bs}")
 
+    # Synchronize after all ranks have potentially updated their config from autobatch search
+    if dist.is_available() and dist.is_initialized():
+        logger.info("[Autobatch] Synchronizing all ranks after batch size determination and before loader rebuild.")
+        dist.barrier()
+
     # If autobatch was used, we need to rebuild the data loaders with the new batch sizes
     if config.DATA.AUTOBATCH.ENABLED or config.DATA.AUTOBATCH.ENABLED_VAL:
         logger.info("[Autobatch] Rebuilding data loaders with updated batch sizes...")
@@ -1080,18 +1062,38 @@ def main(config, args=None):
         logger.info(f"  Optimizer steps per epoch: {optimizer_steps_per_epoch}")
         logger.info(f"  Total training steps: {total_steps}")
 
-        # Re-save the config files with updated batch sizes
-        if rank == 0:
-            model_cfg_path = os.path.join(config.ENV.OUTPUT.DIRS.CONFIGS, "model_config.yaml")
-            save_config(config, model_cfg_path)
-            logger.info(f"[Autobatch] Updated model config => {model_cfg_path}")
+    # Apply LR Scaling (moved here, after autobatch and total_steps recalculation)
+    from linnaeus.utils.schedule_utils import apply_lr_scaling
 
-            exp_cfg_path = os.path.join(config.ENV.OUTPUT.DIRS.CONFIGS, "experiment_config.yaml")
-            save_config(config, exp_cfg_path)
-            logger.info(f"[Autobatch] Updated experiment config => {exp_cfg_path}")
+    # Get distributed info safely
+    is_distributed = dist.is_available() and dist.is_initialized()
+    world_size = dist.get_world_size() if is_distributed else 1
+    rank = dist.get_rank() if is_distributed else 0  # rank is defined earlier, but good to have it close
+    # Calculate effective batch size using the potentially updated config.DATA.BATCH_SIZE
+    # accumulation_steps is defined earlier and should be in scope
+    effective_batch_size_for_scaling = config.DATA.BATCH_SIZE * world_size * accumulation_steps
+    # Pass effective size and logging components to the modified apply_lr_scaling
+    per_gpu_bs = config.DATA.BATCH_SIZE  # For logging string only, using the updated batch size
+    _ = apply_lr_scaling(
+        config,
+        optimizer,
+        effective_batch_size=effective_batch_size_for_scaling,
+        rank=rank,
+        per_gpu_bs_for_log=per_gpu_bs,
+        world_size_for_log=world_size,
+        accum_steps_for_log=accumulation_steps,
+    )
+    logger.info("LR scaling applied (after autobatch).")
 
-    if dist.is_initialized():
-        dist.barrier()
+    # Re-save the config files with updated batch sizes (if autobatch ran)
+    if (config.DATA.AUTOBATCH.ENABLED or config.DATA.AUTOBATCH.ENABLED_VAL) and rank == 0:
+        model_cfg_path = os.path.join(config.ENV.OUTPUT.DIRS.CONFIGS, "model_config.yaml")
+        save_config(config, model_cfg_path)
+        logger.info(f"[Autobatch] Updated model config with new BATCH_SIZE => {model_cfg_path}")
+
+        exp_cfg_path = os.path.join(config.ENV.OUTPUT.DIRS.CONFIGS, "experiment_config.yaml")
+        save_config(config, exp_cfg_path)
+        logger.info(f"[Autobatch] Updated experiment config with new BATCH_SIZE => {exp_cfg_path}")
 
     # Logging
     if rank == 0:
