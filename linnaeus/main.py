@@ -1068,7 +1068,7 @@ def main(config, args=None):
     # Get distributed info safely
     is_distributed = dist.is_available() and dist.is_initialized()
     world_size = dist.get_world_size() if is_distributed else 1
-    rank = dist.get_rank() if is_distributed else 0 # rank is defined earlier, but good to have it close
+    rank = dist.get_rank() if is_distributed else 0  # rank is defined earlier, but good to have it close
     # Calculate effective batch size using the potentially updated config.DATA.BATCH_SIZE
     # accumulation_steps is defined earlier and should be in scope
     effective_batch_size_for_scaling = config.DATA.BATCH_SIZE * world_size * accumulation_steps
@@ -1088,12 +1088,12 @@ def main(config, args=None):
     # Re-save the config files with updated batch sizes (if autobatch ran)
     if (config.DATA.AUTOBATCH.ENABLED or config.DATA.AUTOBATCH.ENABLED_VAL) and rank == 0:
         model_cfg_path = os.path.join(config.ENV.OUTPUT.DIRS.CONFIGS, "model_config.yaml")
-            save_config(config, model_cfg_path)
-            logger.info(f"[Autobatch] Updated model config with new BATCH_SIZE => {model_cfg_path}")
+        save_config(config, model_cfg_path)
+        logger.info(f"[Autobatch] Updated model config with new BATCH_SIZE => {model_cfg_path}")
 
-            exp_cfg_path = os.path.join(config.ENV.OUTPUT.DIRS.CONFIGS, "experiment_config.yaml")
-            save_config(config, exp_cfg_path)
-            logger.info(f"[Autobatch] Updated experiment config with new BATCH_SIZE => {exp_cfg_path}")
+        exp_cfg_path = os.path.join(config.ENV.OUTPUT.DIRS.CONFIGS, "experiment_config.yaml")
+        save_config(config, exp_cfg_path)
+        logger.info(f"[Autobatch] Updated experiment config with new BATCH_SIZE => {exp_cfg_path}")
 
     # Logging
     if rank == 0:
