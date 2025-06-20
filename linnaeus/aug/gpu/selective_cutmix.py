@@ -5,7 +5,7 @@ import torch
 
 from linnaeus.aug.base import SelectiveCutMix
 from linnaeus.aug.utils import exclude_null_samples_from_mixup, rand_bbox
-from linnaeus.utils.debug_utils import check_debug_flag
+from linnaeus.utils.config import check_debug_flag  # Updated import
 from linnaeus.utils.logging.logger import get_main_logger
 
 logger = get_main_logger()
@@ -73,11 +73,7 @@ class GPUSelectiveCutMix(SelectiveCutMix):
         logger.debug("Initializing GPUSelectiveCutMix")
 
         # Debug logging if enabled
-        debug_flag = False
-        try:
-            debug_flag = self.config is not None and check_debug_flag(self.config, "DEBUG.AUGMENTATION")
-        except Exception:
-            pass
+        debug_flag = self.config is not None and check_debug_flag(self.config, "DEBUG.AUGMENTATION")
 
         if debug_flag:
             logger.debug("[GPUSelectiveCutMix] Initialized with config:")
@@ -113,11 +109,7 @@ class GPUSelectiveCutMix(SelectiveCutMix):
           (mixed_images, mixed_targets, mixed_aux_info, mixed_meta_valids)
         """
         # Check debug flag
-        debug_flag = False
-        try:
-            debug_flag = self.config is not None and check_debug_flag(self.config, "DEBUG.AUGMENTATION")
-        except Exception:
-            pass
+        debug_flag = self.config is not None and check_debug_flag(self.config, "DEBUG.AUGMENTATION")
 
         # Optionally exclude null-category samples from cutmix
         if exclude_null_samples:

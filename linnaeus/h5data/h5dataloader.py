@@ -97,6 +97,12 @@ class H5DataLoader(DataLoader):
         self.main_logger = main_logger or get_h5data_logger()
         self.h5data_logger = h5data_logger or logging.getLogger("h5data")
 
+        # Initialize mixup/cutmix functions to None
+        self.gpu_mixup_fn = None
+        self.gpu_cutmix_fn = None
+        self.cpu_mixup_fn = None
+        self.cpu_cutmix_fn = None
+
         # Compute metadata chunk boundaries once during initialization
         from linnaeus.utils.meta_utils import compute_meta_chunk_bounds
 
@@ -109,9 +115,60 @@ class H5DataLoader(DataLoader):
             self.main_logger.warning("[H5DataLoader] No config provided, using empty meta chunk boundaries")
 
         # Add explicit check for DEBUG.LOSS.NULL_MASKING at initialization time
+        if config:
+            self.meta_chunk_bounds_list, self.meta_chunk_bounds_map = compute_meta_chunk_bounds(config)
+            self.main_logger.debug(f"[H5DataLoader] Computed meta chunk boundaries: {self.meta_chunk_bounds_list}")
+            self.main_logger.debug(f"[H5DataLoader] Component boundary mapping: {self.meta_chunk_bounds_map}")
+        else:
+            self.meta_chunk_bounds_list, self.meta_chunk_bounds_map = [], {}
+            self.main_logger.warning("[H5DataLoader] No config provided, using empty meta chunk boundaries")
+
+        # Pre-initialize mixup/cutmix functions if in training mode and ops_schedule is available
+        if self.is_training and self.ops_schedule and hasattr(self.config, "AUGMENTATIONS") and hasattr(self.config, "SCHEDULE"):
+            mix_schedule_cfg = self.config.SCHEDULE.MIX
+            augs_cfg = self.config.AUGMENTATIONS
+
+            if mix_schedule_cfg.USE_GPU and self.use_gpu:
+                if hasattr(augs_cfg, "SELECTIVE_MIXUP") and hasattr(mix_schedule_cfg, "PROBS") and hasattr(mix_schedule_cfg.PROBS, "MIXUP"):
+                    mixup_config = augs_cfg.SELECTIVE_MIXUP.copy()
+                    mixup_config["PROB"] = mix_schedule_cfg.PROBS.MIXUP
+                    mixup_config["meta_chunk_bounds_list"] = list(self.meta_chunk_bounds_list)
+                    self.gpu_mixup_fn = GPUSelectiveMixup(mix_config=mixup_config, config=self.config)
+                    self.main_logger.info("[H5DataLoader] Initialized GPUSelectiveMixup function.")
+
+                if (
+                    hasattr(augs_cfg, "SELECTIVE_CUTMIX")
+                    and hasattr(mix_schedule_cfg, "PROBS")
+                    and hasattr(mix_schedule_cfg.PROBS, "CUTMIX")
+                ):
+                    cutmix_config = augs_cfg.SELECTIVE_CUTMIX.copy()
+                    cutmix_config["PROB"] = mix_schedule_cfg.PROBS.CUTMIX
+                    cutmix_config["meta_chunk_bounds_list"] = list(self.meta_chunk_bounds_list)
+                    self.gpu_cutmix_fn = GPUSelectiveCutMix(mix_config=cutmix_config, config=self.config)
+                    self.main_logger.info("[H5DataLoader] Initialized GPUSelectiveCutMix function.")
+            else:  # CPU Path
+                if hasattr(augs_cfg, "SELECTIVE_MIXUP") and hasattr(mix_schedule_cfg, "PROBS") and hasattr(mix_schedule_cfg.PROBS, "MIXUP"):
+                    mixup_config = augs_cfg.SELECTIVE_MIXUP.copy()
+                    mixup_config["PROB"] = mix_schedule_cfg.PROBS.MIXUP
+                    mixup_config["meta_chunk_bounds_list"] = list(self.meta_chunk_bounds_list)
+                    self.cpu_mixup_fn = CPUSelectiveMixup(mix_config=mixup_config, config=self.config)  # Using CPU specific class
+                    self.main_logger.info("[H5DataLoader] Initialized CPUSelectiveMixup function.")
+
+                if (
+                    hasattr(augs_cfg, "SELECTIVE_CUTMIX")
+                    and hasattr(mix_schedule_cfg, "PROBS")
+                    and hasattr(mix_schedule_cfg.PROBS, "CUTMIX")
+                ):
+                    cutmix_config = augs_cfg.SELECTIVE_CUTMIX.copy()
+                    cutmix_config["PROB"] = mix_schedule_cfg.PROBS.CUTMIX
+                    cutmix_config["meta_chunk_bounds_list"] = list(self.meta_chunk_bounds_list)
+                    self.cpu_cutmix_fn = CPUSelectiveCutMix(mix_config=cutmix_config, config=self.config)  # Using CPU specific class
+                    self.main_logger.info("[H5DataLoader] Initialized CPUSelectiveCutMix function.")
+
+        # Add explicit check for DEBUG.LOSS.NULL_MASKING at initialization time
         if ops_schedule and hasattr(ops_schedule, "config"):
             try:
-                from linnaeus.utils.debug_utils import check_debug_flag
+                from linnaeus.utils.config import check_debug_flag  # Ensure correct import if not already
 
                 has_null_masking_debug = check_debug_flag(ops_schedule.config, "DEBUG.LOSS.NULL_MASKING")
                 has_dataloader_debug = check_debug_flag(ops_schedule.config, "DEBUG.DATALOADER")
@@ -1341,15 +1398,18 @@ class H5DataLoader(DataLoader):
                         merged_subset_ids[k] = merged_subset_ids[k].cuda(non_blocking=True)
 
                     # Use CutMix or Mixup based on the decision
-                    if use_cutmix:
-                        mixing_fn = GPUSelectiveCutMix(mixing_cfg, config=self.config)
-                        self.main_logger.debug("[MIXUP_DEBUG] Using GPUSelectiveCutMix for mixing")
+                    mixing_fn = self.gpu_cutmix_fn if use_cutmix else self.gpu_mixup_fn
+                    if mixing_fn:
+                        self.main_logger.debug(
+                            f"[MIXUP_DEBUG] Using pre-initialized GPU {'CutMix' if use_cutmix else 'Mixup'} function for mixing"
+                        )
                     else:
-                        mixing_fn = GPUSelectiveMixup(mixing_cfg, config=self.config)
-                        self.main_logger.debug("[MIXUP_DEBUG] Using GPUSelectiveMixup for mixing")
+                        self.main_logger.warning(
+                            f"[MIXUP_DEBUG] GPU {'CutMix' if use_cutmix else 'Mixup'} function not initialized, skipping mixing."
+                        )
+                        apply_mixing = False  # Prevent calling a None function
 
-                    # Debug the input to the GPU mixing function
-                    if debug_enabled and self.batch_idx < 5:
+                    if apply_mixing and debug_enabled and self.batch_idx < 5:
                         self.main_logger.debug("[PRE_MIX_FN_INPUT] Checking meta_validity_masks state RIGHT BEFORE GPU mixing_fn call:")
                         self.main_logger.debug(f"[PRE_MIX_FN_INPUT] meta_validity_masks ID: {id(meta_validity_masks)}")
 
@@ -1405,15 +1465,18 @@ class H5DataLoader(DataLoader):
                                     )
                 else:
                     # Use CutMix or Mixup based on the decision
-                    if use_cutmix:
-                        mixing_fn = CPUSelectiveCutMix(mixing_cfg, config=self.config)
-                        self.main_logger.debug("[MIXUP_DEBUG] Using CPUSelectiveCutMix for mixing")
+                    mixing_fn = self.cpu_cutmix_fn if use_cutmix else self.cpu_mixup_fn
+                    if mixing_fn:
+                        self.main_logger.debug(
+                            f"[MIXUP_DEBUG] Using pre-initialized CPU {'CutMix' if use_cutmix else 'Mixup'} function for mixing"
+                        )
                     else:
-                        mixing_fn = CPUSelectiveMixup(mixing_cfg, config=self.config)
-                        self.main_logger.debug("[MIXUP_DEBUG] Using CPUSelectiveMixup for mixing")
+                        self.main_logger.warning(
+                            f"[MIXUP_DEBUG] CPU {'CutMix' if use_cutmix else 'Mixup'} function not initialized, skipping mixing."
+                        )
+                        apply_mixing = False  # Prevent calling a None function
 
-                    # Debug the input to the CPU mixing function
-                    if debug_enabled and self.batch_idx < 5:
+                    if apply_mixing and debug_enabled and self.batch_idx < 5:
                         self.main_logger.debug("[PRE_MIX_FN_INPUT] Checking meta_validity_masks state RIGHT BEFORE CPU mixing_fn call:")
                         self.main_logger.debug(f"[PRE_MIX_FN_INPUT] meta_validity_masks ID: {id(meta_validity_masks)}")
 
@@ -1438,12 +1501,14 @@ class H5DataLoader(DataLoader):
                                         f"[PRE_MIX_FN_INPUT]   - Sample 0, {comp_name}: mask={first_sample_mask}, all False? {all_false}"
                                     )
 
-                    images, merged_targets, aux_info, meta_validity_masks = mixing_fn(
-                        batch_tuple, exclude_null_samples=exclude_null_samples, null_task_keys=null_task_keys
-                    )
+                    if apply_mixing:  # Check if mixing_fn is valid before calling
+                        images, merged_targets, aux_info, meta_validity_masks = mixing_fn(
+                            batch_tuple, exclude_null_samples=exclude_null_samples, null_task_keys=null_task_keys
+                        )
+                    # else: mixing was skipped, tensors remain as they were.
 
                     # Debug the output from the CPU mixing function
-                    if debug_enabled and self.batch_idx < 5:
+                    if apply_mixing and debug_enabled and self.batch_idx < 5:
                         self.main_logger.debug("[POST_MIX_FN_OUTPUT] Checking meta_validity_masks state RIGHT AFTER CPU mixing_fn call:")
                         self.main_logger.debug(f"[POST_MIX_FN_OUTPUT] meta_validity_masks ID: {id(meta_validity_masks)}")
 

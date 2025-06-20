@@ -4,6 +4,7 @@ import sys
 import threading
 from collections import OrderedDict
 
+from linnaeus.utils.config import check_debug_flag
 from linnaeus.utils.logging.logger import get_h5data_logger, get_main_logger
 
 
@@ -20,6 +21,7 @@ class MemoryCache:
     Attributes:
         cache (OrderedDict): LRU cache storing key-value pairs
         max_size (int): Maximum cache size in bytes
+        config (object): Configuration object
         lock (threading.Lock): Thread synchronization lock
         current_size (int): Current cache size in bytes
         hit_count (int): Number of cache hits
@@ -28,16 +30,18 @@ class MemoryCache:
         access_count (int): Total number of cache accesses
     """
 
-    def __init__(self, max_size, h5data_logger=None, main_logger=None):
+    def __init__(self, max_size, config, h5data_logger=None, main_logger=None):
         """Initialize MemoryCache.
 
         Args:
             max_size (int): Maximum cache size in bytes
+            config (object): Configuration object
             h5data_logger (logging.Logger, optional): H5data-specific logger
             main_logger (logging.Logger, optional): Main logger instance
         """
         self.cache = OrderedDict()
         self.max_size = max_size
+        self.config = config
         self.lock = threading.Lock()
         self.current_size = 0
         self.hit_count = 0
@@ -94,11 +98,11 @@ class MemoryCache:
                 self.current_size -= self._item_size(value)
                 self.hit_count += 1
                 # self.h5data_logger.debug(f"Cache hit: {key}. Hit rate: {self.hit_rate():.2f}")
-                self._log_stats_if_needed()
+                self._log_stats_if_needed(self.config)
                 return value
             self.miss_count += 1
             # self.h5data_logger.debug(f"Cache miss: {key}. Miss rate: {self.miss_rate():.2f}")
-            self._log_stats_if_needed()
+            self._log_stats_if_needed(self.config)
             return None
 
     def _item_size(self, item):
@@ -119,6 +123,7 @@ class MemoryCache:
             f"Evictions: {self.eviction_count}"
         )
 
-    def _log_stats_if_needed(self, log_interval=5000):
+    def _log_stats_if_needed(self, config, log_interval=5000):
         if self.access_count % log_interval == 0:
-            self.log_stats()
+            if check_debug_flag(config, "DEBUG.DATALOADER"):
+                self.log_stats()

@@ -425,13 +425,6 @@ def main(config, args=None):
             h5data_logger.info("Upward major-rank check => enabled")
 
     # Build datasets
-    # Convert PIPELINE_INTERVAL from steps to seconds (rough estimate)
-    # Assume ~1 step per second as baseline, but cap at reasonable intervals
-    pipeline_steps = getattr(config.SCHEDULE.METRICS, "PIPELINE_INTERVAL", 250)
-    monitor_interval = max(5.0, min(30.0, pipeline_steps / 10.0))
-
-    if rank == 0:
-        logger.info(f"Pipeline monitor interval: {monitor_interval:.1f}s (based on PIPELINE_INTERVAL={pipeline_steps})")
     (
         dataset_train,
         dataset_val,
@@ -444,7 +437,7 @@ def main(config, args=None):
         subset_ids,
         task_nulls_density,
         meta_label_density,
-    ) = build_datasets(config, h5data_logger, monitor_interval=monitor_interval, monitor_enabled=True)
+    ) = build_datasets(config, h5data_logger)
 
     # Register datasets for cleanup
     if dataset_train is not None:
@@ -625,14 +618,6 @@ def main(config, args=None):
         initial_group_level = config.SCHEDULE.MIX.GROUP_LEVELS[0]
     logger.info(f"Using initial mixup group level for dataloader length calculation: {initial_group_level}")
     # --- End Get Initial Mixup Level ---
-
-    # Possibly start concurrency monitoring
-    if hasattr(dataset_train, "start_monitoring"):
-        dataset_train.start_monitoring()
-        logger.info("[main] dataset_train concurrency monitoring started.")
-    if hasattr(dataset_val, "start_monitoring"):
-        dataset_val.start_monitoring()
-        logger.info("[main] dataset_val concurrency monitoring started.")
 
     # Build data loaders
     if check_debug_flag(config, "DEBUG.DATALOADER"):

@@ -1,11 +1,10 @@
-import logging
 from typing import Any
 
 import torch
 
 from linnaeus.aug.base import SelectiveMixup
 from linnaeus.aug.utils import exclude_null_samples_from_mixup
-from linnaeus.utils.debug_utils import check_debug_flag
+from linnaeus.utils.config import check_debug_flag  # Updated import
 from linnaeus.utils.logging.logger import get_main_logger
 
 logger = get_main_logger()
@@ -90,6 +89,8 @@ class GPUSelectiveMixup(SelectiveMixup):
         Returns:
           (mixed_images, mixed_targets, mixed_aux_info, mixed_meta_valids)
         """
+        debug_flag = self.config is not None and check_debug_flag(self.config, "DEBUG.AUGMENTATION")
+
         # Optionally exclude null-category samples from mixup
         if exclude_null_samples:
             batch = exclude_null_samples_from_mixup(batch, null_task_keys, config=self.config)
@@ -97,7 +98,7 @@ class GPUSelectiveMixup(SelectiveMixup):
         images, targets, aux_info, meta_masks, group_ids = batch
 
         # Validate mixup configuration for hierarchical labels
-        if logger.isEnabledFor(logging.INFO) and len(targets) > 1:
+        if debug_flag and len(targets) > 1:  # Changed from logger.isEnabledFor(logging.INFO)
             task_keys = list(targets.keys())
             try:
                 # Check if targets represents a hierarchy
@@ -136,16 +137,18 @@ class GPUSelectiveMixup(SelectiveMixup):
 
         # 1) Probability check
         if torch.rand(1, device=images.device).item() > self.mix_config["PROB"]:
-            logger.debug("Skipping GPUSelectiveMixup due to probability check.")
+            if debug_flag:
+                logger.debug("Skipping GPUSelectiveMixup due to probability check.")
             return images, targets, aux_info, meta_masks
 
         # 2) If all group_ids == -1 => skip
         if (group_ids == -1).all():
-            logger.debug("All group_ids are -1 => skipping GPUSelectiveMixup.")
+            if debug_flag:
+                logger.debug("All group_ids are -1 => skipping GPUSelectiveMixup.")
             return images, targets, aux_info, meta_masks
 
         # 3) Build in-group permutation
-        perm = self._get_ingroup_permutation(group_ids)
+        perm = self._get_ingroup_permutation(group_ids, debug_flag)
 
         # 4) Beta distribution => lam
         alpha = self.mix_config["ALPHA"]
@@ -158,7 +161,7 @@ class GPUSelectiveMixup(SelectiveMixup):
         mixed_targets = {}
         for k, v in targets.items():
             # Debug logging before mixing to understand the targets
-            if logger.isEnabledFor(logging.DEBUG):
+            if debug_flag:
                 sample_size = min(3, v.size(0))
                 if v.dim() > 1:
                     # For one-hot targets, log the index 0 (null category) values
@@ -196,7 +199,7 @@ class GPUSelectiveMixup(SelectiveMixup):
             mixed_targets[k] = lam * v + (1 - lam) * v[perm]
 
             # Debug logging after mixing to see the effect
-            if logger.isEnabledFor(logging.DEBUG):
+            if debug_flag:
                 sample_size = min(3, v.size(0))
                 if mixed_targets[k].dim() > 1:
                     # For one-hot targets, check the mixed results
@@ -274,18 +277,18 @@ class GPUSelectiveMixup(SelectiveMixup):
                                 )
 
         # 7) Enforce all-or-nothing chunks
-        self._enforce_all_or_nothing(aux_info, meta_masks)
-        self._enforce_all_or_nothing(aux_info[perm], meta_masks[perm])
+        self._enforce_all_or_nothing(aux_info, meta_masks)  # This method does not log, so no debug_flag needed
+        self._enforce_all_or_nothing(aux_info[perm], meta_masks[perm])  # This method does not log
 
         # 8) Hard pick chunk by chunk
-        mixed_aux, mixed_masks = self._mix_aux_info_chunkwise(aux_info, aux_info[perm], meta_masks, meta_masks[perm])
+        mixed_aux, mixed_masks = self._mix_aux_info_chunkwise(aux_info, aux_info[perm], meta_masks, meta_masks[perm], debug_flag)
 
         return mixed_images, mixed_targets, mixed_aux, mixed_masks
 
     # ---------------------------------------------------------------------
     # Internal
     # ---------------------------------------------------------------------
-    def _get_ingroup_permutation(self, group_ids: torch.Tensor) -> torch.Tensor:
+    def _get_ingroup_permutation(self, group_ids: torch.Tensor, debug_flag: bool) -> torch.Tensor:
         """
         For each distinct group >1 in size, shuffle only within that group.
         """
@@ -293,16 +296,7 @@ class GPUSelectiveMixup(SelectiveMixup):
         B = group_ids.size(0)
         perm = torch.arange(B, device=device)
 
-        # Debug logging
-        from linnaeus.utils.debug_utils import check_debug_flag
-        from linnaeus.utils.distributed import get_rank_safely
-
-        try:
-            debug_enabled = self.config is not None and get_rank_safely() == 0 and check_debug_flag(self.config, "DEBUG.AUGMENTATION")
-        except Exception:
-            debug_enabled = False
-
-        if debug_enabled:
+        if debug_flag:
             logger.debug(f"[MIXUP_PERM] Creating permutation for group_ids: {group_ids.tolist()}")
 
         unique_g = group_ids.unique()
@@ -310,7 +304,7 @@ class GPUSelectiveMixup(SelectiveMixup):
             if g.item() == -1:
                 continue
             idx = (group_ids == g).nonzero(as_tuple=True)[0]
-            if debug_enabled:
+            if debug_flag:
                 logger.debug(f"[MIXUP_PERM] Group {g.item()} has {idx.numel()} samples at indices {idx.tolist()}")
 
             if idx.numel() > 1:
@@ -318,19 +312,19 @@ class GPUSelectiveMixup(SelectiveMixup):
                 rand_perm = torch.randperm(idx.numel(), device=device)
                 perm[idx] = idx[rand_perm]
 
-                if debug_enabled:
+                if debug_flag:
                     logger.debug(f"[MIXUP_PERM] Group {g.item()} random permutation: {rand_perm.tolist()}")
                     logger.debug(f"[MIXUP_PERM] Group {g.item()} sample pairings:")
                     for i, orig_idx in enumerate(idx.tolist()):
                         paired_idx = idx[rand_perm[i]].item()
                         logger.debug(f"[MIXUP_PERM]   Sample {orig_idx} paired with {paired_idx}")
-            elif debug_enabled:
+            elif debug_flag:
                 logger.debug(f"[MIXUP_PERM] Group {g.item()} has only 1 sample - no mixing will occur")
 
         # Store the permutation for later inspection
         self.last_permutation = perm
 
-        if debug_enabled:
+        if debug_flag:
             logger.debug(f"[MIXUP_PERM] Final permutation: {perm.tolist()}")
 
         return perm
@@ -358,7 +352,7 @@ class GPUSelectiveMixup(SelectiveMixup):
             meta_masks[is_partial, start:end] = False
 
     def _mix_aux_info_chunkwise(
-        self, info1: torch.Tensor, info2: torch.Tensor, mask1: torch.Tensor, mask2: torch.Tensor
+        self, info1: torch.Tensor, info2: torch.Tensor, mask1: torch.Tensor, mask2: torch.Tensor, debug_flag: bool
     ) -> tuple[torch.Tensor, torch.Tensor]:
         """
         Chunk-level "hard pick" logic:
@@ -373,16 +367,7 @@ class GPUSelectiveMixup(SelectiveMixup):
         out_info = torch.empty_like(info1)
         out_mask = torch.empty_like(mask1)
 
-        # Debug logging
-        from linnaeus.utils.debug_utils import check_debug_flag
-        from linnaeus.utils.distributed import get_rank_safely
-
-        try:
-            debug_enabled = self.config is not None and get_rank_safely() == 0 and check_debug_flag(self.config, "DEBUG.AUGMENTATION")
-        except Exception:
-            debug_enabled = False
-
-        if debug_enabled:
+        if debug_flag:
             logger.debug(f"[MIX_CHUNKS] Starting chunk-wise mixing for {B} samples")
             # Track decisions for later analysis
             component_decisions = {}
@@ -394,9 +379,10 @@ class GPUSelectiveMixup(SelectiveMixup):
                     for comp_name in self.config.DATA.META.COMPONENTS:
                         comp_cfg = getattr(self.config.DATA.META.COMPONENTS, comp_name)
                         if comp_cfg.get("ENABLED", False):
-                            pass
+                            pass  # This part of code was empty, just passing
             except Exception as e:
-                logger.debug(f"[MIX_CHUNKS] Error getting component names: {e}")
+                if debug_flag:  # Ensure this logger.debug is also conditional
+                    logger.debug(f"[MIX_CHUNKS] Error getting component names: {e}")
 
         # Use precomputed chunk bounds if available, otherwise default to a single chunk
         if self.chunk_bounds is not None:
@@ -406,20 +392,20 @@ class GPUSelectiveMixup(SelectiveMixup):
         else:  # info1 is empty or 1D
             chunk_bounds = []
 
-        if debug_enabled:
+        if debug_flag:
             logger.debug(f"[MIX_CHUNKS] Using chunk boundaries: {chunk_bounds}")
 
         # We'll do a random sample per row i for picking among "both non-zero" chunks
         pick_rand = torch.rand(B, device=info1.device)
 
-        if debug_enabled:
+        if debug_flag:
             logger.debug(f"[MIX_CHUNKS] Generated random values for chunk mixing: {pick_rand[: min(5, B)].tolist()}")
 
         for i in range(B):
             rnd = pick_rand[i].item()
 
             # Initialize tracking for this sample if in debug mode
-            if debug_enabled and i < 3:  # Only track first few samples to avoid excessive logging
+            if debug_flag and i < 3:  # Only track first few samples to avoid excessive logging
                 component_decisions[i] = []
 
             for chunk_idx, (start, end) in enumerate(chunk_bounds):
@@ -433,7 +419,7 @@ class GPUSelectiveMixup(SelectiveMixup):
                 component_name = f"chunk_{chunk_idx}({start}:{end})"
 
                 # Log detailed debug info for the first few samples
-                if debug_enabled and i < 3:
+                if debug_flag and i < 3:
                     c1_valid = bool(torch.all(mask1[i, start:end]))
                     c2_valid = bool(torch.all(mask2[i, start:end]))
 
@@ -446,47 +432,47 @@ class GPUSelectiveMixup(SelectiveMixup):
                     if rnd < 0.5:
                         out_info[i, start:end] = c1
                         out_mask[i, start:end] = mask1[i, start:end]
-                        if debug_enabled and i < 3:
+                        if debug_flag and i < 3:
                             logger.debug(f"[MIX_CHUNKS]   Decision: both non-zero, random < 0.5 ({rnd:.4f}), pick ORIGINAL")
                             component_decisions[i].append((component_name, "random_original"))
                     else:
                         out_info[i, start:end] = c2
                         out_mask[i, start:end] = mask2[i, start:end]
-                        if debug_enabled and i < 3:
+                        if debug_flag and i < 3:
                             logger.debug(f"[MIX_CHUNKS]   Decision: both non-zero, random >= 0.5 ({rnd:.4f}), pick PERMUTED")
                             component_decisions[i].append((component_name, "random_permuted"))
                 elif (not all_zero_1) and all_zero_2:
                     out_info[i, start:end] = c1
                     out_mask[i, start:end] = mask1[i, start:end]
-                    if debug_enabled and i < 3:
+                    if debug_flag and i < 3:
                         logger.debug("[MIX_CHUNKS]   Decision: only original non-zero, pick ORIGINAL")
                         component_decisions[i].append((component_name, "only_original_nonzero"))
                 elif all_zero_1 and (not all_zero_2):
                     out_info[i, start:end] = c2
                     out_mask[i, start:end] = mask2[i, start:end]
-                    if debug_enabled and i < 3:
+                    if debug_flag and i < 3:
                         logger.debug("[MIX_CHUNKS]   Decision: only permuted non-zero, pick PERMUTED")
                         component_decisions[i].append((component_name, "only_permuted_nonzero"))
                 else:
                     # both zero => zero out
                     out_info[i, start:end] = 0.0
                     out_mask[i, start:end] = False
-                    if debug_enabled and i < 3:
+                    if debug_flag and i < 3:
                         logger.debug("[MIX_CHUNKS]   Decision: both zero, set to ZERO")
                         component_decisions[i].append((component_name, "both_zero"))
 
                 # Verify output state for this chunk
-                if debug_enabled and i < 3:
+                if debug_flag and i < 3:
                     out_is_zero = torch.all(out_info[i, start:end] == 0.0).item()
                     out_is_valid = torch.all(out_mask[i, start:end]).item()
                     logger.debug(f"[MIX_CHUNKS]   Result: all_zeros={out_is_zero}, all_valid={out_is_valid}")
 
         # Log summary of mixing decisions if in debug mode
-        if debug_enabled:
+        if debug_flag:
             logger.debug(f"[MIX_CHUNKS] Completed chunk-wise mixing for {B} samples")
             logger.debug("[MIX_CHUNKS] Decision summary for first few samples:")
             for i in range(min(3, B)):
-                if i in component_decisions:
+                if i in component_decisions:  # Check if key exists before accessing
                     logger.debug(f"[MIX_CHUNKS]   Sample {i} decisions: {component_decisions[i]}")
 
             # Check output consistency

@@ -112,7 +112,7 @@ logger = get_h5data_logger()
 
 
 def build_datasets(
-    config: CN, h5data_logger: logging.Logger, monitor_interval: float = 5.0, monitor_enabled: bool = True
+    config: CN, h5data_logger: logging.Logger
 ) -> tuple[
     Any,  # dataset_train
     Any,  # dataset_val
@@ -145,8 +145,6 @@ def build_datasets(
     Args:
         config: (CfgNode) the master config with dataset paths, HPC flags, etc.
         h5data_logger: specialized logger for dataset debug logging.
-        monitor_interval: concurrency monitoring interval (seconds).
-        monitor_enabled: whether concurrency metrics logging is active.
 
     Returns:
         dataset_train, dataset_val,
@@ -166,15 +164,9 @@ def build_datasets(
 
     if check_debug_flag(config, "DEBUG.DATALOADER"):
         main_logger.debug("[build_datasets] Using configuration params:")
-        main_logger.debug(f"  - monitor_interval: {monitor_interval}")
-        main_logger.debug(f"  - monitor_enabled: {monitor_enabled}")
         main_logger.debug(f"  - Tasks: {config.DATA.TASK_KEYS_H5}")
         for task in config.DATA.TASK_KEYS_H5:
             main_logger.debug(f"  - Task '{task}' config: {getattr(config.DATA, task, 'Not found')}")
-
-    # Possibly override monitor_interval from config if a custom pipeline freq is set.
-    if hasattr(config, "MISC") and hasattr(config.MISC, "PIPELINE_METRICS_FREQ"):
-        monitor_interval = float(config.MISC.PIPELINE_METRICS_FREQ or monitor_interval)
 
     # -------------------------------------------------------------------------
     # Step 1: Check single-file vs separate-file scenario
@@ -337,8 +329,6 @@ def build_datasets(
             aug_pipeline=augmentation_pipeline,
             class_to_idx=class_to_idx,
             config=config,
-            monitor_interval=monitor_interval,
-            monitor_enabled=monitor_enabled,
         )
 
         # Build val dataset similarly
@@ -351,8 +341,6 @@ def build_datasets(
             aug_pipeline=None,  # disable heavy training augs for val
             class_to_idx=class_to_idx,
             config=config,
-            monitor_interval=monitor_interval,
-            monitor_enabled=monitor_enabled,
         )
 
     # Scenario B: single-file pure-HDF5 usage.
@@ -414,8 +402,6 @@ def build_datasets(
             aug_pipeline=augmentation_pipeline,
             class_to_idx=class_to_idx,
             config=config,
-            monitor_interval=monitor_interval,
-            monitor_enabled=monitor_enabled,
         )
 
         # Now wrap train indices in a subset wrapper => it will build group_ids[rank_key]['train']
@@ -479,8 +465,6 @@ def build_datasets(
             aug_pipeline=augmentation_pipeline,
             class_to_idx=class_to_idx,
             config=config,
-            monitor_interval=monitor_interval,
-            monitor_enabled=monitor_enabled,
         )
 
         dataset_train = _SingleFileHybridSubsetWrapper(base_dataset=base_dataset, subset_indices=train_subset, subset_key="train")
@@ -521,8 +505,6 @@ def build_datasets(
                 aug_pipeline=augmentation_pipeline,
                 class_to_idx=class_to_idx,
                 config=config,
-                monitor_interval=monitor_interval,
-                monitor_enabled=monitor_enabled,
             )
 
             # Create an empty val dataset for consistency.
@@ -1083,8 +1065,6 @@ def _init_dataset(
     aug_pipeline: Any,
     class_to_idx: dict[str, dict[Any, int]],
     config: CN,
-    monitor_interval: float,
-    monitor_enabled: bool,
 ) -> Any:
     """
     Create either a PrefetchingH5Dataset or a PrefetchingHybridDataset, attaching the entire
@@ -1100,8 +1080,6 @@ def _init_dataset(
         aug_pipeline: The single-sample augmentation pipeline, or None.
         class_to_idx: Map from each task key to a dict {raw_tax_id: class_idx}.
         config: Full YACS config node.
-        monitor_interval: concurrency monitor frequency.
-        monitor_enabled: concurrency monitor boolean.
 
     Returns:
         A dataset object (PrefetchingH5Dataset or PrefetchingHybridDataset).
@@ -1151,8 +1129,6 @@ def _init_dataset(
             main_logger=main_logger,
             h5data_logger=logging.getLogger("h5data"),
             class_to_idx=class_to_idx,
-            monitor_interval=monitor_interval,
-            monitor_enabled=monitor_enabled,
         )
     else:
         main_logger.debug("Creating PrefetchingH5Dataset for this subset. is_val=%r", is_val)
@@ -1176,8 +1152,6 @@ def _init_dataset(
             main_logger=main_logger,
             h5data_logger=logging.getLogger("h5data"),
             class_to_idx=class_to_idx,
-            monitor_interval=monitor_interval,
-            monitor_enabled=monitor_enabled,
         )
 
     # Attach the entire nested group_ids dictionary so that at runtime, the sampler can pick the correct rank+subset.
