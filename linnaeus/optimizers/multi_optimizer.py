@@ -17,6 +17,7 @@ import torch
 from torch.optim import Optimizer
 
 from linnaeus.utils.debug_utils import check_debug_flag
+from linnaeus.utils.distributed import get_rank_safely
 from linnaeus.utils.logging.logger import get_main_logger
 
 logger = get_main_logger()
@@ -169,6 +170,7 @@ class MultiOptimizer:
             opt_state_dict = {"state": {}, "param_groups": saved_opt_state["param_groups"]}
 
             # Remap stable indices back to current parameter IDs
+            missing_indices = []
             for stable_idx, param_state in saved_opt_state["state"].items():
                 # Convert to int if string (for JSON compatibility)
                 stable_idx = int(stable_idx)
@@ -184,7 +186,21 @@ class MultiOptimizer:
                                 f"exp_avg shape = {param_state['exp_avg'].shape}"
                             )
                 else:
-                    logger.warning(f"Stable index {stable_idx} not found in current parameters")
+                    missing_indices.append(stable_idx)
+
+            # Log missing indices if any
+            if get_rank_safely() == 0 and missing_indices:
+                # 1. Log the summary warning
+                logger.warning(
+                    f"[MultiOptimizer] {len(missing_indices)} parameters from checkpoint state were not found "
+                    "in the current model's parameters and will be ignored."
+                )
+
+                # 2. Log the detailed list only if the debug flag is set
+                if check_debug_flag(self.config, "DEBUG.CHECKPOINT"):
+                    logger.debug("[MultiOptimizer] List of missing parameter indices from checkpoint:")
+                    for idx in sorted(missing_indices):  # Sorting is good for consistency
+                        logger.debug(f"  - Parameter with stable index {idx} not found in current model.")
 
             # Load the remapped state
             opt.load_state_dict(opt_state_dict)
