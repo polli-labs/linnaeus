@@ -3,6 +3,33 @@
 Linnaeus can automatically search for a memory-safe per-GPU batch size before training.
 The search uses a binary strategy implemented in `linnaeus.utils.autobatch.auto_find_batch_size`.
 
+## Known Limitation - Multi-GPU (DDP) Training
+
+⚠️ **Important**: When using autobatch in a multi-GPU distributed training setup (DDP), the current implementation may cause NCCL timeout errors on non-rank-0 processes. While autobatch is designed to run only on rank 0 with other ranks waiting, the current behavior can result in timeouts.
+
+### Recommended Workflow for Multi-GPU Training
+
+1. **Discovery Phase** (Single GPU):
+   ```bash
+   # Use the standalone tool or run with single GPU
+   python tools/analyze_batch_sizes.py --cfg my_exp.yaml --fractions 0.8 --modes train,val
+   ```
+
+2. **Configure Discovered Batch Sizes**:
+   ```yaml
+   DATA:
+     BATCH_SIZE: 64  # Use discovered training batch size
+     BATCH_SIZE_VAL: 128  # Use discovered validation batch size
+     AUTOBATCH:
+       ENABLED: False  # Disable autobatch for multi-GPU run
+       ENABLED_VAL: False
+   ```
+
+3. **Run Multi-GPU Training**:
+   ```bash
+   torchrun --nproc_per_node=4 -m linnaeus.main --cfg my_exp.yaml
+   ```
+
 ## Configuration
 
 ```yaml

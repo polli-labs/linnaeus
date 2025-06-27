@@ -36,3 +36,9 @@ style issues are advisory only (job should still succeed).
 1. Activate the venv.
 2. Run formatter, linter‑with‑fix, and final verification (§3).
 <!-- 3. Run the test‑suite (§2). Commit only if tests pass. --> NOTE: this policy is not yet active as tests remain unstable, use your judgement and only consider relevant tests when determining whether to commit.
+
+## 5 PR instructions
+Title format: `[<area>] <Title>`
+Examples:
+- `[rl_env] Add support for multitask mode`
+- `[docs] Update README with new installation instructions`

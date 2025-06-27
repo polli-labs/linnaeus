@@ -28,6 +28,28 @@ IMPORTANT NOTES ON MEMORY ESTIMATION ACCURACY:
    - Validation mode requires providing criteria_val to accurately simulate the memory
      requirements of loss calculation.
 
+KNOWN LIMITATION - DDP (DISTRIBUTED) TRAINING:
+----------------------------------------------
+When using autobatch in a multi-GPU distributed training setup (DDP), the current
+implementation may cause NCCL timeout errors on non-rank-0 processes. While the
+intention is for rank 0 to perform the search while other ranks wait at a barrier,
+the current behavior can result in timeouts.
+
+**Workaround**: Use autobatch to determine optimal batch sizes in a single-GPU
+environment (or using the standalone analyze_batch_sizes.py tool), then manually
+configure the discovered batch sizes in your experiment config and disable autobatch
+for the actual multi-GPU training run.
+
+Example workflow:
+1. Run autobatch on a single GPU to find optimal batch sizes
+2. Note the discovered train/val batch sizes
+3. Update your config:
+   DATA.BATCH_SIZE: <discovered_train_bs>
+   DATA.BATCH_SIZE_VAL: <discovered_val_bs>
+   DATA.AUTOBATCH.ENABLED: False
+   DATA.AUTOBATCH.ENABLED_VAL: False
+4. Run your multi-GPU training with the manually configured batch sizes
+
 Typical usage in a training script:
 -----------------------------------
     from linnaeus.utils.autobatch import auto_find_batch_size

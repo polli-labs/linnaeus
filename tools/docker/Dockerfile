@@ -19,23 +19,35 @@ ENV PATH="/root/.local/bin:$PATH"
 
 # --- System Dependencies ---
 # Add retry logic for apt operations
-RUN apt-get update || (sleep 10 && apt-get update) || (sleep 20 && apt-get update) && \
+RUN set -e && \
+    for i in 1 2 3; do \
+        if apt-get update; then \
+            break; \
+        else \
+            echo "Attempt $i failed, retrying in $(expr $i \* 10) seconds..." && \
+            sleep $(expr $i \* 10); \
+        fi; \
+    done && \
     apt-get install -y --no-install-recommends \
-    build-essential \
-    git \
-    python3.11 \
-    python3.11-dev \
-    python3.11-venv \
-    python3-pip \
-    curl \
-    unzip \
-    libglib2.0-0 \
-    libsm6 \
-    libxext6 \
-    libfontconfig1 \
-    libxrender1 \
-    libgl1-mesa-glx \
-    && rm -rf /var/lib/apt/lists/*
+        build-essential \
+        git \
+        python3.11 \
+        python3.11-dev \
+        python3.11-venv \
+        python3-pip \
+        curl \
+        unzip \
+        libglib2.0-0 \
+        libsm6 \
+        libxext6 \
+        libfontconfig1 \
+        libxrender1 \
+        libgl1-mesa-glx \
+        htop \
+        nvtop \
+        nano \
+        rclone && \
+    rm -rf /var/lib/apt/lists/*
 
 # Link python3 to python3.11 and create python symlink
 RUN ln -sf /usr/bin/python3.11 /usr/bin/python3 && \

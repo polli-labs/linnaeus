@@ -10,7 +10,6 @@ from typing import Any
 import torch
 
 from linnaeus.aug.base import AugmentationPipeline
-from linnaeus.utils.distributed import get_rank_safely
 from linnaeus.utils.logging.logger import get_h5data_logger
 
 from .memcache import MemoryCache
@@ -95,8 +94,6 @@ class BasePrefetchingDataset(ABC):
         augmentation_pipeline: Any,
         simulate_hpc: bool,
         io_delay: float,
-        monitor_interval: float,
-        monitor_enabled: bool,
         main_logger=None,
         h5data_logger=None,
     ):
@@ -115,8 +112,6 @@ class BasePrefetchingDataset(ABC):
             augmentation_pipeline (AugmentationPipeline or None): optional single-sample transform pipeline.
             simulate_hpc (bool): if True, artificially sleep io_delay each sample read.
             io_delay (float): HPC-sim read delay in seconds if simulate_hpc=True.
-            monitor_interval (float): how often (sec) the monitor thread logs concurrency stats.
-            monitor_enabled (bool): whether to start the concurrency monitor.
             main_logger (logging.Logger): general logger for info/warn.
             h5data_logger (logging.Logger): specialized logger for dataset debug.
         """
@@ -127,8 +122,6 @@ class BasePrefetchingDataset(ABC):
         self.sleep_time = sleep_time
         self.simulate_hpc = simulate_hpc
         self.io_delay = io_delay
-        self.monitor_interval = monitor_interval
-        self.monitor_enabled = monitor_enabled
         self.main_logger = main_logger or get_h5data_logger()
         self.h5data_logger = h5data_logger or logging.getLogger("h5data")
 
@@ -161,8 +154,6 @@ class BasePrefetchingDataset(ABC):
         self.start_time = time.time()
         self.prefetch_count = 0
         self.preprocess_count = 0
-        self.should_monitor = False
-        self.monitor_thread = None
         self.metrics = {
             "prefetch_times": [],
             "preprocess_times": [],
@@ -299,18 +290,6 @@ class BasePrefetchingDataset(ABC):
             return STOP_SENTINEL
         return batch
 
-    def start_monitoring(self):
-        """
-        Start the concurrency monitor thread if not already active.
-        This logs pipeline metrics (queue depth, throughput, etc.) every self.monitor_interval.
-        """
-        if self.monitor_enabled and not self.should_monitor:
-            self.should_monitor = True
-            if not self.monitor_thread:
-                self.monitor_thread = threading.Thread(target=self._monitor_loop, daemon=True)
-                self.monitor_thread.start()
-            self.main_logger.info("[BasePrefetchingDataset] Monitoring started (start_monitoring).")
-
     def close(self):
         """
         Shut down concurrency threads for good. This enqueues STOP_SENTINEL so each
@@ -326,15 +305,6 @@ class BasePrefetchingDataset(ABC):
 
         # Signal all threads to stop immediately
         self._shutdown_event.set()
-
-        # Stop monitoring thread first
-        self.should_monitor = False
-        if self.monitor_thread and self.monitor_thread.is_alive():
-            self.main_logger.debug(f"[{class_name}] Joining monitor thread...")
-            self.monitor_thread.join(timeout=2.0)  # Timeout after 2 seconds
-            if self.monitor_thread.is_alive():
-                self.main_logger.warning(f"[{class_name}] Monitor thread did not exit in time.")
-        self.monitor_thread = None
 
         # Gracefully signal batch feeder thread if it's running
         if self._batch_feeder_thread and self._batch_feeder_thread.is_alive():
@@ -599,47 +569,6 @@ class BasePrefetchingDataset(ABC):
             return (img_t, tgt_t, aux_t, g_id, subs_id, meta_mask)
         else:
             return sample
-
-    # ------------------------------------------------------------------------
-    # Monitoring
-    # ------------------------------------------------------------------------
-    def _monitor_loop(self):
-        while self.should_monitor:
-            time.sleep(self.monitor_interval)
-            bq = self._batch_index_queue.qsize()
-            prq = self._preprocess_queue.qsize()
-            pbq = self._processed_batch_queue.qsize()
-
-            csize = self.prefetch_cache.current_size
-            cmax = self.prefetch_cache.max_size
-            usage_pct = (csize / cmax * 100.0) if cmax > 0 else 0.0
-
-            elapsed = time.time() - self.start_time
-            prefetch_rate = self.prefetch_count / elapsed if elapsed > 0 else 0.0
-            preproc_rate = self.preprocess_count / elapsed if elapsed > 0 else 0.0
-
-            self.metrics["queue_depths"]["batch_index_q"].append(bq)
-            self.metrics["queue_depths"]["preprocess_q"].append(prq)
-            self.metrics["queue_depths"]["processed_batch_q"].append(pbq)
-            self.metrics["cache_metrics"]["size"].append(usage_pct)
-            self.metrics["throughput"]["prefetch"].append(prefetch_rate)
-            self.metrics["throughput"]["preprocess"].append(preproc_rate)
-
-            # Add capacity values to metrics
-            self.metrics["batch_concurrency"] = self.batch_concurrency
-            self.metrics["max_processed_batches"] = self.max_processed_batches
-
-            if get_rank_safely() == 0:
-                self.main_logger.info(
-                    f"[Monitor] QDepth => batch_index={bq}/{self.batch_concurrency}, "
-                    f"preproc={prq}/{self.batch_concurrency}, "
-                    f"processed={pbq}/{self.max_processed_batches}"
-                )
-                self.main_logger.info(
-                    f"[Monitor] Cache => {usage_pct:.1f}% usage "
-                    f"({csize / 1e6:.1f}MB/{cmax / 1e6:.1f}MB), "
-                    f"prefetch_rate={prefetch_rate:.2f}/s, preproc_rate={preproc_rate:.2f}/s"
-                )
 
     # ------------------------------------------------------------------------
     # Helpers
