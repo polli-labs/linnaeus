@@ -52,6 +52,10 @@ Resources for those looking to extend or contribute to Polli Linnaeus.
 *   **[Development Guides](./dev/):** (Link to `docs/dev/` directory if it contains an index or relevant files - e.g., `docs/dev/01_training_loop_and_progress.md`) Explore notes on the training loop, scheduling system, metrics, and other internal design choices.
 *   **[Contributing Guidelines](../../CONTRIBUTING.md):** (To be created) How to contribute to the Polli Linnaeus project.
 
+## Known Limitations
+
+*   **[Known Limitations](./known_limitations.md):** Current limitations and known issues in Polli Linnaeus, along with recommended workarounds.
+
 ---
 
 If you can't find what you're looking for, please consider [opening an issue](https://github.com/polli-labs/linnaeus/issues) on our GitHub repository.
