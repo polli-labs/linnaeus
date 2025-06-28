@@ -4,7 +4,7 @@ import torch
 
 from linnaeus.aug.base import SelectiveMixup
 from linnaeus.aug.utils import exclude_null_samples_from_mixup
-from linnaeus.utils.config import check_debug_flag  # Updated import
+from linnaeus.utils.debug_utils import check_debug_flag
 from linnaeus.utils.logging.logger import get_main_logger
 
 logger = get_main_logger()
