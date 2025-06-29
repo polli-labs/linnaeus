@@ -127,3 +127,18 @@ class MemoryCache:
         if self.access_count % log_interval == 0:
             if check_debug_flag(config, "DEBUG.DATALOADER"):
                 self.log_stats()
+
+    def get_stats(self) -> dict:
+        """
+        Returns a dictionary of the current cache statistics.
+        This is for external monitoring.
+        """
+        with self.lock:
+            return {
+                "size": len(self.cache),
+                "hits": self.hit_count,
+                "misses": self.miss_count,
+                "evictions": self.eviction_count,
+                "memory_usage_bytes": self.current_size,
+                "memory_capacity_bytes": self.max_size,
+            }

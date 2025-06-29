@@ -363,7 +363,11 @@ def resolve_schedule_value(
             logger.warning(f"Fraction value for {name} should be between 0 and 1. Got {fraction}.")
             fraction = max(0.0, min(1.0, fraction))
 
-        result = max(1, int(round(total_steps * fraction)))
+        # If fraction is zero, result should be zero. Otherwise, calculate and ensure at least 1.
+        if fraction == 0.0:
+            result = 0
+        else:
+            result = max(1, int(round(total_steps * fraction)))
 
         # Add safety check for very small values
         if result < 10 and fraction > 0.01:
