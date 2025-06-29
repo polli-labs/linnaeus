@@ -94,6 +94,8 @@ class BasePrefetchingDataset(ABC):
         augmentation_pipeline: Any,
         simulate_hpc: bool,
         io_delay: float,
+        monitor_interval: float = 10.0,  # Default interval in seconds
+        monitor_enabled: bool = True,  # Default to enabled
         main_logger=None,
         h5data_logger=None,
     ):
@@ -122,6 +124,8 @@ class BasePrefetchingDataset(ABC):
         self.sleep_time = sleep_time
         self.simulate_hpc = simulate_hpc
         self.io_delay = io_delay
+        self.monitor_interval = monitor_interval
+        self.monitor_enabled = monitor_enabled
         self.main_logger = main_logger or get_h5data_logger()
         self.h5data_logger = h5data_logger or logging.getLogger("h5data")
 
@@ -143,6 +147,7 @@ class BasePrefetchingDataset(ABC):
         self._batch_feeder_thread = None  # ephemeral each epoch
         self._prefetch_manager_thread = None
         self._preprocess_manager_thread = None
+        self._monitor_thread = None
 
         self._io_threadpool = None
         self._transform_threadpool = ThreadPoolExecutor(max_workers=self.num_preprocess_threads)
@@ -176,7 +181,8 @@ class BasePrefetchingDataset(ABC):
         self.main_logger.info(
             f"[BasePrefetchingDataset] init => concurrency={batch_concurrency}, "
             f"max_processed={max_processed_batches}, IO threads={num_io_threads}, "
-            f"Preproc threads={num_preprocess_threads}, HPC={simulate_hpc}"
+            f"Preproc threads={num_preprocess_threads}, HPC={simulate_hpc}, "
+            f"MonitorEnabled={self.monitor_enabled}, MonitorInterval={self.monitor_interval}"
         )
 
     # ------------------------------------------------------------------------
@@ -332,15 +338,22 @@ class BasePrefetchingDataset(ABC):
             self.main_logger.debug(f"[{class_name}] Joining prefetch manager thread...")
             self._prefetch_manager_thread.join(timeout=thread_timeout)
             if self._prefetch_manager_thread.is_alive():
-                self.main_logger.warning(f"[{class_name}] Prefetch manager thread timed out.")
+                self.main_logger.warning(f"[{class_name}] Prefetch manager thread timed out on join.")
         self._prefetch_manager_thread = None
 
         if self._preprocess_manager_thread and self._preprocess_manager_thread.is_alive():
             self.main_logger.debug(f"[{class_name}] Joining preprocess manager thread...")
             self._preprocess_manager_thread.join(timeout=thread_timeout)
             if self._preprocess_manager_thread.is_alive():
-                self.main_logger.warning(f"[{class_name}] Preprocess manager thread timed out.")
+                self.main_logger.warning(f"[{class_name}] Preprocess manager thread timed out on join.")
         self._preprocess_manager_thread = None
+
+        if self._monitor_thread and self._monitor_thread.is_alive():
+            self.main_logger.debug(f"[{class_name}] Joining monitor thread...")
+            self._monitor_thread.join(timeout=thread_timeout)
+            if self._monitor_thread.is_alive():
+                self.main_logger.warning(f"[{class_name}] Monitor thread timed out on join.")
+        self._monitor_thread = None
 
         # Shutdown thread pools
         if self._io_threadpool:
@@ -370,6 +383,7 @@ class BasePrefetchingDataset(ABC):
         Spawns the background concurrency threads that run for the dataset's entire lifetime:
           1) _prefetch_manager_thread
           2) _preprocess_manager_thread
+          3) _monitor_thread (if enabled)
         """
         if self._prefetch_manager_thread is None or not self._prefetch_manager_thread.is_alive():
             self._prefetch_manager_thread = threading.Thread(
@@ -382,6 +396,66 @@ class BasePrefetchingDataset(ABC):
                 target=self._preprocess_main_loop, daemon=True, name=f"{self.__class__.__name__}_PreprocessManagerThread"
             )
             self._preprocess_manager_thread.start()
+
+        if self.monitor_enabled and (self._monitor_thread is None or not self._monitor_thread.is_alive()):
+            self._monitor_thread = threading.Thread(
+                target=self._monitor_loop, daemon=True, name=f"{self.__class__.__name__}_MonitorThread"
+            )
+            self._monitor_thread.start()
+
+    def _monitor_loop(self):
+        """Periodically logs queue sizes and other metrics."""
+        class_name = self.__class__.__name__
+        self.main_logger.info(f"[{class_name}] Monitor thread started. Logging interval: {self.monitor_interval}s.")
+        try:
+            while not self._shutdown_event.wait(self.monitor_interval): # Wait for interval or shutdown
+                if self._shutdown_event.is_set():
+                    break
+
+                # Log queue sizes
+                batch_idx_q_size = self._batch_index_queue.qsize()
+                preprocess_q_size = self._preprocess_queue.qsize()
+                processed_batch_q_size = self._processed_batch_queue.qsize()
+
+                self.metrics["queue_depths"]["batch_index_q"].append(batch_idx_q_size)
+                self.metrics["queue_depths"]["preprocess_q"].append(preprocess_q_size)
+                self.metrics["queue_depths"]["processed_batch_q"].append(processed_batch_q_size)
+
+                # Log cache metrics
+                cache_stats = self.prefetch_cache.get_stats()
+                self.metrics["cache_metrics"]["size"].append(cache_stats["size"])
+                self.metrics["cache_metrics"]["hits"] = cache_stats["hits"]
+                self.metrics["cache_metrics"]["misses"] = cache_stats["misses"]
+                self.metrics["cache_metrics"]["evictions"] = cache_stats["evictions"]
+                self.metrics["cache_metrics"]["memory_usage_bytes"] = cache_stats["memory_usage_bytes"]
+
+                # Calculate throughput (simple version: items per interval)
+                # More sophisticated throughput might require tracking items over time differently
+                current_time = time.time()
+                elapsed_time = current_time - self.start_time
+
+                if elapsed_time > 0:
+                    prefetch_throughput = self.prefetch_count / elapsed_time
+                    preprocess_throughput = self.preprocess_count / elapsed_time
+                    self.metrics["throughput"]["prefetch"].append(prefetch_throughput)
+                    self.metrics["throughput"]["preprocess"].append(preprocess_throughput)
+                else:
+                    prefetch_throughput = 0
+                    preprocess_throughput = 0
+
+                log_msg = (
+                    f"[{class_name}] Monitor: "
+                    f"BatchIdxQ={batch_idx_q_size}, PreprocQ={preprocess_q_size}, ProcessedQ={processed_batch_q_size} | "
+                    f"CacheSize={cache_stats['size']}, Hits={cache_stats['hits']}, Misses={cache_stats['misses']}, Evictions={cache_stats['evictions']}, MemUsage={cache_stats['memory_usage_bytes'] / (1024*1024):.2f}MB | "
+                    f"PrefetchThrpt={prefetch_throughput:.2f} items/s, PreprocThrpt={preprocess_throughput:.2f} items/s"
+                )
+                self.main_logger.info(log_msg)
+
+        except Exception as e:
+            self.main_logger.error(f"[{class_name}] Error in monitor loop: {e}", exc_info=True)
+        finally:
+            self.main_logger.info(f"[{class_name}] Monitor thread exited.")
+
 
     def _prefetch_manager_loop(self):
         """
