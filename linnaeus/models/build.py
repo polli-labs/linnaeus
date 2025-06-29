@@ -65,6 +65,11 @@ def build_model(config: CN, num_classes: dict[str, int] | None = None, taxonomy_
     if check_debug_flag(config, "DEBUG.MODEL_BUILD"):
         logger.debug(f"[build_model] Starting model build with config type={config.MODEL.TYPE}")
         logger.debug(f"[build_model] Number of classes provided: {num_classes}")
+
+    # Log registered models at the point of building, ensuring logger is configured
+    from .model_factory import list_models
+    logger.debug(f"Available registered models: {list_models()}")
+
         if taxonomy_tree:
             logger.debug(f"[build_model] Using taxonomy tree with {len(taxonomy_tree._all_nodes)} nodes")
     # Create the model via the factory system
