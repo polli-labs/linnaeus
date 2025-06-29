@@ -1065,6 +1065,8 @@ def _init_dataset(
     aug_pipeline: Any,
     class_to_idx: dict[str, dict[Any, int]],
     config: CN,
+    monitor_interval: float = 10.0,  # Default value
+    monitor_enabled: bool = True,  # Default value
 ) -> Any:
     """
     Create either a PrefetchingH5Dataset or a PrefetchingHybridDataset, attaching the entire
@@ -1100,6 +1102,30 @@ def _init_dataset(
     num_preprocess_threads = config.DATA.PREFETCH.NUM_PREPROCESS_THREADS
     sleep_time = config.DATA.PREFETCH.SLEEP_TIME
 
+    # Monitoring parameters from config, with defaults
+    cfg_monitor_interval = getattr(config.DATA.PREFETCH, "MONITOR_INTERVAL", 10.0)
+    cfg_monitor_enabled = getattr(config.DATA.PREFETCH, "MONITOR_ENABLED", True)
+
+    # Use parameters passed to function if they are not the default, otherwise use config values
+    # This allows overriding via direct call if necessary, but typically relies on config.
+    final_monitor_interval = monitor_interval if monitor_interval != 10.0 else cfg_monitor_interval
+    # Corrected logic for final_monitor_enabled:
+    # If monitor_enabled (function arg) is False (i.e., different from its default True), use the function arg.
+    # Otherwise (if it's True or any other non-False value), use the config value (cfg_monitor_enabled).
+    if monitor_enabled is False:
+        final_monitor_enabled = False
+    else:
+        final_monitor_enabled = cfg_monitor_enabled
+
+    if final_monitor_interval == 10.0 and cfg_monitor_interval == 10.0: # Default was used and config did not specify
+        main_logger.info("Using default monitor_interval (10.0) as it's not specified in DATA.PREFETCH.MONITOR_INTERVAL.")
+
+    # Log if the default for monitor_enabled is being used because it's not in config
+    # This occurs if final_monitor_enabled is True AND the original cfg_monitor_enabled was its default (True)
+    # AND MONITOR_ENABLED was not actually in DATA.PREFETCH
+    if final_monitor_enabled and cfg_monitor_enabled and not hasattr(config.DATA.PREFETCH, "MONITOR_ENABLED"):
+        main_logger.info("Using default monitor_enabled (True) as it's not specified in DATA.PREFETCH.MONITOR_ENABLED.")
+
     final_aug = aug_pipeline if not is_val else None
 
     # Decide Hybrid vs HDF5.
@@ -1125,6 +1151,8 @@ def _init_dataset(
             file_extension=config.DATA.HYBRID.FILE_EXTENSION,
             simulate_hpc=simulate_hpc_flag,
             io_delay=io_delay_val,
+            monitor_interval=final_monitor_interval,
+            monitor_enabled=final_monitor_enabled,
             config=config,
             main_logger=main_logger,
             h5data_logger=logging.getLogger("h5data"),
@@ -1148,6 +1176,8 @@ def _init_dataset(
             target_img_size=config.DATA.IMG_SIZE,
             simulate_hpc=simulate_hpc_flag,
             io_delay=io_delay_val,
+            monitor_interval=final_monitor_interval,
+            monitor_enabled=final_monitor_enabled,
             config=config,
             main_logger=main_logger,
             h5data_logger=logging.getLogger("h5data"),
