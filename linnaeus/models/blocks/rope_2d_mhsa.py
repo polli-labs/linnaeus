@@ -16,6 +16,9 @@ from linnaeus.models.blocks.mlp import Mlp # E402: moved to top
 from linnaeus.utils.flash_attn_utils import is_flash_attn3_available # E402: moved to top
 from linnaeus.utils.logging.logger import get_main_logger
 
+# Create module-level logger
+logger = get_main_logger()
+
 
 _flash_attn_func_impl = None
 _flash_attn_qkvpacked_func_impl = None  # For completeness if other code uses it
@@ -29,7 +32,7 @@ try:
         _flash_attn_func_impl = flash_attn_varlen_func
         _flash_attn_qkvpacked_func_impl = flash_attn_varlen_qkvpacked_func
         _is_flash_attn_v2_plus_available = True
-        print("INFO: FlashAttention v3 (varlen funcs) selected by rope_2d_mhsa.")
+        logger.info("FlashAttention v3 (varlen funcs) selected by rope_2d_mhsa.")
     else:
         # Attempt to import FA2 if FA3 is not available/selected
         # This will be used on Ampere (SM>=8) or if FA3 specific checks fail
@@ -39,9 +42,9 @@ try:
         _flash_attn_func_impl = _fa2_func
         _flash_attn_qkvpacked_func_impl = _fa2_qkvpacked_func
         _is_flash_attn_v2_plus_available = True
-        print("INFO: FlashAttention v2 (standard funcs) selected by rope_2d_mhsa.")
+        logger.info("FlashAttention v2 (standard funcs) selected by rope_2d_mhsa.")
 except ImportError:
-    print("INFO: No version of FlashAttention library found by rope_2d_mhsa. Standard attention will be used.")
+    logger.info("No version of FlashAttention library found by rope_2d_mhsa. Standard attention will be used.")
     # _flash_attn_func_impl remains None, _is_flash_attn_v2_plus_available remains False
 
 # For potential compatibility if other parts of the file use these global names directly
