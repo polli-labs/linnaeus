@@ -1434,9 +1434,10 @@ class H5DataLoader(DataLoader):
                                         f"[PRE_MIX_FN_INPUT]   - Sample 0, {comp_name}: mask={first_sample_mask}, all False? {all_false}"
                                     )
 
-                    images, merged_targets, aux_info, meta_validity_masks = mixing_fn(
-                        batch_tuple, exclude_null_samples=exclude_null_samples, null_task_keys=null_task_keys
-                    )
+                    if apply_mixing:
+                        images, merged_targets, aux_info, meta_validity_masks = mixing_fn(
+                            batch_tuple, exclude_null_samples=exclude_null_samples, null_task_keys=null_task_keys
+                        )
 
                     # Debug the output from the GPU mixing function
                     if debug_enabled and self.batch_idx < 5:

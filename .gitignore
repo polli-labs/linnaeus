@@ -89,3 +89,4 @@ archive/
 docker_test_notes.md
 # Add more if needed
 
+docker-compose.yml
