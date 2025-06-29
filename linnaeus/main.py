@@ -1832,12 +1832,16 @@ def main(config, args=None):
         global _shutdown_in_progress
 
         # Check if emergency shutdown is already in progress
-        with _shutdown_lock:
-            if _shutdown_in_progress:
-                logger.info("[main] Emergency shutdown already in progress, skipping normal cleanup")
-                return
+        # Lock is not strictly needed here as _shutdown_in_progress is a global boolean,
+        # but it's good practice if more complex state were involved.
+        # with _shutdown_lock: # Not strictly necessary for this check
+        if _shutdown_in_progress:
+            if logger: # Ensure logger exists before using
+                logger.info("[main] Emergency shutdown already in progress, skipping normal cleanup in finally")
+            return # Exit finally block if emergency shutdown handled it
 
-        logger.info("[main] Starting normal cleanup in finally block")
+        if logger: # Ensure logger exists
+            logger.info("[main] Starting normal cleanup in finally block")
 
         # Try using dist.barrier() for coordinated shutdown, but with timeout
         if dist.is_initialized():

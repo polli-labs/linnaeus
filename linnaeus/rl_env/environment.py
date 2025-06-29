@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, Union, List, Tuple, Dict # Added missing imports
 
 import gymnasium as gym
 import numpy as np
@@ -203,7 +203,7 @@ class TaxonomicClassificationEnv(gym.Env):
         info = {"current_rank_idx_processed": self.current_rank_idx if self.mode == "sequential" else -1}
 
         if self.mode == "sequential":
-            if not isinstance(action, (int, np.integer)):  # np.integer for numpy int types
+            if not isinstance(action, int | np.integer):  # np.integer for numpy int types
                 raise ValueError(f"Action must be an integer for sequential mode, got {type(action)} with value {action}")
 
             current_rank_name = self.rank_order[self.current_rank_idx]

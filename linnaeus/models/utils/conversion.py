@@ -16,7 +16,7 @@ def to_2tuple(x: int) -> tuple[int, int]:
     Returns:
         Tuple[int, int]: Tuple containing two identical integers.
     """
-    if isinstance(x, (tuple, list)) and len(x) == 2:
+    if isinstance(x, tuple | list) and len(x) == 2:
         logger.debug(f"Received tuple/list {x} as is.")
         return tuple(x)
     elif isinstance(x, int):

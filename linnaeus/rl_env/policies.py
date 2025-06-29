@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, Union # Added Union
 
 import torch
 import torch.distributions

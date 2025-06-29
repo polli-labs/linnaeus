@@ -268,12 +268,12 @@ class DistributedMuon(Optimizer):
             params_world = None
 
             # Helper function to apply updates from previous batch
-            def update_prev():
-                if handle is not None and params_world:
-                    handle.wait()
-                    for p_world, g_world in zip(params_world, update_buffer_views, strict=False):
+            def update_prev(current_handle, current_params_world, current_update_buffer_views, current_lr, current_weight_decay):
+                if current_handle is not None and current_params_world:
+                    current_handle.wait()
+                    for p_world, g_world in zip(current_params_world, current_update_buffer_views, strict=False):
                         # Apply weight decay directly to parameter
-                        p_world.mul_(1 - lr * weight_decay)
+                        p_world.mul_(1 - current_lr * current_weight_decay)
 
                         try:
                             # Apply update with scaling factor
@@ -292,7 +292,7 @@ class DistributedMuon(Optimizer):
                             scaling = max(1, p_world.size(-2) / p_world.size(-1)) ** 0.5
 
                             # Apply the update
-                            p_world.add_(reshaped_g, alpha=-lr * scaling)
+                            p_world.add_(reshaped_g, alpha=-current_lr * scaling)
                         except Exception as e:
                             logger.error(f"Error in update_prev: {str(e)}")
                             logger.error(f"Parameter shape: {p_world.shape}, update shape: {g_world.shape}")
@@ -333,7 +333,7 @@ class DistributedMuon(Optimizer):
 
                 # Apply updates from previous iteration
                 if base_i > 0:
-                    update_prev()
+                    update_prev(handle, params_world, update_buffer_views, lr, weight_decay)
 
                 # Ensure g has same dtype as update_buffer
                 if g.dtype != update_buffer.dtype:
@@ -354,7 +354,7 @@ class DistributedMuon(Optimizer):
                 params_world = params[base_i:end_idx]
 
             # Apply final updates
-            update_prev()
+            update_prev(handle, params_world, update_buffer_views, lr, weight_decay)
 
         return loss
 
