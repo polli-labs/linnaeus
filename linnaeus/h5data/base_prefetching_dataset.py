@@ -94,6 +94,7 @@ class BasePrefetchingDataset(ABC):
         augmentation_pipeline: Any,
         simulate_hpc: bool,
         io_delay: float,
+        config: object,  # Added config parameter
         monitor_interval: float = 10.0,  # Default interval in seconds
         monitor_enabled: bool = True,  # Default to enabled
         main_logger=None,
@@ -114,6 +115,7 @@ class BasePrefetchingDataset(ABC):
             augmentation_pipeline (AugmentationPipeline or None): optional single-sample transform pipeline.
             simulate_hpc (bool): if True, artificially sleep io_delay each sample read.
             io_delay (float): HPC-sim read delay in seconds if simulate_hpc=True.
+            config (object): Configuration object.
             main_logger (logging.Logger): general logger for info/warn.
             h5data_logger (logging.Logger): specialized logger for dataset debug.
         """
@@ -124,13 +126,14 @@ class BasePrefetchingDataset(ABC):
         self.sleep_time = sleep_time
         self.simulate_hpc = simulate_hpc
         self.io_delay = io_delay
+        self.config = config  # Store config
         self.monitor_interval = monitor_interval
         self.monitor_enabled = monitor_enabled
         self.main_logger = main_logger or get_h5data_logger()
         self.h5data_logger = h5data_logger or logging.getLogger("h5data")
 
         # MemoryCache for raw items
-        self.prefetch_cache = MemoryCache(max_size=mem_cache_size, main_logger=self.main_logger, h5data_logger=self.h5data_logger)
+        self.prefetch_cache = MemoryCache(max_size=mem_cache_size, config=self.config, main_logger=self.main_logger, h5data_logger=self.h5data_logger)
 
         # Single-sample augmentation pipeline (optional)
         if isinstance(augmentation_pipeline, AugmentationPipeline):
