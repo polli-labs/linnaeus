@@ -12,9 +12,6 @@ import torch.utils.checkpoint
 
 from linnaeus.utils.logging.logger import get_main_logger
 
-# Get logger first so it can be used in imports
-logger = get_main_logger()
-
 # Internal imports from linnaeus structure
 from linnaeus.models.blocks.drop_path import DropPath # E402: moved to top
 from linnaeus.models.blocks.mlp import Mlp # E402: moved to top
@@ -227,6 +224,7 @@ class RoPE2DAttention(nn.Module):
         use_flash_attn: bool = False,  # Whether to use Flash Attention
     ):
         super().__init__()
+        logger = get_main_logger()
         assert dim % num_heads == 0, f"dim {dim} should be divisible by num_heads {num_heads}"
 
         self.dim = dim
