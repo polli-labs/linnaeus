@@ -10,12 +10,12 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.utils.checkpoint
 
-from linnaeus.utils.logging.logger import get_main_logger
-
 # Internal imports from linnaeus structure
 from linnaeus.models.blocks.drop_path import DropPath # E402: moved to top
 from linnaeus.models.blocks.mlp import Mlp # E402: moved to top
 from linnaeus.utils.flash_attn_utils import is_flash_attn3_available # E402: moved to top
+from linnaeus.utils.logging.logger import get_main_logger
+
 
 _flash_attn_func_impl = None
 _flash_attn_qkvpacked_func_impl = None  # For completeness if other code uses it
@@ -29,7 +29,7 @@ try:
         _flash_attn_func_impl = flash_attn_varlen_func
         _flash_attn_qkvpacked_func_impl = flash_attn_varlen_qkvpacked_func
         _is_flash_attn_v2_plus_available = True
-        logger.info("FlashAttention v3 (varlen funcs) selected by rope_2d_mhsa.")
+        print("INFO: FlashAttention v3 (varlen funcs) selected by rope_2d_mhsa.")
     else:
         # Attempt to import FA2 if FA3 is not available/selected
         # This will be used on Ampere (SM>=8) or if FA3 specific checks fail
@@ -39,9 +39,9 @@ try:
         _flash_attn_func_impl = _fa2_func
         _flash_attn_qkvpacked_func_impl = _fa2_qkvpacked_func
         _is_flash_attn_v2_plus_available = True
-        logger.info("FlashAttention v2 (standard funcs) selected by rope_2d_mhsa.")
+        print("INFO: FlashAttention v2 (standard funcs) selected by rope_2d_mhsa.")
 except ImportError:
-    logger.info("No version of FlashAttention library found by rope_2d_mhsa. Standard attention will be used.")
+    print("INFO: No version of FlashAttention library found by rope_2d_mhsa. Standard attention will be used.")
     # _flash_attn_func_impl remains None, _is_flash_attn_v2_plus_available remains False
 
 # For potential compatibility if other parts of the file use these global names directly
@@ -224,7 +224,7 @@ class RoPE2DAttention(nn.Module):
         use_flash_attn: bool = False,  # Whether to use Flash Attention
     ):
         super().__init__()
-        logger = get_main_logger()
+        self.logger = get_main_logger() # Acquire logger here
         assert dim % num_heads == 0, f"dim {dim} should be divisible by num_heads {num_heads}"
 
         self.dim = dim
@@ -253,22 +253,22 @@ class RoPE2DAttention(nn.Module):
                             if device_cap[0] >= 9:  # Ensure current runtime matches
                                 self.use_flash_attn_impl = True
                                 self.using_fa_version = "v3"
-                                logger.info(f"Using Flash Attention v3 for RoPE2DAttention with {self.num_heads} heads.")
+                                self.logger.info(f"Using Flash Attention v3 for RoPE2DAttention with {self.num_heads} heads.")
                             else:
-                                logger.warning(
+                                self.logger.warning(
                                     f"FA3 was selected by import logic, but current device SM {device_cap} < 9.0. Fallback needed or error in setup."
                                 )
                         # Else, FA2 was selected (if _is_flash_attn_v2_plus_available is true)
                         elif device_cap[0] >= 8:  # FA2 requires SM 8.0+
                             self.use_flash_attn_impl = True
                             self.using_fa_version = "v2"
-                            logger.info(f"Using Flash Attention v2 for RoPE2DAttention with {self.num_heads} heads.")
+                            self.logger.info(f"Using Flash Attention v2 for RoPE2DAttention with {self.num_heads} heads.")
                         else:
-                            logger.warning(f"Flash Attention available (likely v2), but device SM {device_cap} < 8.0. Falling back.")
+                            self.logger.warning(f"Flash Attention available (likely v2), but device SM {device_cap} < 8.0. Falling back.")
                 except Exception as e:
-                    logger.warning(f"Error verifying CUDA for Flash Attention (Is CUDA installed correctly? Error: {e}). Falling back.")
+                    self.logger.warning(f"Error verifying CUDA for Flash Attention (Is CUDA installed correctly? Error: {e}). Falling back.")
             else:
-                logger.warning(
+                self.logger.warning(
                     "Flash Attention requested in config, but no suitable FlashAttention library (v2 or v3) was found/selected by rope_2d_mhsa. Falling back."
                 )
 
@@ -339,7 +339,7 @@ class RoPE2DAttention(nn.Module):
         # Check total dimension - we need head_dim_half complex numbers
         if single_head_cis.shape[-1] != head_dim_half:
             # Fallback or error - this indicates issue with freq_dim logic
-            logger.warning(f"Axial RoPE: Dimension mismatch. Expected {head_dim_half}, got {single_head_cis.shape[-1]}. Padding.")
+            self.logger.warning(f"Axial RoPE: Dimension mismatch. Expected {head_dim_half}, got {single_head_cis.shape[-1]}. Padding.")
             pad_needed = head_dim_half - single_head_cis.shape[-1]
             if pad_needed > 0:
                 single_head_cis = F.pad(single_head_cis, (0, pad_needed), value=1 + 0j)  # Pad with 1
@@ -360,7 +360,7 @@ class RoPE2DAttention(nn.Module):
         else:
             # Axial: Check if precomputed size matches
             if N_img != self.freqs_cis.shape[0]:
-                logger.warning(f"RoPE Axial freqs size mismatch ({self.freqs_cis.shape[0]} vs {N_img}). Recomputing.")
+                self.logger.warning(f"RoPE Axial freqs size mismatch ({self.freqs_cis.shape[0]} vs {N_img}). Recomputing.")
                 # Recompute and update buffer (this might be slow if called often)
                 new_freqs_cis = self._precompute_axial_freqs_cis(10000.0).to(device)
                 self.register_buffer("freqs_cis", new_freqs_cis, persistent=False)
@@ -550,13 +550,13 @@ class RoPE2DMHSABlock(nn.Module):
         if (H, W) != self.img_grid_size:
             # Log only if size actually changed from expected block init size
             if not hasattr(self, "_logged_grid_warning") or self._logged_grid_warning != (H, W):
-                logger.warning(
+                self.logger.warning(
                     f"RoPE Block input H,W ({H},{W}) differs from expected grid size {self.img_grid_size}. RoPE freqs might be recomputed."
                 )
                 self._logged_grid_warning = (H, W)  # Log only once per size change
 
         if use_checkpoint and self.training:
-            # logger.debug(f"[GC_INTERNAL RoPE Block] Applying CHECKPOINT to Attention")
+            # self.logger.debug(f"[GC_INTERNAL RoPE Block] Applying CHECKPOINT to Attention")
             attn_output = torch.utils.checkpoint.checkpoint(
                 self._attn_impl,
                 x_norm1,

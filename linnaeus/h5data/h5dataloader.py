@@ -1502,8 +1502,23 @@ class H5DataLoader(DataLoader):
                                     )
 
                     if apply_mixing:  # Check if mixing_fn is valid before calling
+                        # Repack batch_tuple before passing to mixing_fn, ensuring correct order
+                        # The mixing functions expect (images, targets, aux_info, meta_masks, group_ids)
+                        # We have: images, merged_targets, aux_info, meta_validity_masks, group_ids
+                        current_batch_for_mixing = (images, merged_targets, aux_info, meta_validity_masks, group_ids)
+
+                        # Optionally exclude null-category samples from mixup/cutmix
+                        if exclude_null_samples:
+                            current_batch_for_mixing = exclude_null_samples_from_mixup(current_batch_for_mixing, null_task_keys, config=self.config)
+
+                        # Re-unpack after potential modification by exclude_null_samples_from_mixup
+                        images_mixed, merged_targets_mixed, aux_info_mixed, meta_validity_masks_mixed, _ = current_batch_for_mixing # group_ids not needed by mixing_fn
+
+                        # Call the mixing function with the potentially modified batch components
                         images, merged_targets, aux_info, meta_validity_masks = mixing_fn(
-                            batch_tuple, exclude_null_samples=exclude_null_samples, null_task_keys=null_task_keys
+                            (images_mixed, merged_targets_mixed, aux_info_mixed, meta_validity_masks_mixed, group_ids), # Pass original group_ids
+                            exclude_null_samples=False, # Already handled
+                            null_task_keys=null_task_keys
                         )
                     # else: mixing was skipped, tensors remain as they were.
 

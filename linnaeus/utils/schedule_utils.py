@@ -503,6 +503,11 @@ def resolve_all_schedule_params(config: CN, total_steps: int, rank: int = 0, opt
             f"Validation INTERVAL_FRACTION={config.SCHEDULE.VALIDATION.INTERVAL_FRACTION} resolved to periodic interval of {val_steps} steps"
         )
 
+    # If fraction was used, mark this as a one-time trigger, not periodic
+    if config.SCHEDULE.VALIDATION.INTERVAL_FRACTION is not None:
+        config.SCHEDULE.VALIDATION.defrost()
+        config.SCHEDULE.VALIDATION.IS_ONE_TIME_TRIGGER = True
+        config.SCHEDULE.VALIDATION.freeze()
     # Similar for mask_meta_validation...
     mask_meta_val_steps = resolve_schedule_value(
         config.SCHEDULE.VALIDATION.MASK_META_INTERVAL_FRACTION,
@@ -523,6 +528,11 @@ def resolve_all_schedule_params(config: CN, total_steps: int, rank: int = 0, opt
         logger.info(
             f"Mask Meta Validation INTERVAL_FRACTION={config.SCHEDULE.VALIDATION.MASK_META_INTERVAL_FRACTION} resolved to periodic interval of {mask_meta_val_steps} steps"
         )
+
+    if config.SCHEDULE.VALIDATION.MASK_META_INTERVAL_FRACTION is not None:
+        config.SCHEDULE.VALIDATION.defrost()
+        config.SCHEDULE.VALIDATION.IS_MASK_META_ONE_TIME_TRIGGER = True
+        config.SCHEDULE.VALIDATION.freeze()
 
     # 3. Checkpoint schedule
     ckpt_steps = resolve_schedule_value(
@@ -632,6 +642,11 @@ def resolve_all_schedule_params(config: CN, total_steps: int, rank: int = 0, opt
             logger.info(
                 f"Partial Mask Meta Validation INTERVAL_FRACTION={pmm_cfg.INTERVAL_FRACTION} resolved to periodic interval of {pmm_steps} steps"
             )
+
+    if hasattr(pmm_cfg, "INTERVAL_FRACTION") and pmm_cfg.INTERVAL_FRACTION is not None:
+        config.SCHEDULE.VALIDATION.PARTIAL_MASK_META.defrost()
+        config.SCHEDULE.VALIDATION.PARTIAL_MASK_META.IS_ONE_TIME_TRIGGER = True
+        config.SCHEDULE.VALIDATION.PARTIAL_MASK_META.freeze()
 
     # 5. Mixup probability schedule
     schedule_summary["mix_prob_enabled"] = config.SCHEDULE.MIX.PROB.ENABLED

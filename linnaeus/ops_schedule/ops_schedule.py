@@ -71,8 +71,7 @@ class OpsSchedule:
         self.validation_cfg = self.config.SCHEDULE.VALIDATION
         self.checkpoint_cfg = self.config.SCHEDULE.CHECKPOINT
 
-        # These sets are no longer used with the new periodic interval logic
-        # but kept for backward compatibility with existing checkpoints
+        # Initialize sets for tracking one-time validation events
         self._validation_triggered = set()
         self._mask_meta_validation_triggered = set()
         self._partial_mask_meta_validation_triggered = set()
@@ -769,14 +768,25 @@ class OpsSchedule:
 
         # Step-based validation (using resolved interval)
         step_interval = self.validation_cfg.INTERVAL_STEPS
+        is_one_time = getattr(self.validation_cfg, "IS_ONE_TIME_TRIGGER", False)
         if step_interval > 0:
-            # Trigger if current_step is a multiple of interval AND we are at an epoch boundary
-            if (current_step % step_interval) == 0:
-                if check_debug_flag(self.config, "DEBUG.SCHEDULING"):
-                    logger.debug(
-                        f"Triggering validation at step {current_step} (epoch {current_epoch}) based on step interval {step_interval}"
-                    )
-                return True
+            if is_one_time:
+                # One-time trigger logic
+                if current_step >= step_interval and step_interval not in self._validation_triggered:
+                    if check_debug_flag(self.config, "DEBUG.SCHEDULING"):
+                        logger.debug(
+                            f"Triggering one-time validation at step {current_step} (trigger step: {step_interval})"
+                        )
+                    self._validation_triggered.add(step_interval)
+                    return True
+            else:
+                # Periodic trigger logic
+                if (current_step % step_interval) == 0:
+                    if check_debug_flag(self.config, "DEBUG.SCHEDULING"):
+                        logger.debug(
+                            f"Triggering validation at step {current_step} (epoch {current_epoch}) based on step interval {step_interval}"
+                        )
+                    return True
 
         # INTERVAL_FRACTION has already been resolved to INTERVAL_STEPS
         # during config initialization, no need to handle it separately here
@@ -819,15 +829,26 @@ class OpsSchedule:
 
         # Step-based validation (using resolved interval)
         step_interval = self.validation_cfg.MASK_META_INTERVAL_STEPS
+        is_one_time = getattr(self.validation_cfg, "IS_MASK_META_ONE_TIME_TRIGGER", False)
         if step_interval > 0:
-            # Trigger if current_step is a multiple of interval AND we are at an epoch boundary
-            if (current_step % step_interval) == 0:
-                if check_debug_flag(self.config, "DEBUG.SCHEDULING"):
-                    logger.debug(
-                        f"Triggering mask-meta validation at step {current_step} (epoch {current_epoch}) "
-                        f"based on step interval {step_interval}"
-                    )
-                return True
+            if is_one_time:
+                # One-time trigger logic
+                if current_step >= step_interval and step_interval not in self._mask_meta_validation_triggered:
+                    if check_debug_flag(self.config, "DEBUG.SCHEDULING"):
+                        logger.debug(
+                            f"Triggering one-time mask-meta validation at step {current_step} (trigger step: {step_interval})"
+                        )
+                    self._mask_meta_validation_triggered.add(step_interval)
+                    return True
+            else:
+                # Periodic trigger logic
+                if (current_step % step_interval) == 0:
+                    if check_debug_flag(self.config, "DEBUG.SCHEDULING"):
+                        logger.debug(
+                            f"Triggering mask-meta validation at step {current_step} (epoch {current_epoch}) "
+                            f"based on step interval {step_interval}"
+                        )
+                    return True
 
         # INTERVAL_FRACTION has already been resolved to INTERVAL_STEPS
         # during config initialization, no need to handle it separately here
@@ -910,24 +931,35 @@ class OpsSchedule:
 
         # Step-based validation (using resolved interval)
         elif hasattr(cfg, "INTERVAL_STEPS") and cfg.INTERVAL_STEPS is not None and cfg.INTERVAL_STEPS > 0:
+            is_one_time = getattr(cfg, "IS_ONE_TIME_TRIGGER", False)
             step_interval = cfg.INTERVAL_STEPS
 
             if debug_validation:
-                logger.debug(f"  - Checking step-based interval: current_step={current_step}, interval={step_interval}")
+                logger.debug(f"  - Checking step-based interval: current_step={current_step}, interval={step_interval}, is_one_time={is_one_time}")
 
-            # Trigger if current_step is a multiple of interval AND we are at an epoch boundary
-            if (current_step % step_interval) == 0:
-                if debug_validation:
-                    logger.debug(f"  - PASSED: Step {current_step} is divisible by interval {step_interval}")
+            if is_one_time:
+                # One-time trigger logic for partial mask meta
+                if current_step >= step_interval and step_interval not in self._partial_mask_meta_validation_triggered:
+                    if debug_validation:
+                        logger.debug(f"  - PASSED: One-time trigger at step {current_step} (trigger step: {step_interval})")
+                    self._partial_mask_meta_validation_triggered.add(step_interval)
+                    return True
+            else:
+                # Periodic trigger logic
+                if (current_step % step_interval) == 0:
+                    if debug_validation:
+                        logger.debug(f"  - PASSED: Step {current_step} is divisible by interval {step_interval}")
 
-                if debug_scheduling:
-                    logger.debug(
-                        f"Triggering partial mask meta validation at step {current_step} "
-                        f"(epoch {current_epoch}) based on step interval {step_interval}"
-                    )
-                return True
-            elif debug_validation:
-                logger.debug(f"  - FAILED: Step {current_step} is not divisible by interval {step_interval}")
+                    if debug_scheduling:
+                        logger.debug(
+                            f"Triggering partial mask meta validation at step {current_step} "
+                            f"(epoch {current_epoch}) based on step interval {step_interval}"
+                        )
+                    return True
+
+            # This debug log should be outside the is_one_time check, for when neither periodic nor one-time step conditions are met.
+            if debug_validation and not ((is_one_time and current_step >= step_interval and step_interval not in self._partial_mask_meta_validation_triggered) or (not is_one_time and (current_step % step_interval == 0))):
+                 logger.debug(f"  - FAILED: Step-based condition not met (current_step={current_step}, interval={step_interval}, is_one_time={is_one_time})")
 
         # INTERVAL_FRACTION has already been resolved to INTERVAL_STEPS
         # during config initialization, no need to handle it separately here

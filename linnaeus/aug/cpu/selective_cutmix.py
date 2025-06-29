@@ -264,8 +264,8 @@ class CPUSelectiveCutMix(SelectiveCutMix):
                         # Show examples of lost nulls
                         if len(lost_null_indices) > 0:
                             logger.debug("[NULL_MASKING_CUTMIX] Examples of lost nulls:")
-                            for i in range(min(3, len(lost_null_indices))):
-                                idx = lost_null_indices[i].item()
+                            for i_idx in range(min(3, len(lost_null_indices))): # Renamed i to i_idx
+                                idx = lost_null_indices[i_idx].item()
                                 orig_val = targets[k][idx, 0].item()
                                 perm_val = targets[k][perm][idx, 0].item()
                                 mixed_val = idx0_vals_mixed[idx].item()
