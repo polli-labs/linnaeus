@@ -4,7 +4,7 @@ import sys
 import threading
 from collections import OrderedDict
 
-from linnaeus.utils.config import check_debug_flag
+from linnaeus.utils.debug_utils import check_debug_flag
 from linnaeus.utils.logging.logger import get_h5data_logger, get_main_logger
 
 
