@@ -133,6 +133,7 @@ class PrefetchingHybridDataset(BasePrefetchingDataset):
             io_delay=io_delay,
             monitor_interval=monitor_interval,
             monitor_enabled=monitor_enabled,
+            config=config,  # Pass config to super
             main_logger=main_logger,
             h5data_logger=h5data_logger,
         )
