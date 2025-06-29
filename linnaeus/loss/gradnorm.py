@@ -136,7 +136,7 @@ class GradNormModule(nn.Module):
         weights = [w * self.num_tasks / total for w in weights]
 
         logger.info(f"Computed initial weights using strategy: {strategy}")
-        for i, (key, w) in enumerate(zip(task_keys, weights, strict=False)):
+        for _i, (key, w) in enumerate(zip(task_keys, weights, strict=False)):
             logger.info(f"  Task {key}: computed weight = {w:.4f}")
 
         return torch.tensor(weights, dtype=torch.float32)

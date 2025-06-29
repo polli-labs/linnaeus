@@ -888,10 +888,10 @@ def save_checkpoint(config, epoch, model, metrics_tracker, optimizer, lr_schedul
             valmask_l40_acc1_val = valmask_l40_metrics.get("acc1", Metric("dummy_acc", 0.0, True)).value
 
             # Format safely AFTER getting the values, handling None or non-numeric types
-            val_loss_str = f"{val_loss_val:.4f}" if isinstance(val_loss_val, (int, float)) else str(val_loss_val)
-            val_l40_acc1_str = f"{val_l40_acc1_val:.4f}" if isinstance(val_l40_acc1_val, (int, float)) else str(val_l40_acc1_val)
+            val_loss_str = f"{val_loss_val:.4f}" if isinstance(val_loss_val, int | float) else str(val_loss_val)
+            val_l40_acc1_str = f"{val_l40_acc1_val:.4f}" if isinstance(val_l40_acc1_val, int | float) else str(val_l40_acc1_val)
             valmask_l40_acc1_str = (
-                f"{valmask_l40_acc1_val:.4f}" if isinstance(valmask_l40_acc1_val, (int, float)) else str(valmask_l40_acc1_val)
+                f"{valmask_l40_acc1_val:.4f}" if isinstance(valmask_l40_acc1_val, int | float) else str(valmask_l40_acc1_val)
             )
 
             # Use current_global_step obtained earlier
@@ -935,16 +935,16 @@ def save_checkpoint(config, epoch, model, metrics_tracker, optimizer, lr_schedul
 
             # Format safely AFTER getting the values, handling None or non-numeric types
             val_loss_after_str = (
-                f"{val_loss_current_after:.4f}" if isinstance(val_loss_current_after, (int, float)) else str(val_loss_current_after)
+                f"{val_loss_current_after:.4f}" if isinstance(val_loss_current_after, int | float) else str(val_loss_current_after)
             )
             val_l40_acc1_after_str = (
                 f"{val_l40_acc1_current_after:.4f}"
-                if isinstance(val_l40_acc1_current_after, (int, float))
+                if isinstance(val_l40_acc1_current_after, int | float)
                 else str(val_l40_acc1_current_after)
             )
             valmask_l40_acc1_after_str = (
                 f"{valmask_l40_acc1_current_after:.4f}"
-                if isinstance(valmask_l40_acc1_current_after, (int, float))
+                if isinstance(valmask_l40_acc1_current_after, int | float)
                 else str(valmask_l40_acc1_current_after)
             )
 

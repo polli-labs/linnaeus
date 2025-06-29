@@ -7,6 +7,9 @@ from linnaeus.utils.logging.logger import get_main_logger
 # Get logger first so it can be used in imports
 logger = get_main_logger()
 
+# Moved import to the top as per E402
+from ..model_factory import register_attention
+
 # Import flash attention if available
 FLASH_ATTENTION_AVAILABLE = False
 flash_attn_qkvpacked_func = None
@@ -17,8 +20,6 @@ try:
     print("flash_attn library found.")
 except Exception:
     print("flash_attn library not found or import failed.")
-
-from ..model_factory import register_attention
 
 
 @register_attention("EfficientSelfAttention")

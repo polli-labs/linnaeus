@@ -895,7 +895,7 @@ class VectorizedDatasetProcessorOnePass:
         meta_valid_list = []
         # We'll create an all-False dict for invalid indices
         # Then fill in for valid indices
-        for i in range(N):
+        for _i in range(N):
             meta_valid_list.append({})
 
         # For each meta component that we actually loaded:
@@ -1199,7 +1199,7 @@ class VectorizedDatasetProcessorOnePass:
             # We're using pre-split validity lists, so we can iterate directly
             for comp in comp_names:
                 c_valid = 0
-                for i, valid_data in enumerate(validity_list):
+                for _i, valid_data in enumerate(validity_list):
                     if comp in valid_data and valid_data[comp]:
                         c_valid += 1
                 ratio = (c_valid / total_samples) * 100.0
@@ -1207,7 +1207,7 @@ class VectorizedDatasetProcessorOnePass:
         else:
             # Original behavior for non-single-file mode
             # We only consider the final valid subset => the "valid_sample_indices[dataset_type]"
-            valid_idx_set = set(self.valid_sample_indices[dataset_type])
+            # valid_idx_set = set(self.valid_sample_indices[dataset_type]) # Unused variable
 
             for comp in comp_names:
                 # count how many are True among the final valid subset

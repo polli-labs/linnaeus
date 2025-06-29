@@ -75,7 +75,7 @@ def weighted_hierarchical_loss(
         phase1_is_truly_active = config.TRAIN.PHASE1_MASK_NULL_LOSS and not is_validation
 
     # Add debugging info - determine if we should log details
-    debug_loss = False
+    # debug_loss = False # Unused variable
     if config is not None:
         pass
 
@@ -251,7 +251,7 @@ def weighted_hierarchical_loss(
             # Check if class weighting should be applied for this phase (train/val)
             try:
                 apply_cw = config.LOSS.GRAD_WEIGHTING.CLASS.TRAIN if not is_validation else config.LOSS.GRAD_WEIGHTING.CLASS.VAL
-            except:
+            except AttributeError: # More specific exception
                 apply_cw = True  # Default to applying class weighting if config not found
 
             if apply_cw:

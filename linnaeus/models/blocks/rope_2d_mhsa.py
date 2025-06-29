@@ -16,9 +16,9 @@ from linnaeus.utils.logging.logger import get_main_logger
 logger = get_main_logger()
 
 # Internal imports from linnaeus structure
-from linnaeus.models.blocks.drop_path import DropPath
-from linnaeus.models.blocks.mlp import Mlp
-from linnaeus.utils.flash_attn_utils import is_flash_attn3_available
+from linnaeus.models.blocks.drop_path import DropPath # E402: moved to top
+from linnaeus.models.blocks.mlp import Mlp # E402: moved to top
+from linnaeus.utils.flash_attn_utils import is_flash_attn3_available # E402: moved to top
 
 _flash_attn_func_impl = None
 _flash_attn_qkvpacked_func_impl = None  # For completeness if other code uses it

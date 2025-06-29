@@ -310,7 +310,7 @@ def _run_trial(
         num_classes = 1
         if isinstance(config_for_trial.MODEL.NUM_CLASSES, dict):
             num_classes = config_for_trial.MODEL.NUM_CLASSES.get(task_key, 1)
-        elif isinstance(config_for_trial.MODEL.NUM_CLASSES, (list, tuple)):
+        elif isinstance(config_for_trial.MODEL.NUM_CLASSES, list | tuple):
             idx = config_for_trial.DATA.TASK_KEYS_H5.index(task_key)
             if idx < len(config_for_trial.MODEL.NUM_CLASSES):
                 num_classes = config_for_trial.MODEL.NUM_CLASSES[idx]
@@ -334,7 +334,7 @@ def _run_trial(
 
             for _ in range(steps_per_trial):
                 temp_optimizer.zero_grad(set_to_none=True)
-                for accum_idx in range(accumulation_steps):
+                for _accum_idx in range(accumulation_steps):
                     images = torch.randn(batch_size, in_chans, img_size, img_size, device=device, requires_grad=True)
                     aux_info = (
                         torch.randn(batch_size, meta_dims, device=device, requires_grad=True)
@@ -457,7 +457,7 @@ def _train_mode_with_gradnorm_trial(
     task_keys = []
     if criteria and hasattr(criteria, "keys"):
         task_keys = list(criteria.keys())
-    elif criteria and isinstance(criteria, (list, tuple)):
+    elif criteria and isinstance(criteria, list | tuple):
         task_keys = [f"task_{i}" for i in range(len(criteria))]
     else:
         # Default fallback
@@ -478,7 +478,7 @@ def _train_mode_with_gradnorm_trial(
                 num_classes = 10  # Default
                 if criteria and hasattr(criteria, "get") and hasattr(criteria.get(task_key, None), "num_classes"):
                     num_classes = criteria[task_key].num_classes
-                elif criteria and isinstance(criteria, (list, tuple)) and i < len(criteria) and hasattr(criteria[i], "num_classes"):
+                elif criteria and isinstance(criteria, list | tuple) and i < len(criteria) and hasattr(criteria[i], "num_classes"):
                     num_classes = criteria[i].num_classes
 
                 # Create one-hot targets
@@ -503,7 +503,7 @@ def _train_mode_with_gradnorm_trial(
                     # Fallback to a dummy loss
                     if isinstance(out, dict):
                         total_loss = sum(v.mean() for v in out.values())
-                    elif isinstance(out, (list, tuple)):
+                    elif isinstance(out, list | tuple):
                         total_loss = sum(o.mean() for o in out)
                     else:
                         total_loss = out.mean()
