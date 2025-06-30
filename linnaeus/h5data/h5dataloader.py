@@ -124,44 +124,51 @@ class H5DataLoader(DataLoader):
             self.main_logger.warning("[H5DataLoader] No config provided, using empty meta chunk boundaries")
 
         # Pre-initialize mixup/cutmix functions if in training mode and ops_schedule is available
-        if self.is_training and self.ops_schedule and hasattr(self.config, "AUG") and hasattr(self.config, "SCHEDULE"):
+        if self.is_training and self.ops_schedule and hasattr(self.config, "SCHEDULE") and hasattr(self.config.SCHEDULE, "MIX"):
             mix_schedule_cfg = self.config.SCHEDULE.MIX
-            augs_cfg = self.config.AUG
 
             if mix_schedule_cfg.USE_GPU and self.use_gpu:
-                if hasattr(augs_cfg, "SELECTIVE_MIXUP") and hasattr(mix_schedule_cfg, "PROBS") and hasattr(mix_schedule_cfg.PROBS, "MIXUP"):
-                    mixup_config = augs_cfg.SELECTIVE_MIXUP.copy()
-                    mixup_config["PROB"] = mix_schedule_cfg.PROBS.MIXUP
-                    mixup_config["meta_chunk_bounds_list"] = list(self.meta_chunk_bounds_list)
+                # Initialize Mixup if enabled
+                if hasattr(mix_schedule_cfg, "MIXUP") and mix_schedule_cfg.MIXUP.ENABLED:
+                    mixup_config = {
+                        "ALPHA": mix_schedule_cfg.MIXUP.ALPHA,
+                        "PROB": 1.0,  # Probability is handled by ops_schedule
+                        "meta_chunk_bounds_list": list(self.meta_chunk_bounds_list)
+                    }
                     self.gpu_mixup_fn = GPUSelectiveMixup(mix_config=mixup_config, config=self.config)
                     self.main_logger.info("[H5DataLoader] Initialized GPUSelectiveMixup function.")
 
-                if (
-                    hasattr(augs_cfg, "SELECTIVE_CUTMIX")
-                    and hasattr(mix_schedule_cfg, "PROBS")
-                    and hasattr(mix_schedule_cfg.PROBS, "CUTMIX")
-                ):
-                    cutmix_config = augs_cfg.SELECTIVE_CUTMIX.copy()
-                    cutmix_config["PROB"] = mix_schedule_cfg.PROBS.CUTMIX
-                    cutmix_config["meta_chunk_bounds_list"] = list(self.meta_chunk_bounds_list)
+                # Initialize CutMix if enabled
+                if hasattr(mix_schedule_cfg, "CUTMIX") and mix_schedule_cfg.CUTMIX.ENABLED:
+                    cutmix_config = {
+                        "ALPHA": mix_schedule_cfg.CUTMIX.ALPHA,
+                        "PROB": 1.0,  # Probability is handled by ops_schedule
+                        "meta_chunk_bounds_list": list(self.meta_chunk_bounds_list)
+                    }
+                    if hasattr(mix_schedule_cfg.CUTMIX, "MINMAX"):
+                        cutmix_config["MINMAX"] = mix_schedule_cfg.CUTMIX.MINMAX
                     self.gpu_cutmix_fn = GPUSelectiveCutMix(mix_config=cutmix_config, config=self.config)
                     self.main_logger.info("[H5DataLoader] Initialized GPUSelectiveCutMix function.")
             else:  # CPU Path
-                if hasattr(augs_cfg, "SELECTIVE_MIXUP") and hasattr(mix_schedule_cfg, "PROBS") and hasattr(mix_schedule_cfg.PROBS, "MIXUP"):
-                    mixup_config = augs_cfg.SELECTIVE_MIXUP.copy()
-                    mixup_config["PROB"] = mix_schedule_cfg.PROBS.MIXUP
-                    mixup_config["meta_chunk_bounds_list"] = list(self.meta_chunk_bounds_list)
+                # Initialize Mixup if enabled
+                if hasattr(mix_schedule_cfg, "MIXUP") and mix_schedule_cfg.MIXUP.ENABLED:
+                    mixup_config = {
+                        "ALPHA": mix_schedule_cfg.MIXUP.ALPHA,
+                        "PROB": 1.0,  # Probability is handled by ops_schedule
+                        "meta_chunk_bounds_list": list(self.meta_chunk_bounds_list)
+                    }
                     self.cpu_mixup_fn = CPUSelectiveMixup(mix_config=mixup_config, config=self.config)  # Using CPU specific class
                     self.main_logger.info("[H5DataLoader] Initialized CPUSelectiveMixup function.")
 
-                if (
-                    hasattr(augs_cfg, "SELECTIVE_CUTMIX")
-                    and hasattr(mix_schedule_cfg, "PROBS")
-                    and hasattr(mix_schedule_cfg.PROBS, "CUTMIX")
-                ):
-                    cutmix_config = augs_cfg.SELECTIVE_CUTMIX.copy()
-                    cutmix_config["PROB"] = mix_schedule_cfg.PROBS.CUTMIX
-                    cutmix_config["meta_chunk_bounds_list"] = list(self.meta_chunk_bounds_list)
+                # Initialize CutMix if enabled
+                if hasattr(mix_schedule_cfg, "CUTMIX") and mix_schedule_cfg.CUTMIX.ENABLED:
+                    cutmix_config = {
+                        "ALPHA": mix_schedule_cfg.CUTMIX.ALPHA,
+                        "PROB": 1.0,  # Probability is handled by ops_schedule
+                        "meta_chunk_bounds_list": list(self.meta_chunk_bounds_list)
+                    }
+                    if hasattr(mix_schedule_cfg.CUTMIX, "MINMAX"):
+                        cutmix_config["MINMAX"] = mix_schedule_cfg.CUTMIX.MINMAX
                     self.cpu_cutmix_fn = CPUSelectiveCutMix(mix_config=cutmix_config, config=self.config)  # Using CPU specific class
                     self.main_logger.info("[H5DataLoader] Initialized CPUSelectiveCutMix function.")
 
