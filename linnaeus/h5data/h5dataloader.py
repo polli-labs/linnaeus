@@ -123,54 +123,9 @@ class H5DataLoader(DataLoader):
             self.meta_chunk_bounds_list, self.meta_chunk_bounds_map = [], {}
             self.main_logger.warning("[H5DataLoader] No config provided, using empty meta chunk boundaries")
 
-        # Pre-initialize mixup/cutmix functions if in training mode and ops_schedule is available
-        if self.is_training and self.ops_schedule and hasattr(self.config, "SCHEDULE") and hasattr(self.config.SCHEDULE, "MIX"):
-            mix_schedule_cfg = self.config.SCHEDULE.MIX
-
-            if mix_schedule_cfg.USE_GPU and self.use_gpu:
-                # Initialize Mixup if enabled
-                if hasattr(mix_schedule_cfg, "MIXUP") and mix_schedule_cfg.MIXUP.ENABLED:
-                    mixup_config = {
-                        "ALPHA": mix_schedule_cfg.MIXUP.ALPHA,
-                        "PROB": 1.0,  # Probability is handled by ops_schedule
-                        "meta_chunk_bounds_list": list(self.meta_chunk_bounds_list)
-                    }
-                    self.gpu_mixup_fn = GPUSelectiveMixup(mix_config=mixup_config, config=self.config)
-                    self.main_logger.info("[H5DataLoader] Initialized GPUSelectiveMixup function.")
-
-                # Initialize CutMix if enabled
-                if hasattr(mix_schedule_cfg, "CUTMIX") and mix_schedule_cfg.CUTMIX.ENABLED:
-                    cutmix_config = {
-                        "ALPHA": mix_schedule_cfg.CUTMIX.ALPHA,
-                        "PROB": 1.0,  # Probability is handled by ops_schedule
-                        "meta_chunk_bounds_list": list(self.meta_chunk_bounds_list)
-                    }
-                    if hasattr(mix_schedule_cfg.CUTMIX, "MINMAX"):
-                        cutmix_config["MINMAX"] = mix_schedule_cfg.CUTMIX.MINMAX
-                    self.gpu_cutmix_fn = GPUSelectiveCutMix(mix_config=cutmix_config, config=self.config)
-                    self.main_logger.info("[H5DataLoader] Initialized GPUSelectiveCutMix function.")
-            else:  # CPU Path
-                # Initialize Mixup if enabled
-                if hasattr(mix_schedule_cfg, "MIXUP") and mix_schedule_cfg.MIXUP.ENABLED:
-                    mixup_config = {
-                        "ALPHA": mix_schedule_cfg.MIXUP.ALPHA,
-                        "PROB": 1.0,  # Probability is handled by ops_schedule
-                        "meta_chunk_bounds_list": list(self.meta_chunk_bounds_list)
-                    }
-                    self.cpu_mixup_fn = CPUSelectiveMixup(mix_config=mixup_config, config=self.config)  # Using CPU specific class
-                    self.main_logger.info("[H5DataLoader] Initialized CPUSelectiveMixup function.")
-
-                # Initialize CutMix if enabled
-                if hasattr(mix_schedule_cfg, "CUTMIX") and mix_schedule_cfg.CUTMIX.ENABLED:
-                    cutmix_config = {
-                        "ALPHA": mix_schedule_cfg.CUTMIX.ALPHA,
-                        "PROB": 1.0,  # Probability is handled by ops_schedule
-                        "meta_chunk_bounds_list": list(self.meta_chunk_bounds_list)
-                    }
-                    if hasattr(mix_schedule_cfg.CUTMIX, "MINMAX"):
-                        cutmix_config["MINMAX"] = mix_schedule_cfg.CUTMIX.MINMAX
-                    self.cpu_cutmix_fn = CPUSelectiveCutMix(mix_config=cutmix_config, config=self.config)  # Using CPU specific class
-                    self.main_logger.info("[H5DataLoader] Initialized CPUSelectiveCutMix function.")
+        # Try to initialize mixup/cutmix functions if ops_schedule is available
+        # If not available now, it will be initialized later when set_ops_schedule is called
+        self._initialize_mixing_functions()
 
         # Add explicit check for DEBUG.LOSS.NULL_MASKING at initialization time
         if ops_schedule and hasattr(ops_schedule, "config"):
@@ -285,6 +240,70 @@ class H5DataLoader(DataLoader):
     def set_ops_schedule(self, ops_schedule):
         self.ops_schedule = ops_schedule
         self.main_logger.info("[H5DataLoader] OpsSchedule is set/updated.")
+        
+        # Initialize mixup/cutmix functions now that ops_schedule is available
+        self._initialize_mixing_functions()
+
+    def _initialize_mixing_functions(self):
+        """Initialize mixup/cutmix functions if conditions are met."""
+        if self.is_training and self.ops_schedule and hasattr(self.config, "SCHEDULE") and hasattr(self.config.SCHEDULE, "MIX"):
+            mix_schedule_cfg = self.config.SCHEDULE.MIX
+            self.main_logger.info(f"[H5DataLoader] Found SCHEDULE.MIX config, USE_GPU={mix_schedule_cfg.USE_GPU}, self.use_gpu={self.use_gpu}")
+
+            if mix_schedule_cfg.USE_GPU and self.use_gpu:
+                # Initialize Mixup if enabled
+                if hasattr(mix_schedule_cfg, "MIXUP") and mix_schedule_cfg.MIXUP.ENABLED:
+                    mixup_config = {
+                        "ALPHA": mix_schedule_cfg.MIXUP.ALPHA,
+                        "PROB": 1.0,  # Probability is handled by ops_schedule
+                        "meta_chunk_bounds_list": list(self.meta_chunk_bounds_list)
+                    }
+                    self.gpu_mixup_fn = GPUSelectiveMixup(mix_config=mixup_config, config=self.config)
+                    self.main_logger.info("[H5DataLoader] Initialized GPUSelectiveMixup function.")
+
+                # Initialize CutMix if enabled
+                if hasattr(mix_schedule_cfg, "CUTMIX") and mix_schedule_cfg.CUTMIX.ENABLED:
+                    cutmix_config = {
+                        "ALPHA": mix_schedule_cfg.CUTMIX.ALPHA,
+                        "PROB": 1.0,  # Probability is handled by ops_schedule
+                        "meta_chunk_bounds_list": list(self.meta_chunk_bounds_list)
+                    }
+                    if hasattr(mix_schedule_cfg.CUTMIX, "MINMAX"):
+                        cutmix_config["MINMAX"] = mix_schedule_cfg.CUTMIX.MINMAX
+                    self.gpu_cutmix_fn = GPUSelectiveCutMix(mix_config=cutmix_config, config=self.config)
+                    self.main_logger.info("[H5DataLoader] Initialized GPUSelectiveCutMix function.")
+            else:  # CPU Path
+                # Initialize Mixup if enabled
+                if hasattr(mix_schedule_cfg, "MIXUP") and mix_schedule_cfg.MIXUP.ENABLED:
+                    mixup_config = {
+                        "ALPHA": mix_schedule_cfg.MIXUP.ALPHA,
+                        "PROB": 1.0,  # Probability is handled by ops_schedule
+                        "meta_chunk_bounds_list": list(self.meta_chunk_bounds_list)
+                    }
+                    self.cpu_mixup_fn = CPUSelectiveMixup(mix_config=mixup_config, config=self.config)  # Using CPU specific class
+                    self.main_logger.info("[H5DataLoader] Initialized CPUSelectiveMixup function.")
+
+                # Initialize CutMix if enabled
+                if hasattr(mix_schedule_cfg, "CUTMIX") and mix_schedule_cfg.CUTMIX.ENABLED:
+                    cutmix_config = {
+                        "ALPHA": mix_schedule_cfg.CUTMIX.ALPHA,
+                        "PROB": 1.0,  # Probability is handled by ops_schedule
+                        "meta_chunk_bounds_list": list(self.meta_chunk_bounds_list)
+                    }
+                    if hasattr(mix_schedule_cfg.CUTMIX, "MINMAX"):
+                        cutmix_config["MINMAX"] = mix_schedule_cfg.CUTMIX.MINMAX
+                    self.cpu_cutmix_fn = CPUSelectiveCutMix(mix_config=cutmix_config, config=self.config)  # Using CPU specific class
+                    self.main_logger.info("[H5DataLoader] Initialized CPUSelectiveCutMix function.")
+        else:
+            self.main_logger.debug("[H5DataLoader] Mixup/CutMix initialization skipped - conditions not met")
+            if not self.is_training:
+                self.main_logger.debug("  - is_training is False")
+            if not self.ops_schedule:
+                self.main_logger.debug("  - ops_schedule is None")
+            if not hasattr(self.config, "SCHEDULE"):
+                self.main_logger.debug("  - config has no SCHEDULE section")
+            elif not hasattr(self.config.SCHEDULE, "MIX"):
+                self.main_logger.debug("  - config.SCHEDULE has no MIX section")
 
     def set_epoch(self, epoch: int):
         """
