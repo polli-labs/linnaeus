@@ -124,9 +124,9 @@ class H5DataLoader(DataLoader):
             self.main_logger.warning("[H5DataLoader] No config provided, using empty meta chunk boundaries")
 
         # Pre-initialize mixup/cutmix functions if in training mode and ops_schedule is available
-        if self.is_training and self.ops_schedule and hasattr(self.config, "AUGMENTATIONS") and hasattr(self.config, "SCHEDULE"):
+        if self.is_training and self.ops_schedule and hasattr(self.config, "AUG") and hasattr(self.config, "SCHEDULE"):
             mix_schedule_cfg = self.config.SCHEDULE.MIX
-            augs_cfg = self.config.AUGMENTATIONS
+            augs_cfg = self.config.AUG
 
             if mix_schedule_cfg.USE_GPU and self.use_gpu:
                 if hasattr(augs_cfg, "SELECTIVE_MIXUP") and hasattr(mix_schedule_cfg, "PROBS") and hasattr(mix_schedule_cfg.PROBS, "MIXUP"):

@@ -14,10 +14,6 @@ import torch.utils.checkpoint
 from linnaeus.models.blocks.drop_path import DropPath # E402: moved to top
 from linnaeus.models.blocks.mlp import Mlp # E402: moved to top
 from linnaeus.utils.flash_attn_utils import is_flash_attn3_available # E402: moved to top
-from linnaeus.utils.logging.logger import get_main_logger
-
-# Create module-level logger
-logger = get_main_logger()
 
 
 _flash_attn_func_impl = None
@@ -32,7 +28,7 @@ try:
         _flash_attn_func_impl = flash_attn_varlen_func
         _flash_attn_qkvpacked_func_impl = flash_attn_varlen_qkvpacked_func
         _is_flash_attn_v2_plus_available = True
-        logger.info("FlashAttention v3 (varlen funcs) selected by rope_2d_mhsa.")
+        print("INFO: FlashAttention v3 (varlen funcs) selected by rope_2d_mhsa.")
     else:
         # Attempt to import FA2 if FA3 is not available/selected
         # This will be used on Ampere (SM>=8) or if FA3 specific checks fail
@@ -42,9 +38,9 @@ try:
         _flash_attn_func_impl = _fa2_func
         _flash_attn_qkvpacked_func_impl = _fa2_qkvpacked_func
         _is_flash_attn_v2_plus_available = True
-        logger.info("FlashAttention v2 (standard funcs) selected by rope_2d_mhsa.")
+        print("INFO: FlashAttention v2 (standard funcs) selected by rope_2d_mhsa.")
 except ImportError:
-    logger.info("No version of FlashAttention library found by rope_2d_mhsa. Standard attention will be used.")
+    print("INFO: No version of FlashAttention library found by rope_2d_mhsa. Standard attention will be used.")
     # _flash_attn_func_impl remains None, _is_flash_attn_v2_plus_available remains False
 
 # For potential compatibility if other parts of the file use these global names directly
@@ -227,7 +223,9 @@ class RoPE2DAttention(nn.Module):
         use_flash_attn: bool = False,  # Whether to use Flash Attention
     ):
         super().__init__()
-        self.logger = get_main_logger() # Acquire logger here
+        # Acquire logger instance at runtime
+        from linnaeus.utils.logging.logger import get_main_logger
+        self.logger = get_main_logger()
         assert dim % num_heads == 0, f"dim {dim} should be divisible by num_heads {num_heads}"
 
         self.dim = dim
@@ -483,6 +481,10 @@ class RoPE2DMHSABlock(nn.Module):
         # and downsampling is handled by external ConvNeXtDownsampleLayer
     ):
         super().__init__()
+        # Acquire logger instance at runtime
+        from linnaeus.utils.logging.logger import get_main_logger
+        self.logger = get_main_logger()
+        
         self.dim = dim
         self.img_grid_size = tuple(img_grid_size)  # Expected H, W for RoPE freqs
         self.extra_token_num = extra_token_num

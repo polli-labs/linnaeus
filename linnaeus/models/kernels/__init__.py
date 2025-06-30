@@ -9,9 +9,9 @@ try:
     from flash_attn.rotary import ApplyRotaryEmb, apply_rotary_emb
 
     FLASH_ATTENTION_AVAILABLE = True
-    print("flash_attn.rotary found.")
+    print("INFO: flash_attn.rotary found.")
 except Exception:
-    print("flash_attn.rotary not found or import failed.")
+    print("INFO: flash_attn.rotary not found or import failed.")
 
 # Re-export for convenience (only if available)
 if FLASH_ATTENTION_AVAILABLE:

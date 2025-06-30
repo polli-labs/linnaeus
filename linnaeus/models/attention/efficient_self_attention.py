@@ -17,9 +17,9 @@ try:
     from flash_attn import flash_attn_qkvpacked_func
 
     FLASH_ATTENTION_AVAILABLE = True
-    print("flash_attn library found.")
+    print("INFO: flash_attn library found.")
 except Exception:
-    print("flash_attn library not found or import failed.")
+    print("INFO: flash_attn library not found or import failed.")
 
 
 @register_attention("EfficientSelfAttention")
