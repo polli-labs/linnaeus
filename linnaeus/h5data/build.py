@@ -1117,7 +1117,7 @@ def _init_dataset(
     else:
         final_monitor_enabled = cfg_monitor_enabled
 
-    if final_monitor_interval == 10.0 and cfg_monitor_interval == 10.0: # Default was used and config did not specify
+    if final_monitor_interval == 10.0 and cfg_monitor_interval == 10.0:  # Default was used and config did not specify
         main_logger.info("Using default monitor_interval (10.0) as it's not specified in DATA.PREFETCH.MONITOR_INTERVAL.")
 
     # Log if the default for monitor_enabled is being used because it's not in config

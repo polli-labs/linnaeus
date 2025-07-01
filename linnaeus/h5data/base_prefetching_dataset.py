@@ -133,7 +133,9 @@ class BasePrefetchingDataset(ABC):
         self.h5data_logger = h5data_logger or logging.getLogger("h5data")
 
         # MemoryCache for raw items
-        self.prefetch_cache = MemoryCache(max_size=mem_cache_size, config=self.config, main_logger=self.main_logger, h5data_logger=self.h5data_logger)
+        self.prefetch_cache = MemoryCache(
+            max_size=mem_cache_size, config=self.config, main_logger=self.main_logger, h5data_logger=self.h5data_logger
+        )
 
         # Single-sample augmentation pipeline (optional)
         if isinstance(augmentation_pipeline, AugmentationPipeline):
@@ -401,9 +403,7 @@ class BasePrefetchingDataset(ABC):
             self._preprocess_manager_thread.start()
 
         if self.monitor_enabled and (self._monitor_thread is None or not self._monitor_thread.is_alive()):
-            self._monitor_thread = threading.Thread(
-                target=self._monitor_loop, daemon=True, name=f"{self.__class__.__name__}_MonitorThread"
-            )
+            self._monitor_thread = threading.Thread(target=self._monitor_loop, daemon=True, name=f"{self.__class__.__name__}_MonitorThread")
             self._monitor_thread.start()
 
     def _monitor_loop(self):
@@ -411,7 +411,7 @@ class BasePrefetchingDataset(ABC):
         class_name = self.__class__.__name__
         self.main_logger.info(f"[{class_name}] Monitor thread started. Logging interval: {self.monitor_interval}s.")
         try:
-            while not self._shutdown_event.wait(self.monitor_interval): # Wait for interval or shutdown
+            while not self._shutdown_event.wait(self.monitor_interval):  # Wait for interval or shutdown
                 if self._shutdown_event.is_set():
                     break
 
@@ -449,7 +449,7 @@ class BasePrefetchingDataset(ABC):
                 log_msg = (
                     f"[{class_name}] Monitor: "
                     f"BatchIdxQ={batch_idx_q_size}, PreprocQ={preprocess_q_size}, ProcessedQ={processed_batch_q_size} | "
-                    f"CacheSize={cache_stats['size']}, Hits={cache_stats['hits']}, Misses={cache_stats['misses']}, Evictions={cache_stats['evictions']}, MemUsage={cache_stats['memory_usage_bytes'] / (1024*1024):.2f}MB | "
+                    f"CacheSize={cache_stats['size']}, Hits={cache_stats['hits']}, Misses={cache_stats['misses']}, Evictions={cache_stats['evictions']}, MemUsage={cache_stats['memory_usage_bytes'] / (1024 * 1024):.2f}MB | "
                     f"PrefetchThrpt={prefetch_throughput:.2f} items/s, PreprocThrpt={preprocess_throughput:.2f} items/s"
                 )
                 self.main_logger.info(log_msg)
@@ -458,7 +458,6 @@ class BasePrefetchingDataset(ABC):
             self.main_logger.error(f"[{class_name}] Error in monitor loop: {e}", exc_info=True)
         finally:
             self.main_logger.info(f"[{class_name}] Monitor thread exited.")
-
 
     def _prefetch_manager_loop(self):
         """

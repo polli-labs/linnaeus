@@ -1,4 +1,4 @@
-from typing import Any, Union # Added Union
+from typing import Any  # Added Union
 
 import torch
 import torch.distributions
@@ -90,7 +90,7 @@ class LinnaeusPolicyWrapper(nn.Module):
 
     def forward(
         self, observation: dict[str, Any]
-    ) -> tuple[Union[torch.distributions.Distribution, list[torch.distributions.Distribution]], torch.Tensor]:
+    ) -> tuple[torch.distributions.Distribution | list[torch.distributions.Distribution], torch.Tensor]:
         """
         Performs a forward pass through the policy wrapper.
 
@@ -159,7 +159,7 @@ class LinnaeusPolicyWrapper(nn.Module):
         if not isinstance(all_rank_logits, dict):
             raise RuntimeError("Linnaeus model's forward pass should return a dictionary of logits for RL policy use.")
 
-        action_distribution: Union[torch.distributions.Categorical, list[torch.distributions.Categorical]]
+        action_distribution: torch.distributions.Categorical | list[torch.distributions.Categorical]
 
         if self.mode == "sequential":
             current_rank_index_any = observation["current_rank_index"]
@@ -217,7 +217,7 @@ class LinnaeusPolicyWrapper(nn.Module):
     def evaluate_actions(
         self,
         observation: dict[str, Any],
-        actions_taken: Union[torch.Tensor, list[torch.Tensor]],  # For multitask, List[Tensor] or stacked Tensor(B, NumRanks)
+        actions_taken: torch.Tensor | list[torch.Tensor],  # For multitask, List[Tensor] or stacked Tensor(B, NumRanks)
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """
         Evaluates actions taken in given observations, returning their

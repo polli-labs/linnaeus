@@ -11,10 +11,9 @@ import torch.nn.functional as F
 import torch.utils.checkpoint
 
 # Internal imports from linnaeus structure
-from linnaeus.models.blocks.drop_path import DropPath # E402: moved to top
-from linnaeus.models.blocks.mlp import Mlp # E402: moved to top
-from linnaeus.utils.flash_attn_utils import is_flash_attn3_available # E402: moved to top
-
+from linnaeus.models.blocks.drop_path import DropPath  # E402: moved to top
+from linnaeus.models.blocks.mlp import Mlp  # E402: moved to top
+from linnaeus.utils.flash_attn_utils import is_flash_attn3_available  # E402: moved to top
 
 _flash_attn_func_impl = None
 _flash_attn_qkvpacked_func_impl = None  # For completeness if other code uses it
@@ -225,6 +224,7 @@ class RoPE2DAttention(nn.Module):
         super().__init__()
         # Acquire logger instance at runtime
         from linnaeus.utils.logging.logger import get_main_logger
+
         self.logger = get_main_logger()
         assert dim % num_heads == 0, f"dim {dim} should be divisible by num_heads {num_heads}"
 
@@ -267,7 +267,9 @@ class RoPE2DAttention(nn.Module):
                         else:
                             self.logger.warning(f"Flash Attention available (likely v2), but device SM {device_cap} < 8.0. Falling back.")
                 except Exception as e:
-                    self.logger.warning(f"Error verifying CUDA for Flash Attention (Is CUDA installed correctly? Error: {e}). Falling back.")
+                    self.logger.warning(
+                        f"Error verifying CUDA for Flash Attention (Is CUDA installed correctly? Error: {e}). Falling back."
+                    )
             else:
                 self.logger.warning(
                     "Flash Attention requested in config, but no suitable FlashAttention library (v2 or v3) was found/selected by rope_2d_mhsa. Falling back."
@@ -483,8 +485,9 @@ class RoPE2DMHSABlock(nn.Module):
         super().__init__()
         # Acquire logger instance at runtime
         from linnaeus.utils.logging.logger import get_main_logger
+
         self.logger = get_main_logger()
-        
+
         self.dim = dim
         self.img_grid_size = tuple(img_grid_size)  # Expected H, W for RoPE freqs
         self.extra_token_num = extra_token_num

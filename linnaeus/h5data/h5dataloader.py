@@ -240,7 +240,7 @@ class H5DataLoader(DataLoader):
     def set_ops_schedule(self, ops_schedule):
         self.ops_schedule = ops_schedule
         self.main_logger.info("[H5DataLoader] OpsSchedule is set/updated.")
-        
+
         # Initialize mixup/cutmix functions now that ops_schedule is available
         self._initialize_mixing_functions()
 
@@ -248,7 +248,9 @@ class H5DataLoader(DataLoader):
         """Initialize mixup/cutmix functions if conditions are met."""
         if self.is_training and self.ops_schedule and hasattr(self.config, "SCHEDULE") and hasattr(self.config.SCHEDULE, "MIX"):
             mix_schedule_cfg = self.config.SCHEDULE.MIX
-            self.main_logger.info(f"[H5DataLoader] Found SCHEDULE.MIX config, USE_GPU={mix_schedule_cfg.USE_GPU}, self.use_gpu={self.use_gpu}")
+            self.main_logger.info(
+                f"[H5DataLoader] Found SCHEDULE.MIX config, USE_GPU={mix_schedule_cfg.USE_GPU}, self.use_gpu={self.use_gpu}"
+            )
 
             if mix_schedule_cfg.USE_GPU and self.use_gpu:
                 # Initialize Mixup if enabled
@@ -256,7 +258,7 @@ class H5DataLoader(DataLoader):
                     mixup_config = {
                         "ALPHA": mix_schedule_cfg.MIXUP.ALPHA,
                         "PROB": 1.0,  # Probability is handled by ops_schedule
-                        "meta_chunk_bounds_list": list(self.meta_chunk_bounds_list)
+                        "meta_chunk_bounds_list": list(self.meta_chunk_bounds_list),
                     }
                     self.gpu_mixup_fn = GPUSelectiveMixup(mix_config=mixup_config, config=self.config)
                     self.main_logger.info("[H5DataLoader] Initialized GPUSelectiveMixup function.")
@@ -266,7 +268,7 @@ class H5DataLoader(DataLoader):
                     cutmix_config = {
                         "ALPHA": mix_schedule_cfg.CUTMIX.ALPHA,
                         "PROB": 1.0,  # Probability is handled by ops_schedule
-                        "meta_chunk_bounds_list": list(self.meta_chunk_bounds_list)
+                        "meta_chunk_bounds_list": list(self.meta_chunk_bounds_list),
                     }
                     if hasattr(mix_schedule_cfg.CUTMIX, "MINMAX"):
                         cutmix_config["MINMAX"] = mix_schedule_cfg.CUTMIX.MINMAX
@@ -278,7 +280,7 @@ class H5DataLoader(DataLoader):
                     mixup_config = {
                         "ALPHA": mix_schedule_cfg.MIXUP.ALPHA,
                         "PROB": 1.0,  # Probability is handled by ops_schedule
-                        "meta_chunk_bounds_list": list(self.meta_chunk_bounds_list)
+                        "meta_chunk_bounds_list": list(self.meta_chunk_bounds_list),
                     }
                     self.cpu_mixup_fn = CPUSelectiveMixup(mix_config=mixup_config, config=self.config)  # Using CPU specific class
                     self.main_logger.info("[H5DataLoader] Initialized CPUSelectiveMixup function.")
@@ -288,7 +290,7 @@ class H5DataLoader(DataLoader):
                     cutmix_config = {
                         "ALPHA": mix_schedule_cfg.CUTMIX.ALPHA,
                         "PROB": 1.0,  # Probability is handled by ops_schedule
-                        "meta_chunk_bounds_list": list(self.meta_chunk_bounds_list)
+                        "meta_chunk_bounds_list": list(self.meta_chunk_bounds_list),
                     }
                     if hasattr(mix_schedule_cfg.CUTMIX, "MINMAX"):
                         cutmix_config["MINMAX"] = mix_schedule_cfg.CUTMIX.MINMAX
@@ -1536,16 +1538,26 @@ class H5DataLoader(DataLoader):
 
                         # Optionally exclude null-category samples from mixup/cutmix
                         if exclude_null_samples:
-                            current_batch_for_mixing = exclude_null_samples_from_mixup(current_batch_for_mixing, null_task_keys, config=self.config)
+                            current_batch_for_mixing = exclude_null_samples_from_mixup(
+                                current_batch_for_mixing, null_task_keys, config=self.config
+                            )
 
                         # Re-unpack after potential modification by exclude_null_samples_from_mixup
-                        images_mixed, merged_targets_mixed, aux_info_mixed, meta_validity_masks_mixed, _ = current_batch_for_mixing # group_ids not needed by mixing_fn
+                        images_mixed, merged_targets_mixed, aux_info_mixed, meta_validity_masks_mixed, _ = (
+                            current_batch_for_mixing  # group_ids not needed by mixing_fn
+                        )
 
                         # Call the mixing function with the potentially modified batch components
                         images, merged_targets, aux_info, meta_validity_masks = mixing_fn(
-                            (images_mixed, merged_targets_mixed, aux_info_mixed, meta_validity_masks_mixed, group_ids), # Pass original group_ids
-                            exclude_null_samples=False, # Already handled
-                            null_task_keys=null_task_keys
+                            (
+                                images_mixed,
+                                merged_targets_mixed,
+                                aux_info_mixed,
+                                meta_validity_masks_mixed,
+                                group_ids,
+                            ),  # Pass original group_ids
+                            exclude_null_samples=False,  # Already handled
+                            null_task_keys=null_task_keys,
                         )
                     # else: mixing was skipped, tensors remain as they were.
 
