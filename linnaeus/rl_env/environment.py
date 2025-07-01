@@ -1,4 +1,4 @@
-from typing import Any, Union, List, Tuple, Dict # Added missing imports
+from typing import Any  # Added missing imports
 
 import gymnasium as gym
 import numpy as np
@@ -167,7 +167,7 @@ class TaxonomicClassificationEnv(gym.Env):
 
         return self.current_observation, info
 
-    def step(self, action: Union[int, List[int], np.ndarray]) -> Tuple[Dict[str, Any], float, bool, bool, Dict[str, Any]]:
+    def step(self, action: int | list[int] | np.ndarray) -> tuple[dict[str, Any], float, bool, bool, dict[str, Any]]:
         """
         Executes one step in the environment based on the provided action.
 

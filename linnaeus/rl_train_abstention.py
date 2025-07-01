@@ -18,6 +18,7 @@ try:
     from linnaeus.rl_env.reward_functions import AbstentionRewardFunction, EpisodeOutcomeReward, SimpleAbstentionReward
     from linnaeus.rl_env.verifier import TaxonomicRLVerifier  # Needed for explicit instantiation
     from linnaeus.utils.checkpoint import load_checkpoint
+
     # from linnaeus.utils.config_utils import load_model_base_config # F401 Unused import
     from linnaeus.utils.distributed import get_rank_safely, get_world_size, init_distributed_mode, is_main_process_safely
     from linnaeus.utils.logging.logger import create_h5data_logger, create_logger, get_h5data_logger, get_main_logger

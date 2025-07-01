@@ -1793,6 +1793,11 @@ def main(config, args=None):
                     metrics_tracker.update_learning_rates(lr_dict)
                 log_epoch_results(config, metrics_tracker)
 
+            if dist.is_available() and dist.is_initialized():
+                if check_debug_flag(config, "DEBUG.DISTRIBUTED"):
+                    logger.debug(f"[DDP Barrier] Rank {rank} waiting at end-of-epoch barrier.")
+                dist.barrier()
+
         # Done training
         total_sec = time.time() - start_time
         total_str = str(datetime.timedelta(seconds=int(total_sec)))
@@ -1836,11 +1841,11 @@ def main(config, args=None):
         # but it's good practice if more complex state were involved.
         # with _shutdown_lock: # Not strictly necessary for this check
         if _shutdown_in_progress:
-            if logger: # Ensure logger exists before using
+            if logger:  # Ensure logger exists before using
                 logger.info("[main] Emergency shutdown already in progress, skipping normal cleanup in finally")
-            return # Exit finally block if emergency shutdown handled it
+            return  # Exit finally block if emergency shutdown handled it
 
-        if logger: # Ensure logger exists
+        if logger:  # Ensure logger exists
             logger.info("[main] Starting normal cleanup in finally block")
 
         # Try using dist.barrier() for coordinated shutdown, but with timeout
