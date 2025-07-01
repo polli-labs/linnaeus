@@ -251,7 +251,7 @@ def weighted_hierarchical_loss(
             # Check if class weighting should be applied for this phase (train/val)
             try:
                 apply_cw = config.LOSS.GRAD_WEIGHTING.CLASS.TRAIN if not is_validation else config.LOSS.GRAD_WEIGHTING.CLASS.VAL
-            except AttributeError: # More specific exception
+            except AttributeError:  # More specific exception
                 apply_cw = True  # Default to applying class weighting if config not found
 
             if apply_cw:

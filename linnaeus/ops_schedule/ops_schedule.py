@@ -774,9 +774,7 @@ class OpsSchedule:
                 # One-time trigger logic
                 if current_step >= step_interval and step_interval not in self._validation_triggered:
                     if check_debug_flag(self.config, "DEBUG.SCHEDULING"):
-                        logger.debug(
-                            f"Triggering one-time validation at step {current_step} (trigger step: {step_interval})"
-                        )
+                        logger.debug(f"Triggering one-time validation at step {current_step} (trigger step: {step_interval})")
                     self._validation_triggered.add(step_interval)
                     return True
             else:
@@ -835,9 +833,7 @@ class OpsSchedule:
                 # One-time trigger logic
                 if current_step >= step_interval and step_interval not in self._mask_meta_validation_triggered:
                     if check_debug_flag(self.config, "DEBUG.SCHEDULING"):
-                        logger.debug(
-                            f"Triggering one-time mask-meta validation at step {current_step} (trigger step: {step_interval})"
-                        )
+                        logger.debug(f"Triggering one-time mask-meta validation at step {current_step} (trigger step: {step_interval})")
                     self._mask_meta_validation_triggered.add(step_interval)
                     return True
             else:
@@ -935,7 +931,9 @@ class OpsSchedule:
             step_interval = cfg.INTERVAL_STEPS
 
             if debug_validation:
-                logger.debug(f"  - Checking step-based interval: current_step={current_step}, interval={step_interval}, is_one_time={is_one_time}")
+                logger.debug(
+                    f"  - Checking step-based interval: current_step={current_step}, interval={step_interval}, is_one_time={is_one_time}"
+                )
 
             if is_one_time:
                 # One-time trigger logic for partial mask meta
@@ -958,8 +956,13 @@ class OpsSchedule:
                     return True
 
             # This debug log should be outside the is_one_time check, for when neither periodic nor one-time step conditions are met.
-            if debug_validation and not ((is_one_time and current_step >= step_interval and step_interval not in self._partial_mask_meta_validation_triggered) or (not is_one_time and (current_step % step_interval == 0))):
-                 logger.debug(f"  - FAILED: Step-based condition not met (current_step={current_step}, interval={step_interval}, is_one_time={is_one_time})")
+            if debug_validation and not (
+                (is_one_time and current_step >= step_interval and step_interval not in self._partial_mask_meta_validation_triggered)
+                or (not is_one_time and (current_step % step_interval == 0))
+            ):
+                logger.debug(
+                    f"  - FAILED: Step-based condition not met (current_step={current_step}, interval={step_interval}, is_one_time={is_one_time})"
+                )
 
         # INTERVAL_FRACTION has already been resolved to INTERVAL_STEPS
         # during config initialization, no need to handle it separately here

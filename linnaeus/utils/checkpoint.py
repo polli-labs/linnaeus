@@ -790,6 +790,10 @@ def save_checkpoint(config, epoch, model, metrics_tracker, optimizer, lr_schedul
         logger (Logger): Logger object for logging information.
         training_progress (TrainingProgress, optional): The training progress tracker.
     """
+    rank = get_rank_safely()
+    if rank != 0:
+        return
+
     # Handle different LR scheduler types
     if hasattr(lr_scheduler, "schedulers"):
         # For MultiLRScheduler
@@ -970,6 +974,10 @@ def manage_checkpoints(config, metrics_tracker, logger):
     Manage saved checkpoints based on the keep top N and keep last N policies.
     Preserves both top N best checkpoints AND last N most recent checkpoints.
     """
+    rank = get_rank_safely()
+    if rank != 0:
+        return
+
     ckpt_dir = config.ENV.OUTPUT.DIRS.CHECKPOINTS
     all_checkpoints = [f for f in os.listdir(ckpt_dir) if f.startswith("ckpt_epoch_") and f.endswith(".pth")]
     # Sort by epoch
