@@ -42,9 +42,16 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
-    "ruff",
     "pytest",
-    "uv",
+    "ruff",
+    "mkdocs",
+    "mkdocs-material",
+]
+inference = [
+    "litserve",
+    "polli-typus>=0.1.10",
+    "uvicorn[standard]",
+    "pydantic",
 ]
 
 cuda-fa = [
