@@ -1,0 +1,61 @@
+site_name: Polli Linnaeus
+site_description: "An open-source deep learning framework for taxonomic image classification."
+repo_url: https://github.com/polli-labs/linnaeus
+
+theme:
+  name: material
+  palette:
+    scheme: default
+    primary: indigo
+  features:
+    - navigation.tabs
+    - navigation.top
+    - search.suggest
+
+nav:
+  - Home: index.md
+  - Getting Started:
+      - Installation: installation.md
+      - Quickstart: getting_started.md
+      - Dataset Generation: datasets/dataset_generation.md
+      - FAQ: FAQ.md
+  - Model Zoo: models/model_zoo.md
+  - Training:
+      - Overview: training/overview.md
+      - Custom Model Example: training/training_custom_model_example.md
+      - Data Loading: training/data_loading.md
+      - Augmentations: training/augmentations.md
+      - Multi-Task Training: training/multi_task_training.md
+      - Scheduling: training/scheduling.md
+      - Checkpoint Management: training/checkpoint_management.md
+      - Auto Resume: training/auto_resume.md
+      - Metrics: training/metrics.md
+      - Phase2 Abstention RL: training/phase2_abstention_rl.md
+      - Null Masking: training/null_masking.md
+      - Meta Masking: training/meta_masking.md
+      - Image Verification: training/data/image_verification.md
+  - Inference:
+      - Overview: inference/overview.md
+      - Using Pre-trained Models: inference/running_inference_with_pretrained_models.md
+      - Inference Bundle: inference/inference_bundle.md
+      - LitServe: inference/litserve.md
+  - Evaluation:
+      - Overview: evaluation/overview.md
+      - Validation: evaluation/validation.md
+  - Advanced Topics:
+      - Overview: advanced_topics/index.md
+      - Automatic Batch Sizing: advanced_topics/autobatch.md
+      - Development Features: advanced_topics/development_features.md
+      - Debug Flags: advanced_topics/debug_flags.md
+      - Hierarchical Approaches: advanced_topics/hierarchical_approaches.md
+      - Taxonomy Representation: advanced_topics/taxonomy_representation.md
+      - Training Progress: advanced_topics/training_progress.md
+  - Developer Guides:
+      - Training Loop: dev/01_training_loop_and_progress.md
+      - Scheduling System: dev/02_scheduling_system.md
+      - Metrics and Logging: dev/03_metrics_and_logging.md
+      - Model Metadata and Filtering: dev/04_model_metadata_and_filtering.md
+      - Architecture Notes: dev/98_architecture_notes.md
+      - Design Decisions: dev/99_design_decisions.md
+  - Known Limitations: known_limitations.md
+  - TODO: todo.md
