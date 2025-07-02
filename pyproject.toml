@@ -1,6 +1,6 @@
 [project]
 name = "linnaeus"
-version = "0.0.21-alpha"
+version = "0.1.0"
 description = "Linnaeus: A deep learning framework for taxonomic recognition."
 authors = [
     { name = "Caleb Sowers", email = "caleb@polli.ai" },
@@ -35,7 +35,7 @@ dependencies = [
     "matplotlib",
     "termcolor",
     "rich",
-    "polli-typus>=0.1.7",
+    "polli-typus>=0.1.10",
     "huggingface-hub",
     "python-dateutil",
 ]

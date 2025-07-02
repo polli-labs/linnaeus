@@ -1,3 +1,7 @@
+TODO: These images names aren't correct. linnaeus-dev runtime images (ready for training) are at frontierkodiak/linnaeus-dev:<arch>-main (for main branch)
+TODO: If we decide to set up ci/cd and start tagging/releasing wheels (optionally on pypi as well), then we'll need to update these docs. Really, this doc should go under docs/.. top-level setup/ only makes sense if we provide a custom setup script, which we aren't at present.
+TODO: Let's provide boilerplate, anonymized docker-compose based on my private runtime/train compose configs.. definitely the easiest way to get started (users customize bind mounts, run commands, etc).
+---
 # Development and Installation
 
 This guide outlines the recommended procedures for setting up a development environment for the Linnaeus project.
