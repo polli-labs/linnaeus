@@ -1,6 +1,8 @@
 # Docker Build Tools for Linnaeus
 
-This directory contains tools for building Docker images for the Linnaeus project using a **two-stage build process**.
+This directory contains tools for building Docker images for the Linnaeus project using a **two-stage build process** with separate Dockerfiles:
+- `Dockerfile.base` - Builds the heavy base images with CUDA, PyTorch, Flash Attention
+- `Dockerfile.runtime` - Builds lightweight runtime images containing only Linnaeus code
 
 ## Overview of the Two-Stage Build
 
@@ -38,16 +40,39 @@ The Docker build process is split into two stages: a `base` image and a `runtime
 
 ## Building Docker Images
 
-Both `base` and `runtime` images are built using `docker buildx build` commands directly.
+Both `base` and `runtime` images are built using `docker buildx build` commands. The system is designed as a two-stage process:
+- **Base images** contain the heavy dependencies and are built manually (rarely)
+- **Runtime images** contain only the Linnaeus application and are built automatically by CI
 
 ### Building Base Images
+
+Base images must be built with `BUILDKIT_INLINE_CACHE=1` to enable proper layer caching in CI environments.
+
+**Example for Turing:**
+```bash
+docker buildx build \
+  --platform linux/amd64 \
+  -f tools/docker/Dockerfile.base \
+  --target base \
+  --build-arg MAX_JOBS=4 \
+  --build-arg BUILDKIT_INLINE_CACHE=1 \
+  --build-arg TORCH_CHANNEL=stable \
+  --build-arg TORCH_VER=2.7.1+cu126 \
+  --build-arg TORCH_CUDA_SUFFIX=cu126 \
+  --build-arg CUDA_ARCH_LIST="7.5" \
+  --build-arg FA_VER="" \
+  -t frontierkodiak/linnaeus-base:turing-cu126 \
+  --push .
+```
 
 **Example for Ampere:**
 ```bash
 docker buildx build \
   --platform linux/amd64 \
-  -f tools/docker/Dockerfile \
+  -f tools/docker/Dockerfile.base \
   --target base \
+  --build-arg MAX_JOBS=4 \
+  --build-arg BUILDKIT_INLINE_CACHE=1 \
   --build-arg TORCH_CHANNEL=stable \
   --build-arg TORCH_VER=2.7.1+cu126 \
   --build-arg TORCH_CUDA_SUFFIX=cu126 \
@@ -61,12 +86,13 @@ docker buildx build \
 ```bash
 docker buildx build \
   --platform linux/amd64 \
-  -f tools/docker/Dockerfile \
+  -f tools/docker/Dockerfile.base \
   --target base \
+  --build-arg MAX_JOBS=4 \
+  --build-arg BUILDKIT_INLINE_CACHE=1 \
   --build-arg TORCH_CHANNEL=nightly \
   --build-arg TORCH_CUDA_SUFFIX=cu128 \
   --build-arg CUDA_ARCH_LIST="9.0" \
-  --build-arg MAX_JOBS=8 \
   -t frontierkodiak/linnaeus-base:hopper-cu128-nightly \
   --push .
 ```
@@ -75,17 +101,20 @@ Note: For Hopper, `FA_VER` is generally not needed as the latest compatible Flas
 
 ### Building Runtime Images
 
+Runtime images are built from the separate `Dockerfile.runtime` and use pre-built base images.
+
 **Example:**
 ```bash
 docker buildx build \
   --platform linux/amd64 \
-  -f tools/docker/Dockerfile \
-  --target runtime \
+  -f tools/docker/Dockerfile.runtime \
+  --build-arg BASE_TAG=ampere-cu126 \
   --build-arg LINNAEUS_REF=main \
-  --cache-from=frontierkodiak/linnaeus-base:ampere-cu126 \
   -t frontierkodiak/linnaeus-dev:ampere-main \
   --push .
 ```
+
+Note: Runtime builds should be fast (<2 minutes) as they only install the Linnaeus application code.
 
 ## Architecture Configurations (for `base` image)
 
@@ -138,3 +167,10 @@ The validation script typically checks for GPU access, CUDA functionality, and m
 - **Significantly Faster Iteration:** When you change Linnaeus code, only the `runtime` stage is rebuilt, which is much quicker as it doesn't re-install PyTorch or other heavy dependencies.
 - **Consistency:** Ensures all developers use the same base environment.
 - **Simplified Dockerfile:** The main `Dockerfile` is now cleaner and easier to understand.
+
+## Common Gotchas
+
+- **MAX_JOBS Consistency:** The `MAX_JOBS` build argument must be identical across all commands that build the base stage. After the Dockerfile split, it only affects `Dockerfile.base` builds, so CI commands for runtime images should omit it to avoid cache invalidation.
+- **Inline Cache Requirement:** Base images MUST be built with `BUILDKIT_INLINE_CACHE=1` or the GitHub Actions runners won't be able to reuse cached layers. Forgetting this flag will cause full rebuilds in CI.
+- **Nightly PyTorch:** Never pin `TORCH_VER` when `TORCH_CHANNEL=nightly`. Nightly wheels disappear after ~2 weeks, causing build failures.
+- **GitHub Runner Limits:** GitHub's ubuntu-latest runners have only 4 vCPU / 15 GB RAM. Never compile C++/CUDA code there - always use pre-built base images.
