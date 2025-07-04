@@ -1,0 +1,52 @@
+name: Build Runtime Images
+
+on:
+  push:
+    branches: [ main ]
+    tags: [ 'v*.*.*' ]
+  workflow_dispatch:
+
+jobs:
+  build-runtime:
+    name: Build Runtime Image (${{ matrix.arch }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: turing
+            base_tag: turing-cu126
+          - arch: ampere
+            base_tag: ampere-cu126
+          - arch: hopper
+            base_tag: hopper-cu128-nightly
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_TOKEN }}
+      
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: frontierkodiak/linnaeus-dev
+          tags: |
+            type=semver,pattern={{version}},prefix=${{ matrix.arch }}-
+            type=raw,value=${{ matrix.arch }}-latest,enable=${{ github.ref == 'refs/heads/main' }}
+            type=ref,event=branch,prefix=${{ matrix.arch }}-
+            type=sha,prefix=${{ matrix.arch }}-,format=short
+      
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: tools/docker/Dockerfile.runtime
+          platforms: linux/amd64
+          build-args: |
+            BASE_TAG=${{ matrix.base_tag }}
+            LINNAEUS_REF=${{ github.ref_name }}
+          pull: true
+          cache-from: type=registry,ref=frontierkodiak/linnaeus-base:${{ matrix.base_tag }}
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}

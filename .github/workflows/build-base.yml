@@ -1,0 +1,62 @@
+name: Build Base Images
+
+on:
+  workflow_dispatch:
+    inputs:
+      arch:
+        description: 'Architecture to build'
+        required: true
+        type: choice
+        options:
+          - turing
+          - ampere
+          - hopper
+      max_jobs:
+        description: 'Ninja/Make parallelism (for Flash Attention compilation)'
+        required: false
+        default: '4'
+        type: string
+
+jobs:
+  build-base:
+    name: Build Base Image (${{ github.event.inputs.arch }})
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_TOKEN }}
+      
+      - name: Set build arguments for architecture
+        id: build-args
+        run: |
+          case "${{ github.event.inputs.arch }}" in
+            turing)
+              echo "tag=turing-cu126" >> $GITHUB_OUTPUT
+              echo "args=TORCH_CHANNEL=stable|TORCH_VER=2.7.1+cu126|TORCH_CUDA_SUFFIX=cu126|CUDA_ARCH_LIST=7.5|FA_VER=" >> $GITHUB_OUTPUT
+              ;;
+            ampere)
+              echo "tag=ampere-cu126" >> $GITHUB_OUTPUT
+              echo "args=TORCH_CHANNEL=stable|TORCH_VER=2.7.1+cu126|TORCH_CUDA_SUFFIX=cu126|CUDA_ARCH_LIST=8.0;8.6|FA_VER=2.7.4.post1" >> $GITHUB_OUTPUT
+              ;;
+            hopper)
+              echo "tag=hopper-cu128-nightly" >> $GITHUB_OUTPUT
+              echo "args=TORCH_CHANNEL=nightly|TORCH_CUDA_SUFFIX=cu128|CUDA_ARCH_LIST=9.0" >> $GITHUB_OUTPUT
+              ;;
+          esac
+      
+      - name: Build & push base image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: tools/docker/Dockerfile.base
+          target: base
+          platforms: linux/amd64
+          build-args: |
+            ${{ steps.build-args.outputs.args }}
+            MAX_JOBS=${{ github.event.inputs.max_jobs }}
+            BUILDKIT_INLINE_CACHE=1
+          tags: frontierkodiak/linnaeus-base:${{ steps.build-args.outputs.tag }}
+          push: true
