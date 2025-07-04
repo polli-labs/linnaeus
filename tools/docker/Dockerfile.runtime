@@ -1,0 +1,44 @@
+# Dockerfile.runtime - Lightweight runtime image that builds on pre-compiled base images
+# This Dockerfile only handles the Linnaeus application layer, not the heavy dependencies
+
+ARG BASE_TAG=ampere-cu126
+FROM frontierkodiak/linnaeus-base:${BASE_TAG}
+
+# Build argument for Linnaeus reference (branch or tag)
+ARG LINNAEUS_REF=main
+
+# Set PYTHONPATH to include the app directory
+ENV PYTHONPATH="/app/linnaeus"
+
+WORKDIR /app
+
+# Clone Linnaeus repository
+RUN git clone --depth 1 --branch ${LINNAEUS_REF} https://github.com/polli-labs/linnaeus.git linnaeus
+
+WORKDIR /app/linnaeus
+
+# Install non-torch dependencies first to avoid reinstalling torch
+RUN uv pip install --system \
+    yacs>=0.1.8 \
+    numpy>=1.20 \
+    tqdm \
+    h5py \
+    wandb \
+    pyyaml \
+    Pillow \
+    opencv-python \
+    pandas \
+    matplotlib \
+    termcolor \
+    rich \
+    polli-typus>=0.1.7 \
+    huggingface-hub \
+    python-dateutil \
+    ruff \
+    pytest
+
+# Install Linnaeus without dependencies (since we installed them above)
+RUN uv pip install --system --no-deps -e .[dev]
+
+# Default command is bash shell
+CMD ["/bin/bash"]
