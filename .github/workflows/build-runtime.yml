@@ -52,3 +52,12 @@ jobs:
           cache-from: type=registry,ref=frontierkodiak/linnaeus-base:${{ matrix.base_tag }}
           push: true
           tags: ${{ steps.meta.outputs.tags }}
+      
+      - name: Check disk usage
+        run: |
+          used=$(df -BG / | tail -1 | awk '{print $3}' | tr -d 'G')
+          echo "Disk usage: ${used}GB"
+          if [ "$used" -gt 12 ]; then
+            echo "::error title=Disk usage too high::${used}GB used; limit is 12GB"
+            exit 1
+          fi

@@ -10,6 +10,9 @@ ARG LINNAEUS_REF=main
 # Set PYTHONPATH to include the app directory
 ENV PYTHONPATH="/app/linnaeus"
 
+# Disable pip cache to save disk space
+ENV PIP_NO_CACHE_DIR=1
+
 WORKDIR /app
 
 # Clone Linnaeus repository
@@ -17,30 +20,9 @@ RUN git clone --depth 1 --branch ${LINNAEUS_REF} https://github.com/polli-labs/l
 
 WORKDIR /app/linnaeus
 
-# Install Linnaeus dependencies
-# Use PIP_NO_CACHE_DIR=1 to prevent disk space issues on GitHub runners
-# Note: numpy, packaging, setuptools, wheel, psutil are already in base image
-RUN PIP_NO_CACHE_DIR=1 uv pip install --system \
-    yacs>=0.1.8 \
-    tqdm \
-    h5py \
-    wandb \
-    pyyaml \
-    Pillow \
-    opencv-python \
-    pandas \
-    matplotlib \
-    termcolor \
-    rich \
-    polli-typus>=0.1.7 \
-    huggingface-hub \
-    python-dateutil \
-    ruff \
-    pytest && \
-    rm -rf /root/.cache/uv
-
-# Install Linnaeus without dependencies (since we installed them above)
-RUN PIP_NO_CACHE_DIR=1 uv pip install --system --no-deps -e .[dev] && \
+# Install only Linnaeus itself and minimal dev tools
+# All heavy dependencies (numpy, pandas, torch, etc.) are already in the base image
+RUN uv pip install --system --no-deps -e .[dev] && \
     rm -rf /root/.cache/uv
 
 # Default command is bash shell
