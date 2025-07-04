@@ -94,3 +94,26 @@ RUN echo "Processing Flash Attention installation..." && \
         echo "FA_VER is empty or TORCH_CHANNEL is not nightly – skipping Flash-Attention"; \
     fi
 
+# --- Heavy Python Dependencies ---
+# Install all the heavy dependencies that Linnaeus needs
+# This avoids re-downloading them in every CI run
+RUN uv pip install --system \
+    numpy>=1.20 \
+    pandas \
+    opencv-python-headless \
+    matplotlib \
+    Pillow \
+    h5py \
+    tqdm \
+    yacs>=0.1.8 \
+    wandb \
+    pyyaml \
+    termcolor \
+    rich \
+    polli-typus>=0.1.7 \
+    huggingface-hub \
+    python-dateutil
+
+# Clean up pip cache to reduce image size
+RUN rm -rf /root/.cache/uv /root/.cache/pip
+

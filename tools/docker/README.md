@@ -25,7 +25,10 @@ The Docker build process is split into two stages: a `base` image and a `runtime
     - `<cuda_suffix>`: e.g., `cu126`, `cu128`
     - `<torch_ver_short>`: e.g., `2.7.1`, `2.8.0rc0`
     - `<fa_ver_tag>`: `v2`, `v3`, or `none`
-- **When to Rebuild:** The `base` image only needs to be manually rebuilt or updated if there are changes to its core components (e.g., upgrading PyTorch, CUDA version, or changing the Flash Attention version).
+- **When to Rebuild:** The `base` image needs to be manually rebuilt when:
+    - Upgrading PyTorch, CUDA version, or Flash Attention version
+    - Adding new dependencies to `pyproject.toml` (these should be added to `Dockerfile.base`)
+    - Changing compilation flags or system dependencies
 - **How it's Built:** Built using `docker buildx build` targeting the `base` stage in the `Dockerfile`.
 
 ## The `runtime` Image
@@ -173,4 +176,6 @@ The validation script typically checks for GPU access, CUDA functionality, and m
 - **MAX_JOBS Consistency:** The `MAX_JOBS` build argument must be identical across all commands that build the base stage. After the Dockerfile split, it only affects `Dockerfile.base` builds, so CI commands for runtime images should omit it to avoid cache invalidation.
 - **Inline Cache Requirement:** Base images MUST be built with `BUILDKIT_INLINE_CACHE=1` or the GitHub Actions runners won't be able to reuse cached layers. Forgetting this flag will cause full rebuilds in CI.
 - **Nightly PyTorch:** Never pin `TORCH_VER` when `TORCH_CHANNEL=nightly`. Nightly wheels disappear after ~2 weeks, causing build failures.
-- **GitHub Runner Limits:** GitHub's ubuntu-latest runners have only 4 vCPU / 15 GB RAM. Never compile C++/CUDA code there - always use pre-built base images.
+- **GitHub Runner Limits:** GitHub's ubuntu-latest runners have only 4 vCPU / 14 GB disk space. The runtime builds are optimized to use <10GB.
+- **Dependency Updates:** When adding new dependencies to `pyproject.toml`, they MUST also be added to `Dockerfile.base` to avoid CI disk space issues. The runtime Dockerfile uses `--no-deps` and expects all dependencies in the base.
+- **Base Image Tags:** After rebuilding base images, update the tags in the GitHub workflow matrix to ensure CI uses the new versions.
