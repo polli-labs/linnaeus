@@ -17,10 +17,11 @@ RUN git clone --depth 1 --branch ${LINNAEUS_REF} https://github.com/polli-labs/l
 
 WORKDIR /app/linnaeus
 
-# Install non-torch dependencies first to avoid reinstalling torch
-RUN uv pip install --system \
+# Install Linnaeus dependencies
+# Use PIP_NO_CACHE_DIR=1 to prevent disk space issues on GitHub runners
+# Note: numpy, packaging, setuptools, wheel, psutil are already in base image
+RUN PIP_NO_CACHE_DIR=1 uv pip install --system \
     yacs>=0.1.8 \
-    numpy>=1.20 \
     tqdm \
     h5py \
     wandb \
@@ -35,10 +36,12 @@ RUN uv pip install --system \
     huggingface-hub \
     python-dateutil \
     ruff \
-    pytest
+    pytest && \
+    rm -rf /root/.cache/uv
 
 # Install Linnaeus without dependencies (since we installed them above)
-RUN uv pip install --system --no-deps -e .[dev]
+RUN PIP_NO_CACHE_DIR=1 uv pip install --system --no-deps -e .[dev] && \
+    rm -rf /root/.cache/uv
 
 # Default command is bash shell
 CMD ["/bin/bash"]
