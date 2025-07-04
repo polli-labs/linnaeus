@@ -8,7 +8,7 @@ FROM frontierkodiak/linnaeus-base:${BASE_TAG}
 ARG LINNAEUS_REF=main
 
 # Set PYTHONPATH to include the app directory
-ENV PYTHONPATH="/app/linnaeus:${PYTHONPATH}"
+ENV PYTHONPATH="/app/linnaeus"
 
 WORKDIR /app
 
