@@ -44,6 +44,7 @@ jobs:
         with:
           context: .
           file: tools/docker/Dockerfile.runtime
+          target: runtime
           platforms: linux/amd64
           build-args: |
             BASE_TAG=${{ matrix.base_tag }}

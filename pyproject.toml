@@ -1,6 +1,6 @@
 [project]
 name = "linnaeus"
-version = "0.1.1rc4"
+version = "0.1.1rc5"
 description = "Linnaeus: A deep learning framework for taxonomic recognition."
 authors = [
     { name = "Caleb Sowers", email = "caleb@polli.ai" },
