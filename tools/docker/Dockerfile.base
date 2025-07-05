@@ -1,34 +1,31 @@
-# Stage 1: Base image for compilation and dependencies
+# Dockerfile.base - Multi-stage build for minimal base images
+# Stage 1: builder - compiles Flash Attention and installs all dependencies
+# Stage 2: base - slim runtime image with only necessary files
+
+#######################################
+# 1) builder - heavy, disposable stage
+#######################################
 ARG NVIDIA_CUDA_TAG="12.8.0-cudnn-devel-ubuntu22.04"
-FROM nvidia/cuda:${NVIDIA_CUDA_TAG} AS base
+FROM nvidia/cuda:${NVIDIA_CUDA_TAG} AS builder
 
-# Build arguments for PyTorch, Flash Attention, and CUDA architecture
-ARG TORCH_VER="2.7.1+cu126" # still passed for stable builds
-ARG FA_VER=""    # default is *blank* ⇒ skip on Turing
-ARG TORCH_CHANNEL="stable"  # PyTorch channel: stable or nightly
-ARG TORCH_CUDA_SUFFIX       # e.g., cu126, cu128
-ARG CUDA_ARCH_LIST=""       # e.g., "7.5;8.0;8.6;9.0" - for flash-attn, if needed
-ARG MAX_JOBS=6              # Number of parallel compilation jobs for ninja (default: 6)
+# Build arguments
+ARG TORCH_VER="2.7.1+cu126"
+ARG FA_VER=""
+ARG TORCH_CHANNEL="stable"
+ARG TORCH_CUDA_SUFFIX
+ARG CUDA_ARCH_LIST=""
+ARG MAX_JOBS=6
 
-# --- Environment Setup ---
+# Environment setup
 ENV TORCH_CUDA_ARCH_LIST=${CUDA_ARCH_LIST}
 ENV MAX_JOBS=${MAX_JOBS}
 ENV DEBIAN_FRONTEND=noninteractive
 ENV TZ=Etc/UTC
-# Set path for uv
+ENV PIP_NO_CACHE_DIR=1
 ENV PATH="/root/.local/bin:$PATH"
 
-# --- System Dependencies ---
-# Add retry logic for apt operations
-RUN set -e && \
-    for i in 1 2 3; do \
-        if apt-get update; then \
-            break; \
-        else \
-            echo "Attempt $i failed, retrying in $(expr $i \* 10) seconds..." && \
-            sleep $(expr $i \* 10); \
-        fi; \
-    done && \
+# System build dependencies
+RUN apt-get update && \
     apt-get install -y --no-install-recommends \
         build-essential \
         git \
@@ -37,67 +34,57 @@ RUN set -e && \
         python3.11-venv \
         python3-pip \
         curl \
-        unzip \
-        libglib2.0-0 \
-        libsm6 \
-        libxext6 \
-        libfontconfig1 \
-        libxrender1 \
-        libgl1-mesa-glx \
-        htop \
-        nvtop \
-        nano \
-        rclone && \
+        ca-certificates && \
     rm -rf /var/lib/apt/lists/*
 
-# Link python3 to python3.11 and create python symlink
+# Link python
 RUN ln -sf /usr/bin/python3.11 /usr/bin/python3 && \
     ln -sf /usr/bin/python3 /usr/bin/python
 
-# --- Install uv and ninja ---
+# Install uv and ninja
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh
-RUN uv pip install --system ninja && ninja --version
 
-# --- PyTorch, TorchVision, Torchaudio ---
+# Create virtual environment for clean dependency management
+RUN python -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+
+# Install ninja in venv
+RUN uv pip install ninja && ninja --version
+
+# Install PyTorch
 RUN if [ "$TORCH_CHANNEL" = "nightly" ]; then \
-      uv pip install --system --pre \
+      uv pip install --pre \
           torch torchvision torchaudio \
           --index-url https://download.pytorch.org/whl/nightly/${TORCH_CUDA_SUFFIX}; \
     else \
-      uv pip install --system \
+      uv pip install \
           torch==${TORCH_VER} torchvision torchaudio \
           --index-url https://download.pytorch.org/whl/${TORCH_CUDA_SUFFIX}; \
     fi
 
-# Install packaging utilities and psutil
-RUN uv pip install --system packaging setuptools wheel psutil
+# Install packaging utilities
+RUN uv pip install packaging setuptools wheel psutil
 
-# --- Flash Attention --------------------------------------------------
-# ARG FA_VER # Already defined globally
-# ARG TORCH_CHANNEL # Already defined globally
-# ARG MAX_JOBS # Already defined globally
-
+# Flash Attention compilation
 RUN echo "Processing Flash Attention installation..." && \
     if [ "$TORCH_CHANNEL" = "nightly" ]; then \
         echo "Building Flash-Attention v3 from source for nightly PyTorch..." && \
         git clone --depth 1 https://github.com/Dao-AILab/flash-attention.git /tmp/fa && \
         cd /tmp/fa && \
-        MAX_JOBS=${MAX_JOBS:-6} uv pip install --system --no-build-isolation . && \
+        MAX_JOBS=${MAX_JOBS:-6} uv pip install --no-build-isolation . && \
         cd / && rm -rf /tmp/fa; \
     elif [ -n "$FA_VER" ]; then \
         echo "Installing Flash-Attention version $FA_VER"; \
         ACTUAL_MAX_JOBS=${MAX_JOBS:-12} && \
         echo "Using MAX_JOBS=${ACTUAL_MAX_JOBS}" && \
-        uv pip install --system \
+        uv pip install \
             flash-attn==$FA_VER --no-build-isolation; \
     else \
         echo "FA_VER is empty or TORCH_CHANNEL is not nightly – skipping Flash-Attention"; \
     fi
 
-# --- Heavy Python Dependencies ---
-# Install all the heavy dependencies that Linnaeus needs
-# This avoids re-downloading them in every CI run
-RUN uv pip install --system \
+# Heavy Python dependencies
+RUN uv pip install \
     numpy>=1.20 \
     pandas \
     opencv-python-headless \
@@ -114,6 +101,58 @@ RUN uv pip install --system \
     huggingface-hub \
     python-dateutil
 
-# Clean up pip cache to reduce image size
-RUN rm -rf /root/.cache/uv /root/.cache/pip
+#######################################
+# 2) base - slim runtime stage
+#######################################
+# Use runtime image variant to save ~4GB
+ARG NVIDIA_CUDA_TAG="12.8.0-cudnn-devel-ubuntu22.04"
+FROM nvidia/cuda:${NVIDIA_CUDA_TAG%%-devel*}-runtime-ubuntu22.04 AS base
 
+# Copy ONLY the virtual environment from builder
+COPY --from=builder /opt/venv /opt/venv
+
+# Set up environment
+ENV PATH="/opt/venv/bin:$PATH"
+ENV PYTHONPATH="/opt/venv/lib/python3.11/site-packages"
+
+# Install minimal runtime dependencies
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        python3.11 \
+        git \
+        curl \
+        libglib2.0-0 \
+        libsm6 \
+        libxext6 \
+        libfontconfig1 \
+        libxrender1 \
+        libgl1-mesa-glx \
+        htop \
+        nvtop \
+        nano \
+        rclone \
+        tini && \
+    rm -rf /var/lib/apt/lists/*
+
+# Link python
+RUN ln -sf /usr/bin/python3.11 /usr/bin/python3 && \
+    ln -sf /usr/bin/python3 /usr/bin/python
+
+# Aggressive cleanup to reduce image size
+RUN find /opt/venv -type f -name "*.pyc" -delete && \
+    find /opt/venv -type d -name "__pycache__" -delete && \
+    find /opt/venv -type f -path "*/site-packages/*.dist-info/RECORD" -delete && \
+    find /opt/venv -type d -name "tests" -prune -exec rm -rf {} + 2>/dev/null || true && \
+    find /opt/venv -type d -name "test" -prune -exec rm -rf {} + 2>/dev/null || true
+
+# Strip debug symbols from torch libraries (saves ~500MB)
+RUN find /opt/venv/lib/python*/site-packages/torch/lib -name "*.so*" -type f | \
+    xargs -r strip --strip-unneeded 2>/dev/null || true
+
+# Set uv in path (reinstall minimal version)
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh
+ENV PATH="/root/.local/bin:$PATH"
+
+# Use tini as entrypoint for proper signal handling
+ENTRYPOINT ["/usr/bin/tini", "--"]
+CMD ["/bin/bash"]
