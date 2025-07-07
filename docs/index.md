@@ -49,6 +49,8 @@ For users who want to explore more specialized features of Linnaeus.
 Resources for those looking to extend or contribute to Polli Linnaeus.
 
 *   **[Model System Overview](./models/model_system_overview.md):** Understand the architectural design, component registries, and how to create new model architectures.
+*   **[CI & Docker Guide](./ci.md):** Learn about the continuous integration setup and Docker image architecture.
+*   **[Docker Build Guide](../tools/docker/README.md):** Detailed documentation on building and maintaining the Linnaeus Docker images.
 *   **[Development Guides](./dev/):** (Link to `docs/dev/` directory if it contains an index or relevant files - e.g., `docs/dev/01_training_loop_and_progress.md`) Explore notes on the training loop, scheduling system, metrics, and other internal design choices.
 *   **[Contributing Guidelines](../../CONTRIBUTING.md):** (To be created) How to contribute to the Polli Linnaeus project.
 

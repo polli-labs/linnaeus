@@ -1,5 +1,7 @@
 # Dockerfile.runtime - Lightweight runtime image that builds on pre-compiled base images
 # This Dockerfile only handles the Linnaeus application layer, not the heavy dependencies
+#
+# IMPORTANT: The main stage MUST be named "runtime" to match the CI workflow target
 
 ARG BASE_TAG=ampere-cu126
 FROM frontierkodiak/linnaeus-base:${BASE_TAG} AS runtime
@@ -27,3 +29,17 @@ RUN uv pip install --system --no-deps -e .[dev] && \
 
 # Default command is bash shell
 CMD ["/bin/bash"]
+
+# ===== Optional Debug Stages =====
+# You can add additional stages after the main runtime stage for local development.
+# These won't affect CI because the workflow explicitly targets the "runtime" stage.
+#
+# Example debug stage with additional tools:
+# FROM runtime AS debug
+# RUN apt-get update && apt-get install -y \
+#     vim \
+#     gdb \
+#     strace \
+#     && rm -rf /var/lib/apt/lists/*
+#
+# Build with: docker buildx build --target debug ...

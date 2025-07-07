@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.1.1] - 2025-07-07
+
+### Added
+- Slim Docker base images (<8GB) enabling CI/CD on free GitHub runners
+- Multi-stage Docker build architecture separating builder and runtime stages
+- BuildKit disk usage monitoring in CI workflow
+- Comprehensive CI & Docker documentation
+- Inline documentation for critical workflow settings
+
+### Changed
+- Base Docker images now use `cuda-runtime` instead of `cuda-devel` (70% size reduction)
+- Runtime Docker builds complete in <2 minutes (previously 15-20 minutes)
+- Switched to proper semver format for pre-releases (v0.1.1-rc6 vs v0.1.1rc6)
+- Enhanced Docker README with architecture decision log and troubleshooting guide
+
+### Fixed
+- CI disk space errors on GitHub Actions runners
+- BuildKit evaluating unused Docker stages during runtime builds
+- Module-level logger initialization race conditions
+- Mixup/CutMix initialization timing issues in data loader
+
 ## 2025-05-28
 
 ### Added
