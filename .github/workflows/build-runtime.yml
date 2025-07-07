@@ -54,11 +54,18 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
       
-      - name: Check disk usage
+      - name: Check BuildKit tmp size
         run: |
-          used=$(df -BG / | tail -1 | awk '{print $3}' | tr -d 'G')
-          echo "Disk usage: ${used}GB"
+          # Get BuildKit's tmp directory and measure its size
+          buildkit_dir=$(docker buildx du 2>/dev/null | awk '/buildkit/{print $2}' | head -1)
+          if [ -n "$buildkit_dir" ] && [ -d "$buildkit_dir" ]; then
+            used=$(du -BG -s "$buildkit_dir" 2>/dev/null | awk '{print $1}' | tr -d 'G')
+          else
+            # Fallback to /tmp if buildkit dir not found
+            used=$(du -BG -s /tmp 2>/dev/null | awk '{print $1}' | tr -d 'G')
+          fi
+          echo "BuildKit tmp: ${used}GB"
           if [ "$used" -gt 12 ]; then
-            echo "::error title=Disk usage too high::${used}GB used; limit is 12GB"
+            echo "::error title=BuildKit tmp too large::${used}GB used; limit is 12GB"
             exit 1
           fi

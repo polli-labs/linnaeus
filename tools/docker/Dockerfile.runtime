@@ -2,7 +2,7 @@
 # This Dockerfile only handles the Linnaeus application layer, not the heavy dependencies
 
 ARG BASE_TAG=ampere-cu126
-FROM frontierkodiak/linnaeus-base:${BASE_TAG}
+FROM frontierkodiak/linnaeus-base:${BASE_TAG} AS runtime
 
 # Build argument for Linnaeus reference (branch or tag)
 ARG LINNAEUS_REF=main
