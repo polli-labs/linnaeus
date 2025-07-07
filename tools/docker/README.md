@@ -1,57 +1,55 @@
 # Docker Build Tools for Linnaeus
 
-This directory contains tools for building Docker images for the Linnaeus project using a **two-stage build process** with separate Dockerfiles:
-- `Dockerfile.base` - Builds the heavy base images with CUDA, PyTorch, Flash Attention
-- `Dockerfile.runtime` - Builds lightweight runtime images containing only Linnaeus code
+This directory contains tools for building Docker images for the Linnaeus project using a **slim multi-stage build architecture** with separate Dockerfiles:
+- `Dockerfile.base` - Multi-stage build that produces slim base images (<8GB) with CUDA, PyTorch, and heavy dependencies
+- `Dockerfile.runtime` - Lightweight runtime images (<300MB layer) containing only Linnaeus code
 
-## Overview of the Two-Stage Build
+## Architecture Overview
 
-The Docker build process is split into two stages: a `base` image and a `runtime` image. This approach offers several advantages:
+The Docker build system uses a three-stage architecture designed to fit within GitHub's free runner constraints:
 
-- **Faster Rebuilds:** The `runtime` image, which contains the frequently changing Linnaeus application code, can be rebuilt much faster because the `base` image (with OS dependencies, CUDA, PyTorch, etc.) is cached and only rebuilt when its core components change.
-- **Separation of Concerns:** The `base` image handles the complex setup of the underlying environment, while the `runtime` image focuses solely on the application.
-- **Cleaner Workspace:** Intermediate build tools and artifacts used to compile dependencies like Flash Attention are kept in the `base` stage and do not bloat the final `runtime` image.
+### 1. `builder` Stage (Local Only)
+- **Purpose:** Compiles Flash Attention and installs all dependencies in a virtual environment
+- **Size:** ~40GB (includes CUDA devel headers, build tools, compilation artifacts)
+- **Usage:** Never pushed to registry; exists only during base image builds
+- **Parent:** `nvidia/cuda:*-cudnn-devel-ubuntu22.04`
 
-## The `base` Image
+### 2. `base` Stage (Published)
+- **Purpose:** Slim runtime with CUDA, PyTorch, and all heavy Python dependencies
+- **Size:** 6-8GB uncompressed (<2.5GB compressed on Docker Hub)
+- **Usage:** Built rarely with `BUILDKIT_INLINE_CACHE=1`, pushed to registry
+- **Parent:** `nvidia/cuda:*-runtime-ubuntu22.04` (no devel headers)
 
-- **Purpose:** Contains the foundational software stack that changes infrequently. This includes:
-    - NVIDIA CUDA libraries
-    - PyTorch, TorchVision, TorchAudio
-    - Flash Attention (conditionally installed based on architecture)
-    - Core OS dependencies and Python environment (`python3.11`, `uv`, `ninja`)
-- **Naming Convention:** `frontierkodiak/linnaeus-base:<arch>-<cuda_suffix>-torch<torch_ver_short>-fa<fa_ver_tag>`
-    - Example: `frontierkodiak/linnaeus-base:ampere-cu126-torch2.7.1-fav2`
-    - `<arch>`: `ampere`, `hopper`, `turing`
-    - `<cuda_suffix>`: e.g., `cu126`, `cu128`
-    - `<torch_ver_short>`: e.g., `2.7.1`, `2.8.0rc0`
-    - `<fa_ver_tag>`: `v2`, `v3`, or `none`
-- **When to Rebuild:** The `base` image needs to be manually rebuilt when:
-    - Upgrading PyTorch, CUDA version, or Flash Attention version
-    - Adding new dependencies to `pyproject.toml` (these should be added to `Dockerfile.base`)
-    - Changing compilation flags or system dependencies
-- **How it's Built:** Built using `docker buildx build` targeting the `base` stage in the `Dockerfile`.
+### 3. `runtime` Stage (CI/CD)
+- **Purpose:** Linnaeus application code only
+- **Size:** ~300MB layer on top of base
+- **Usage:** Built automatically by CI on every release
+- **Parent:** `frontierkodiak/linnaeus-base:${BASE_TAG}`
 
-## The `runtime` Image
+## Critical Design Constraints
 
-- **Purpose:** Contains the Linnaeus application code and its Python dependencies. This image is built on top of a specific `base` image. It is designed to be rebuilt frequently as you develop the application.
-- **Naming Convention:** `frontierkodiak/linnaeus-dev:<git_sha>-<arch><tag_suffix>`
-    - Example: `frontierkodiak/linnaeus-dev:abcdef123456-ampere`
-    - `<git_sha>`: Short commit SHA of the Linnaeus repository.
-    - `<arch>`: `ampere`, `hopper`, `turing`
-    - `<tag_suffix>`: Optional user-defined suffix (e.g., `-myfeature`).
-- **How it's Built:** Built using `docker buildx build` targeting the `runtime` stage in the `Dockerfile`. This stage installs the Linnaeus application code using `uv pip install --system --no-deps -e .[dev]`, relying on the `base` image for all shared heavy dependencies. The appropriate `base` image is used as a cache, and the Linnaeus repository is cloned at the specified branch/commit.
+### GitHub Runner Disk Limits
+- **Available disk:** 14GB total
+- **BuildKit reserve:** 3GB (configured via `BUILDKIT_GC_KEEP_STORAGE`)
+- **Usable space:** ~11GB
+- **Our usage:** 8-10GB peak (base image + runtime build + logs)
 
-## Building Docker Images
+### Dependency Management Rule
+⚠️ **IMPORTANT:** Any new dependency added to `pyproject.toml` MUST also be added to `Dockerfile.base`. The runtime build uses `--no-deps` to avoid downloading packages in CI.
 
-Both `base` and `runtime` images are built using `docker buildx build` commands. The system is designed as a two-stage process:
-- **Base images** contain the heavy dependencies and are built manually (rarely)
-- **Runtime images** contain only the Linnaeus application and are built automatically by CI
+## Building Base Images
 
-### Building Base Images
+Base images use a multi-stage build to compile dependencies in the `builder` stage but publish only the slim `base` stage.
 
-Base images must be built with `BUILDKIT_INLINE_CACHE=1` to enable proper layer caching in CI environments.
+### Key Build Arguments
+- `MAX_JOBS`: Controls `ninja` parallelism during Flash Attention compilation (only affects base builds)
+- `BUILDKIT_INLINE_CACHE=1`: **MANDATORY** - enables layer caching for CI
+- `TORCH_CHANNEL`: `stable` or `nightly`
+- `FA_VER`: Flash Attention version (blank to skip on Turing)
 
-**Example for Turing:**
+### Build Commands
+
+**Turing (RTX 2080, T4):**
 ```bash
 docker buildx build \
   --platform linux/amd64 \
@@ -68,7 +66,7 @@ docker buildx build \
   --push .
 ```
 
-**Example for Ampere:**
+**Ampere (RTX 3090, A100):**
 ```bash
 docker buildx build \
   --platform linux/amd64 \
@@ -85,7 +83,7 @@ docker buildx build \
   --push .
 ```
 
-**Example for Hopper (with nightly PyTorch):**
+**Hopper (H100):**
 ```bash
 docker buildx build \
   --platform linux/amd64 \
@@ -100,13 +98,16 @@ docker buildx build \
   --push .
 ```
 
-Note: For Hopper, `FA_VER` is generally not needed as the latest compatible Flash Attention v3 wheel is installed by default when `TORCH_CHANNEL=nightly`. Pass `FA_VER` only if you specifically need to pin to an older v3 tag.
+## Building Runtime Images
 
-### Building Runtime Images
+Runtime images are built from `Dockerfile.runtime` and contain only the Linnaeus application code.
 
-Runtime images are built from the separate `Dockerfile.runtime` and use pre-built base images.
+### Critical Requirements
+- **Stage naming:** The Dockerfile MUST have `FROM ... AS runtime` 
+- **Workflow targeting:** The CI workflow MUST specify `target: runtime`
+- **No heavy dependencies:** Uses `--no-deps` to avoid re-downloading packages
 
-**Example:**
+### Example Build
 ```bash
 docker buildx build \
   --platform linux/amd64 \
@@ -117,65 +118,70 @@ docker buildx build \
   --push .
 ```
 
-Note: Runtime builds should be fast (<2 minutes) as they only install the Linnaeus application code.
+## CI/CD Workflow
 
-## Architecture Configurations (for `base` image)
+The GitHub Actions workflow (`.github/workflows/build-runtime.yml`) automatically builds runtime images on tagged releases.
 
-The following configurations are used for different architectures when building the `base` image:
+### Workflow Features
+1. **Triggers on tags:** `v*.*.*` pattern (e.g., `v0.1.1`, `v0.1.1-rc7`)
+2. **BuildKit disk guard:** Monitors `/tmp` usage to ensure <12GB
+3. **Target specification:** Uses `target: runtime` to skip heavy stages
+4. **Matrix builds:** Parallel builds for turing, ampere, and hopper
 
-### Ampere (e.g., RTX 3090, A100)
-- PyTorch: `2.7.1+cu126` (stable)
-- Flash Attention: `2.7.4.post1` (v2)
+### Tagging Convention
+- **Stable releases:** `vX.Y.Z` (e.g., `v0.1.1`)
+- **Pre-releases:** `vX.Y.Z-rcN` with hyphen (e.g., `v0.1.1-rc7`)
 
-### Turing (e.g., RTX 2080, T4)
-- PyTorch: `2.7.1+cu126` (stable)
-- Flash Attention: Skipped (not supported/installed)
+## Common Issues and Solutions
 
-### Hopper (e.g., H100)
-- PyTorch: Latest nightly wheel from `https://download.pytorch.org/whl/nightly/cu128` (unpinned)
-- Flash Attention: Latest nightly Flash-Attention v3 wheel (unpinned, >=3.0.0)
+### Issue: "target stage runtime could not be found"
+**Solution:** Ensure `Dockerfile.runtime` has `FROM ... AS runtime` on its base image line.
 
-**Important PyTorch Installation Notes:**
-- **Stable channel (Ampere/Turing):** PyTorch versions are explicitly pinned (e.g., `2.7.1`) to ensure reproducibility.
-- **Nightly channel (Hopper/cu128):** PyTorch is installed without version pinning, allowing pip/uv to automatically select the latest available nightly wheel. This is necessary because CUDA 12.8 wheels are only available as rolling nightly releases.
+### Issue: CI disk space errors
+**Solution:** 
+1. Verify base images are <8GB: `docker images | grep linnaeus-base`
+2. Check workflow has `target: runtime` in build-push-action
+3. Ensure `BUILDKIT_GC_KEEP_STORAGE=3g` is set
 
-## Flash Attention Compilation Notes
+### Issue: Missing dependencies in runtime
+**Solution:** Add the dependency to BOTH:
+1. `pyproject.toml` 
+2. `Dockerfile.base` (in the heavy dependencies RUN command)
 
-- Flash Attention is compiled in the `base` stage if applicable for the selected architecture.
-- The `MAX_JOBS` argument controls compilation parallelism (`ninja` is used).
-    - Default `MAX_JOBS=12` is suitable for machines with ample RAM (e.g., 128GB) and CPU cores.
-    - Reduce `MAX_JOBS` (e.g., to 4) on systems with less memory to prevent out-of-memory errors during compilation.
+Then rebuild and push base images before creating a new release.
 
-### Overriding MAX_JOBS with docker buildx
+## Adding Debug Stages (Optional)
 
-You can override the `MAX_JOBS` build argument when building:
+To add optional stages without affecting CI, place them AFTER the main runtime stage:
 
-```bash
-docker buildx build ... --build-arg MAX_JOBS=4 ...
+```dockerfile
+# Main runtime stage (used by CI)
+FROM frontierkodiak/linnaeus-base:${BASE_TAG} AS runtime
+# ... runtime setup ...
+
+# Optional debug stage (for local development)
+FROM runtime AS debug
+RUN apt-get update && apt-get install -y vim gdb
 ```
 
-## Validation
-
-After building your `runtime` image, you can validate it using `validate.sh` (if this script is still maintained and compatible with the new image structure).
-Example:
+CI will continue using the `runtime` stage while developers can build debug images with:
 ```bash
-# Assuming validate.sh is in the same directory
-./validate.sh frontierkodiak/linnaeus-dev:<git_sha>-<arch>
-# e.g. ./validate.sh frontierkodiak/linnaeus-dev:abcdef123456-ampere
+docker buildx build --target debug ...
 ```
-The validation script typically checks for GPU access, CUDA functionality, and may perform a basic application startup test.
 
-## Benefits of the New System
+## Architecture Decision Log
 
-- **Significantly Faster Iteration:** When you change Linnaeus code, only the `runtime` stage is rebuilt, which is much quicker as it doesn't re-install PyTorch or other heavy dependencies.
-- **Consistency:** Ensures all developers use the same base environment.
-- **Simplified Dockerfile:** The main `Dockerfile` is now cleaner and easier to understand.
+### Why Multi-Stage Base Images?
+1. **Builder stage:** Contains 40GB of build tools, headers, and compilation artifacts
+2. **Base stage:** Strips away everything except runtime libraries (<8GB)
+3. **Result:** 70% size reduction enables free GitHub Actions runners
 
-## Common Gotchas
+### Why Separate Dockerfiles?
+1. **Base changes rarely:** PyTorch/CUDA updates ~monthly
+2. **Runtime changes frequently:** Every commit/PR
+3. **Result:** CI builds complete in <2 minutes instead of 15-20 minutes
 
-- **MAX_JOBS Consistency:** The `MAX_JOBS` build argument must be identical across all commands that build the base stage. After the Dockerfile split, it only affects `Dockerfile.base` builds, so CI commands for runtime images should omit it to avoid cache invalidation.
-- **Inline Cache Requirement:** Base images MUST be built with `BUILDKIT_INLINE_CACHE=1` or the GitHub Actions runners won't be able to reuse cached layers. Forgetting this flag will cause full rebuilds in CI.
-- **Nightly PyTorch:** Never pin `TORCH_VER` when `TORCH_CHANNEL=nightly`. Nightly wheels disappear after ~2 weeks, causing build failures.
-- **GitHub Runner Limits:** GitHub's ubuntu-latest runners have only 4 vCPU / 14 GB disk space. The runtime builds are optimized to use <10GB.
-- **Dependency Updates:** When adding new dependencies to `pyproject.toml`, they MUST also be added to `Dockerfile.base` to avoid CI disk space issues. The runtime Dockerfile uses `--no-deps` and expects all dependencies in the base.
-- **Base Image Tags:** After rebuilding base images, update the tags in the GitHub workflow matrix to ensure CI uses the new versions.
+### Why Virtual Environment in Builder?
+1. **Clean separation:** Only `/opt/venv` is copied to final stage
+2. **No pip caches:** Saves ~1GB
+3. **No build artifacts:** Saves ~3GB

@@ -1,7 +1,12 @@
 [project]
 name = "linnaeus"
-version = "0.1.1-rc6"
+version = "0.1.1"
 description = "Linnaeus: A deep learning framework for taxonomic recognition."
+## Releasing
+# When releasing a new version:
+# 1. Update the version above
+# 2. Tag with proper format: vX.Y.Z for stable, vX.Y.Z-rcN for pre-releases (note the hyphen!)
+# 3. Ensure base Docker images are up-to-date before tagging
 authors = [
     { name = "Caleb Sowers", email = "caleb@polli.ai" },
 ]
