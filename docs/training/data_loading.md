@@ -237,7 +237,68 @@ If missing images are found, the report includes their identifiers and indices:
 
 ---
 
-## GroupedBatchSampler
++## The Prefetching Pipeline and Performance Tuning
++
++To achieve high throughput, especially on powerful hardware (e.g., A100s, H100s), `linnaeus` uses a custom multi-threaded dataloader pipeline that bypasses the standard PyTorch `DataLoader` worker system. Understanding this pipeline is crucial for performance tuning.
++
++!!! warning "DATA.NUM_WORKERS is NOT Used"
++
++    The `DATA.NUM_WORKERS` parameter in your configuration **has no effect** on the data loading performance. The custom `H5DataLoader` uses its own threading model, which is controlled by parameters in the `DATA.PREFETCH` section.
++
++### How the Pipeline Works
++
++The pipeline consists of several queues and thread pools working in sequence to hide I/O and CPU-bound augmentation latency from the GPU:
++
++1.  **I/O Threads (`DATA.PREFETCH.NUM_IO_THREADS`)**: These threads are responsible for reading raw data (images from disk, labels from HDF5) and placing them into an in-memory cache.
++2.  **In-Memory Cache (`DATA.PREFETCH.MEM_CACHE_SIZE`)**: An LRU cache holds the raw data, minimizing disk re-reads within an epoch.
++3.  **Preprocessing Threads (`DATA.PREFETCH.NUM_PREPROCESS_THREADS`)**: These CPU-bound threads retrieve raw data from the cache and apply any configured single-sample augmentations (e.g., AutoAugment).
++4.  **Queues (`BATCH_CONCURRENCY`, `MAX_PROCESSED_BATCHES`)**: These act as buffers between the stages, ensuring a smooth flow of data and preventing any single stage from becoming a bottleneck.
++
++The main training loop simply pulls fully processed, ready-to-use batches from the final output queue.
++
++### Key Performance Parameters
++
++All performance-tuning parameters are located under the `DATA.PREFETCH` section of your configuration.
++
++| Parameter | Default | What It Does & Recommendation |
++| :--- | :--- | :--- |
++| **`NUM_IO_THREADS`** | `4` | Number of threads dedicated to reading data from disk/HDF5. **Increase this if your disk is fast (e.g., NVMe) and CPU utilization is low.** For high-performance storage, values of `16` to `32` are reasonable. |
++| **`NUM_PREPROCESS_THREADS`** | `4` | Number of threads dedicated to CPU-based augmentations. **Increase this if augmentations are a bottleneck.** On a many-core CPU, this can be set high (e.g., `32`, `48`, or even more). |
++| **`BATCH_CONCURRENCY`** | `4` | The depth of the I/O and preprocessing queues. A larger value helps smooth out variability in I/O or augmentation times. `8` or `16` is a good choice for powerful systems. |
++| **`MAX_PROCESSED_BATCHES`** | `10`| The size of the final output queue holding GPU-ready batches. A larger buffer ensures the GPU never has to wait for data. `16` or `24` is recommended for high-end GPUs. |
++| **`MEM_CACHE_SIZE`** | `10 GB` | The size (in bytes) of the in-memory LRU cache for raw data. **Increase this significantly if you have ample system RAM.** A larger cache reduces disk I/O, which is beneficial if you are not using a RAM disk. On a machine with >100GB RAM, setting this to `50-100GB` is effective. |
++
++### Recommended Settings
++
++**For a Local Development Server (e.g., 2x 3090s, 16-core CPU, 64GB RAM):**
++The default settings are often sufficient.
++
++```yaml
++DATA:
++  PREFETCH:
++    NUM_IO_THREADS: 4
++    NUM_PREPROCESS_THREADS: 8
++    BATCH_CONCURRENCY: 8
++    MAX_PROCESSED_BATCHES: 16
++    MEM_CACHE_SIZE: 21474836480 # 20 GB
++```
++
++**For a High-Performance Cloud Node (e.g., 8x H100s, 96-core CPU, 1TB+ RAM):**
++You should be aggressive with these settings to feed the GPUs.
++
++```yaml
++DATA:
++  PREFETCH:
++    NUM_IO_THREADS: 32
++    NUM_PREPROCESS_THREADS: 64
++    BATCH_CONCURRENCY: 16
++    MAX_PROCESSED_BATCHES: 24
++    MEM_CACHE_SIZE: 214748364800 # 200 GB
++```
++
++These settings can be specified in your YAML file or passed as command-line overrides (`--opts`).
++
++## GroupedBatchSampler
 
 The `GroupedBatchSampler` is a specialized sampler used in Polli Linnaeus, particularly effective for tasks requiring balanced batches or specific within-batch structures, such as applying mixup or other augmentations to samples from the same group.
 

@@ -193,10 +193,11 @@ _C.DATA.BATCH_SIZE_VAL = 128
 _C.DATA.IMG_SIZE = 384
 
 # PyTorch DataLoader settings:
-# - NUM_WORKERS: number of subprocesses for data loading.
+# - NUM_WORKERS: Passed to PyTorch DataLoader, but NOT used by the Linnaeus custom prefetching pipeline.
+#                Performance is controlled by DATA.PREFETCH.* settings. See docs/training/data_loading.md.
 # - PIN_MEMORY: whether to pin CPU memory for faster transfers.
 _C.DATA.PIN_MEMORY = True
-_C.DATA.NUM_WORKERS = 8
+_C.DATA.NUM_WORKERS = 8 # Default value, effectively ignored by H5DataLoader's custom pipeline.
 
 # Sampler settings:
 # - TYPE: The type of sampler to use ('grouped' or 'standard')
