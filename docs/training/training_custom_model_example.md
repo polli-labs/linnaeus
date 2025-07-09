@@ -110,7 +110,11 @@ DATA:
   PIN_MEMORY: True
   BATCH_SIZE: 64
   BATCH_SIZE_VAL: 512 # Typically larger for validation
-  NUM_WORKERS: 4 # Adjust based on your CPU cores and I/O
+  NUM_WORKERS: 4 # Note: This NUM_WORKERS setting is passed to the PyTorch DataLoader but is NOT used by the Linnaeus
+                 # custom prefetching data pipeline. For performance tuning of data loading,
+                 # configure the parameters under DATA.PREFETCH.
+                 # See the "[The Prefetching Pipeline and Performance Tuning](./data_loading.md#the-prefetching-pipeline-and-performance-tuning)"
+                 # section in data_loading.md for details.
   IMG_SIZE: 384 # Must match MODEL.IMG_SIZE
 
   # Define which taxonomic label datasets from labels.h5 to use
