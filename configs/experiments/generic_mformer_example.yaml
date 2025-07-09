@@ -55,7 +55,9 @@ DATA:
   PIN_MEMORY: True
   BATCH_SIZE: 96
   BATCH_SIZE_VAL: 768
-  NUM_WORKERS: 2
+  NUM_WORKERS: 2 # Note: This NUM_WORKERS setting is ignored by the Linnaeus custom dataloader.
+                 # Data loading performance is controlled by DATA.PREFETCH.* parameters.
+                 # See docs/training/data_loading.md for details.
   IMG_SIZE: 384
   SAMPLER:
     TYPE: 'grouped'
