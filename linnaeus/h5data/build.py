@@ -1065,7 +1065,7 @@ def _init_dataset(
     aug_pipeline: Any,
     class_to_idx: dict[str, dict[Any, int]],
     config: CN,
-    monitor_interval: float = 10.0,  # Default value
+    monitor_interval: float = 120.0,  # Default value
     monitor_enabled: bool = True,  # Default value
 ) -> Any:
     """
@@ -1103,12 +1103,12 @@ def _init_dataset(
     sleep_time = config.DATA.PREFETCH.SLEEP_TIME
 
     # Monitoring parameters from config, with defaults
-    cfg_monitor_interval = getattr(config.DATA.PREFETCH, "MONITOR_INTERVAL", 10.0)
+    cfg_monitor_interval = getattr(config.DATA.PREFETCH, "MONITOR_INTERVAL", 120.0)
     cfg_monitor_enabled = getattr(config.DATA.PREFETCH, "MONITOR_ENABLED", True)
 
     # Use parameters passed to function if they are not the default, otherwise use config values
     # This allows overriding via direct call if necessary, but typically relies on config.
-    final_monitor_interval = monitor_interval if monitor_interval != 10.0 else cfg_monitor_interval
+    final_monitor_interval = monitor_interval if monitor_interval != 120.0 else cfg_monitor_interval
     # Corrected logic for final_monitor_enabled:
     # If monitor_enabled (function arg) is False (i.e., different from its default True), use the function arg.
     # Otherwise (if it's True or any other non-False value), use the config value (cfg_monitor_enabled).
@@ -1117,8 +1117,8 @@ def _init_dataset(
     else:
         final_monitor_enabled = cfg_monitor_enabled
 
-    if final_monitor_interval == 10.0 and cfg_monitor_interval == 10.0:  # Default was used and config did not specify
-        main_logger.info("Using default monitor_interval (10.0) as it's not specified in DATA.PREFETCH.MONITOR_INTERVAL.")
+    if final_monitor_interval == 120.0 and cfg_monitor_interval == 120.0:  # Default was used and config did not specify
+        main_logger.info("Using default monitor_interval (120.0) as it's not specified in DATA.PREFETCH.MONITOR_INTERVAL.")
 
     # Log if the default for monitor_enabled is being used because it's not in config
     # This occurs if final_monitor_enabled is True AND the original cfg_monitor_enabled was its default (True)

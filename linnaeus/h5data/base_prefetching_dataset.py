@@ -95,7 +95,7 @@ class BasePrefetchingDataset(ABC):
         simulate_hpc: bool,
         io_delay: float,
         config: object,  # Added config parameter
-        monitor_interval: float = 10.0,  # Default interval in seconds
+        monitor_interval: float = 120.0,  # Default interval in seconds
         monitor_enabled: bool = True,  # Default to enabled
         main_logger=None,
         h5data_logger=None,
