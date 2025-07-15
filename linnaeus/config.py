@@ -197,7 +197,7 @@ _C.DATA.IMG_SIZE = 384
 #                Performance is controlled by DATA.PREFETCH.* settings. See docs/training/data_loading.md.
 # - PIN_MEMORY: whether to pin CPU memory for faster transfers.
 _C.DATA.PIN_MEMORY = True
-_C.DATA.NUM_WORKERS = 8 # Default value, effectively ignored by H5DataLoader's custom pipeline.
+_C.DATA.NUM_WORKERS = 8  # Default value, effectively ignored by H5DataLoader's custom pipeline.
 
 # Sampler settings:
 # - TYPE: The type of sampler to use ('grouped' or 'standard')
@@ -634,6 +634,7 @@ _C.LR_SCHEDULER.FROM = ""
 _C.LR_SCHEDULER.NAME = "cosine"
 
 # LR scaling parameters
+## Reference values from MetaFormer: A Unified Meta Framework for Fine-Grained Recognition (arXiv preprint arXiv:2203.02751)
 _C.LR_SCHEDULER.REFERENCE_BS = 512  # Reference batch size for LR scaling (MetaFormer paper)
 _C.LR_SCHEDULER.REFERENCE_LR = 5e-5  # Reference learning rate at reference batch size (MetaFormer paper)
 
