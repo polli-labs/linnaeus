@@ -36,6 +36,7 @@ This page documents current limitations and known issues in Polli Linnaeus, alon
    ```
 
 **Status**: This is a known limitation that will be addressed in a future release. The issue stems from the interaction between the autobatch memory profiling operations and NCCL synchronization primitives.
+> DEV: See work/bugs/inbox/autobatch for details.
 
 ## Contributing
 
