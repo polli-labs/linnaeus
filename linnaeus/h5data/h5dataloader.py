@@ -17,6 +17,7 @@ from linnaeus.aug.cpu.selective_cutmix import CPUSelectiveCutMix
 from linnaeus.aug.cpu.selective_mixup import CPUSelectiveMixup
 from linnaeus.aug.gpu.selective_cutmix import GPUSelectiveCutMix
 from linnaeus.aug.gpu.selective_mixup import GPUSelectiveMixup
+from linnaeus.aug.utils import exclude_null_samples_from_mixup
 from linnaeus.h5data.base_prefetching_dataset import STOP_SENTINEL, BasePrefetchingDataset
 from linnaeus.utils.debug_utils import check_debug_flag
 from linnaeus.utils.distributed import get_rank_safely
@@ -717,17 +718,17 @@ class H5DataLoader(DataLoader):
                             )
 
         # If we are in training, possibly apply meta-mask and mixing
-        # DIAGNOSTIC: Unconditionally print the training condition state
-        if get_rank_safely() == 0 and self.batch_idx < 3:
-            print(
-                f"[TRAINING_CONDITION_DEBUG] batch_idx={self.batch_idx}, is_training={self.is_training}, has_ops_schedule={self.ops_schedule is not None}",
-                flush=True,
-            )
+        # # DIAGNOSTIC: Unconditionally print the training condition state
+        # if get_rank_safely() == 0 and self.batch_idx < 3:
+        #     print(
+        #         f"[TRAINING_CONDITION_DEBUG] batch_idx={self.batch_idx}, is_training={self.is_training}, has_ops_schedule={self.ops_schedule is not None}",
+        #         flush=True,
+        #     )
 
         if self.is_training and self.ops_schedule is not None:
-            # DIAGNOSTIC: Print when entering the training block
-            if get_rank_safely() == 0 and self.batch_idx < 3:
-                print(f"[TRAINING_BLOCK_ENTERED] batch_idx={self.batch_idx}", flush=True)
+            # # DIAGNOSTIC: Print when entering the training block
+            # if get_rank_safely() == 0 and self.batch_idx < 3:
+            #     print(f"[TRAINING_BLOCK_ENTERED] batch_idx={self.batch_idx}", flush=True)
 
             # Use the global_step from TrainingProgress as the current_iteration for OpsSchedule
             current_global_optimizer_step = 0
@@ -756,13 +757,13 @@ class H5DataLoader(DataLoader):
             # Rename this local variable to avoid confusion with debug_dataloader_enabled
             should_log_masking_details = debug_enabled
 
-            # --- ADDITIONAL DIAGNOSTIC FOR META-MASKING ---
-            if get_rank_safely() == 0 and self.batch_idx < 3:
-                print(f"[META_MASK_DIAG] batch_idx={self.batch_idx}, should_log_masking_details={should_log_masking_details}", flush=True)
-                print(
-                    f"[META_MASK_DIAG] meta_mask_prob={meta_mask_prob}, partial_enabled={self.ops_schedule.get_partial_mask_enabled()}",
-                    flush=True,
-                )
+            # # --- ADDITIONAL DIAGNOSTIC FOR META-MASKING ---
+            # if get_rank_safely() == 0 and self.batch_idx < 3:
+            #     print(f"[META_MASK_DIAG] batch_idx={self.batch_idx}, should_log_masking_details={should_log_masking_details}", flush=True)
+            #     print(
+            #         f"[META_MASK_DIAG] meta_mask_prob={meta_mask_prob}, partial_enabled={self.ops_schedule.get_partial_mask_enabled()}",
+            #         flush=True,
+            #     )
             # --- END ADDITIONAL DIAGNOSTIC ---
 
             # HACK: Temporarily force logging for meta-masking debugging

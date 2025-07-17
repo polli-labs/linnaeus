@@ -161,7 +161,7 @@ class GPUSelectiveCutMix(SelectiveCutMix):
                 logger.debug("[GPUSelectiveCutMix] Skipped due to probability check")
             return images, targets, aux_info, meta_masks
 
-        # 2) If all group_ids == -1 => skip
+        # 2) If all group_ids == -1 => skip (early exit shortcut)
         if (group_ids == -1).all():
             if debug_flag:
                 logger.debug("[GPUSelectiveCutMix] Skipped because all group_ids are -1")

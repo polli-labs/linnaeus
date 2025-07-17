@@ -715,6 +715,7 @@ _C.SCHEDULE.MIX.GROUP_LEVELS = ["taxa_L40", "taxa_L30", "taxa_L20", "taxa_L10"] 
 _C.SCHEDULE.MIX.LEVEL_SWITCH_EPOCHS = []  # Epochs at which to switch group levels (epoch-based only)
 _C.SCHEDULE.MIX.LEVEL_SWITCH_STEPS = []  # Steps at which to check if we should switch group levels
 # (will only take effect at epoch boundaries)
+## NOTE: Switching group levels is currently disabled. See docs/dev/99_design_decisions.md `Schedule Initialization and Dataloader Length Calculation`.
 
 # Probability parameters (shared schedule for when to apply any mixing)
 _C.SCHEDULE.MIX.PROB = CN()
