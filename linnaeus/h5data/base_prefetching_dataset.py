@@ -4,7 +4,7 @@ import queue
 import threading
 import time
 from abc import ABC, abstractmethod
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 from typing import Any
 
 import torch
@@ -22,7 +22,7 @@ class BasePrefetchingDataset(ABC):
     """
     BasePrefetchingDataset
     -----------------------
-    A multi-threaded, proactive dataset pipeline that stages data through three bounded queues:
+    A multi-threaded/multi-process proactive dataset pipeline that stages data through three bounded queues:
 
       1) _batch_index_queue
          - Receives sub-batches of indices from a short-lived "batch feeder" thread
@@ -40,7 +40,8 @@ class BasePrefetchingDataset(ABC):
 
       3) _processed_batch_queue
          - The "preprocess manager thread" reads raw data from _preprocess_queue =>
-           applies single-sample augmentation or transforms => enqueues the final
+           applies single-sample augmentation or transforms using a ProcessPoolExecutor
+           (to bypass the GIL for CPU-bound augmentations) => enqueues the final
            processed batch onto _processed_batch_queue.  If it receives None =>
            forward None -> signals end-of-epoch. If STOP_SENTINEL => forward it
            and stop.
@@ -155,7 +156,8 @@ class BasePrefetchingDataset(ABC):
         self._monitor_thread = None
 
         self._io_threadpool = None
-        self._transform_threadpool = ThreadPoolExecutor(max_workers=self.num_preprocess_threads)
+        # Use ProcessPoolExecutor for CPU-bound augmentation to bypass the GIL
+        self._transform_processpool = ProcessPoolExecutor(max_workers=self.num_preprocess_threads)
 
         # Thread shutdown management
         self._shutdown_event = threading.Event()
@@ -367,11 +369,11 @@ class BasePrefetchingDataset(ABC):
             self.main_logger.debug(f"[{class_name}] IO thread pool shut down.")
         self._io_threadpool = None
 
-        if self._transform_threadpool:
-            self.main_logger.debug(f"[{class_name}] Shutting down transform thread pool...")
-            self._transform_threadpool.shutdown(wait=True, cancel_futures=True)
-            self.main_logger.debug(f"[{class_name}] Transform thread pool shut down.")
-        self._transform_threadpool = None
+        if self._transform_processpool:
+            self.main_logger.debug(f"[{class_name}] Shutting down transform process pool...")
+            self._transform_processpool.shutdown(wait=True, cancel_futures=True)
+            self.main_logger.debug(f"[{class_name}] Transform process pool shut down.")
+        self._transform_processpool = None
 
         # Drain any leftover items from queues AFTER threads are joined
         self._drain_queue(self._batch_index_queue)
@@ -466,7 +468,6 @@ class BasePrefetchingDataset(ABC):
         """
         class_name = self.__class__.__name__
         self.main_logger.info(f"[{class_name}] Prefetch manager thread started.")
-        from concurrent.futures import ThreadPoolExecutor
 
         io_pool = None
         if self.num_io_threads > 0:  # Create pool only if needed
@@ -518,9 +519,11 @@ class BasePrefetchingDataset(ABC):
                             self.main_logger.warning(f"[{class_name}] IO task timed out.")
                         except Exception as e:
                             self.main_logger.error(f"[{class_name}] Error in IO task: {e}", exc_info=True)
-                    
+
                     if completed_count != len(batch_indices):
-                        self.main_logger.warning(f"[{class_name}] Only {completed_count}/{len(batch_indices)} IO tasks completed successfully for the batch.")
+                        self.main_logger.warning(
+                            f"[{class_name}] Only {completed_count}/{len(batch_indices)} IO tasks completed successfully for the batch."
+                        )
                 else:  # Fallback to synchronous IO
                     for idx_ in batch_indices:
                         if self._shutdown_event.is_set():
@@ -606,8 +609,8 @@ class BasePrefetchingDataset(ABC):
                     )
                     continue
 
-                # Possibly run transforms in parallel
-                futures = [self._transform_threadpool.submit(self._transform_single, x) for x in raw_batch]
+                # Possibly run transforms in parallel using ProcessPoolExecutor
+                futures = [self._transform_processpool.submit(self._transform_single, x) for x in raw_batch]
                 processed_batch_items = []
 
                 for fut in futures:
