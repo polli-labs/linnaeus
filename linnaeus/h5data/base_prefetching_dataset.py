@@ -508,13 +508,19 @@ class BasePrefetchingDataset(ABC):
                     if self._shutdown_event.is_set():
                         break  # Exit if shutdown requested
 
-                    for fut in futures:
+                    # Process futures as they complete
+                    completed_count = 0
+                    for future in concurrent.futures.as_completed(futures):
                         try:
-                            fut.result(timeout=10.0)  # Add timeout
+                            future.result(timeout=10.0)
+                            completed_count += 1
                         except concurrent.futures.TimeoutError:
                             self.main_logger.warning(f"[{class_name}] IO task timed out.")
                         except Exception as e:
                             self.main_logger.error(f"[{class_name}] Error in IO task: {e}", exc_info=True)
+                    
+                    if completed_count != len(batch_indices):
+                        self.main_logger.warning(f"[{class_name}] Only {completed_count}/{len(batch_indices)} IO tasks completed successfully for the batch.")
                 else:  # Fallback to synchronous IO
                     for idx_ in batch_indices:
                         if self._shutdown_event.is_set():
