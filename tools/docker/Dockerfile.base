@@ -87,7 +87,8 @@ RUN echo "Processing Flash Attention installation..." && \
 RUN uv pip install \
     numpy>=1.20 \
     pandas \
-    opencv-python-headless \
+    opencv-python-headless>=4.9.0 \
+    albumentations>=1.4.0 \
     matplotlib \
     Pillow \
     h5py \
