@@ -4,6 +4,8 @@ import sys
 import threading
 from collections import OrderedDict
 
+import torch
+
 from linnaeus.utils.debug_utils import check_debug_flag
 from linnaeus.utils.logging.logger import get_h5data_logger, get_main_logger
 
@@ -106,7 +108,23 @@ class MemoryCache:
             return None
 
     def _item_size(self, item):
-        return item.nbytes if hasattr(item, "nbytes") else sys.getsizeof(item)
+        """Recursively calculate the size of a cached item (tuple of tensors)."""
+        total_size = 0
+        if isinstance(item, tuple):
+            for element in item:
+                if isinstance(element, torch.Tensor):
+                    total_size += element.element_size() * element.nelement()
+                elif isinstance(element, dict):
+                    for v in element.values():
+                        if isinstance(v, torch.Tensor):
+                            total_size += v.element_size() * v.nelement()
+                else:
+                    total_size += sys.getsizeof(element)
+        elif hasattr(item, "nbytes"):
+            total_size = item.nbytes
+        else:
+            total_size = sys.getsizeof(item)
+        return total_size
 
     def hit_rate(self):
         total = self.hit_count + self.miss_count

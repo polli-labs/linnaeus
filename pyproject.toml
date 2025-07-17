@@ -1,6 +1,6 @@
 [project]
 name = "linnaeus"
-version = "0.1.1"
+version = "0.1.2"
 description = "Linnaeus: A deep learning framework for taxonomic recognition."
 ## Releasing
 # When releasing a new version:
@@ -34,8 +34,9 @@ dependencies = [
     "h5py",
     "wandb",
     "pyyaml",
+    "albumentations>=1.4.0",
     "Pillow",
-    "opencv-python",
+    "opencv-python-headless>=4.9.0",
     "pandas",
     "matplotlib",
     "termcolor",
