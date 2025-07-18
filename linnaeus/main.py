@@ -35,6 +35,7 @@ import numpy as np
 import torch
 import torch.backends.cudnn as cudnn
 import torch.distributed as dist
+import torch.multiprocessing as mp
 from torch.nn.parallel import DistributedDataParallel as DDP
 
 import linnaeus.h5data.base_prefetching_dataset as bpd
@@ -364,6 +365,16 @@ def main(config, args=None):
     global _main_logger
     _main_logger = logger
     logger.info("[main] Initialized emergency cleanup system")
+
+    # Set multiprocessing start method to 'spawn' for CUDA safety.
+    # This must be done before any multiprocessing pools are created.
+    # 'fork' (the default on Linux) is unsafe with CUDA and h5py.
+    if mp.get_start_method(allow_none=True) != "spawn":
+        try:
+            mp.set_start_method("spawn", force=True)
+            logger.info("Set multiprocessing start method to 'spawn' for CUDA safety.")
+        except RuntimeError:
+            logger.warning("Could not set multiprocessing start method to 'spawn', it might have been already set.")
 
     register_slurm_signal_handlers()
 
