@@ -360,11 +360,16 @@ _C.DATA.PREFETCH.MAX_PROCESSED_BATCHES = 10
 # - NUM_IO_THREADS replaces the old NUM_PREFETCH_THREADS.
 _C.DATA.PREFETCH.NUM_IO_THREADS = 4
 
-# Concurrency for CPU transforms (unchanged).
+# Concurrency for CPU transforms. Note: Since v0.1.2, this controls the number of worker processes
+# (ProcessPoolExecutor), not threads, to bypass the Python GIL for CPU-bound augmentations.
 _C.DATA.PREFETCH.NUM_PREPROCESS_THREADS = 4
 
 # Sleep time after reading each batch (for HPC-lustre rate-limiting).
 _C.DATA.PREFETCH.SLEEP_TIME = 0.0
+
+# Monitor thread settings for logging throughput and queue metrics.
+_C.DATA.PREFETCH.MONITOR_INTERVAL = 120.0  # Seconds between monitor log outputs
+_C.DATA.PREFETCH.MONITOR_ENABLED = True  # Whether to enable the monitor thread
 
 # ------------------------------------------------------------------------
 # 4) Additional dataset-level metadata from labels.h5 or user
