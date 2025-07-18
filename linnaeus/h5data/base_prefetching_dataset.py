@@ -610,7 +610,10 @@ class BasePrefetchingDataset(ABC):
                     continue
 
                 # Possibly run transforms in parallel using ProcessPoolExecutor
-                futures = [self._transform_processpool.submit(self._transform_single, x) for x in raw_batch]
+                futures = [
+                    self._transform_processpool.submit(BasePrefetchingDataset._transform_single, x, self.augmentation_pipeline)
+                    for x in raw_batch
+                ]
                 processed_batch_items = []
 
                 for fut in futures:
@@ -640,17 +643,23 @@ class BasePrefetchingDataset(ABC):
         finally:
             self.main_logger.info(f"[{class_name}] Preprocess manager thread exited.")
 
-    def _transform_single(self, sample):
+    @staticmethod
+    def _transform_single(sample, augmentation_pipeline):
         """
         Applies single-sample augmentation if defined.
-        Expected input sample tuple:
-          (image, targets, aux_info, group_id, subset_ids, meta_validity_mask)
-        If augmentation is defined, applies it to image, targets, and aux_info.
-        Otherwise, returns the sample unchanged.
+        This is a static method to make it picklable for multiprocessing.
+
+        Args:
+            sample (tuple): The input sample data.
+                Expected tuple: (image, targets, aux_info, group_id, subset_ids, meta_validity_mask)
+            augmentation_pipeline (AugmentationPipeline or None): The augmentation pipeline to apply.
+
+        Returns:
+            tuple: The transformed sample.
         """
-        if self.augmentation_pipeline is not None:
+        if augmentation_pipeline is not None:
             img_t, tgt_t, aux_t, g_id, subs_id, meta_mask = sample
-            img_t, tgt_t, aux_t = self.augmentation_pipeline((img_t, tgt_t, aux_t))
+            img_t, tgt_t, aux_t = augmentation_pipeline((img_t, tgt_t, aux_t))
             return (img_t, tgt_t, aux_t, g_id, subs_id, meta_mask)
         else:
             return sample
