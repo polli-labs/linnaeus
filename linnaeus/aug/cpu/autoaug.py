@@ -8,12 +8,11 @@ from PIL import Image, ImageEnhance, ImageFilter, ImageOps
 from linnaeus.aug.base import AutoAugmentBatch
 from linnaeus.utils.logging.logger import get_main_logger
 
-logger = get_main_logger()
-
 
 class CPUAutoAugmentBatch(AutoAugmentBatch):
     def __init__(self, policy: str, color_jitter: float, config=None):
         super().__init__(policy, color_jitter, config=config)
+        self.logger = get_main_logger()  # Acquire logger here instead of at module level
         self.ops = self._create_cpu_ops()
 
     # --- Step 1: Define each operation as a named method ---
