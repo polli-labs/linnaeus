@@ -1,5 +1,58 @@
 # Changelog
 
+## [0.1.3] - 2025-07-18
+
+### Added
+- ProcessPoolExecutor for CPU-bound augmentations to bypass Python's GIL
+- Multiprocessing configuration with 'spawn' start method for CUDA safety
+- File descriptor tensor sharing strategy for robust IPC in containerized environments
+- Monitor thread parameters (MONITOR_INTERVAL, MONITOR_ENABLED) for throughput tracking
+- Static method conversion for multiprocessing pickling compatibility
+
+### Changed
+- ThreadPoolExecutor replaced with ProcessPoolExecutor in data prefetching pipeline
+- CPUAutoAugmentBatch lambda functions converted to named instance methods
+- Logger initialization moved from module level to class __init__ to reduce worker process spam
+- NUM_PREPROCESS_THREADS parameter now controls processes instead of threads (backward compatible)
+
+### Fixed
+- GIL bottleneck preventing parallel CPU augmentation operations
+- Pickling errors when sharing augmentation pipeline objects between processes
+- SIGBUS crashes from inherited CUDA contexts in forked processes
+- Memory sharing issues in Docker containers with limited shared memory
+
+### Performance
+- Significant throughput improvements on multi-core systems (3-10x increase in PreprocThrpt)
+- Better CPU utilization scaling with available core count
+- Reduced GPU starvation on high-performance training systems
+
+### TODO
+- Review and update documentation to reflect v0.1.2 and v0.1.3 changes
+
+## [0.1.2] - 2025-07-16
+
+### Added
+- OpenCV/Albumentations augmentation pipeline as PIL replacement
+- Async I/O processing using concurrent.futures.as_completed()
+- High-performance CPU augmentation with OpenCV backend
+- AutoAugment policies implemented with Albumentations
+- USE_OPENCV flag support for augmentation pipeline selection
+
+### Changed
+- Async I/O manager loop replaces blocking I/O operations
+- Memory cache size calculation now correctly accounts for actual tensor sizes
+- Augmentation build system supports OpenCV/Albumentations backend selection
+
+### Fixed
+- Memory cache reporting incorrect usage (0.12MB for 100GB cache)
+- PIL bottleneck in CPU augmentation pipeline
+- Redundant exclude_null_samples logic in data mixing
+- Blocking I/O operations in prefetch manager
+
+### Added Dependencies
+- albumentations>=1.4.0 for high-performance augmentations
+- opencv-python-headless>=4.9.0 for image processing
+
 ## [0.1.1] - 2025-07-07
 
 ### Added
