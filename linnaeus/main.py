@@ -376,6 +376,15 @@ def main(config, args=None):
         except RuntimeError:
             logger.warning("Could not set multiprocessing start method to 'spawn', it might have been already set.")
 
+    # Set the tensor sharing strategy to 'file_descriptor'.
+    # This is more robust than the default 'file_system' strategy in some
+    # containerized and DDP environments, preventing SIGBUS errors.
+    try:
+        torch.multiprocessing.set_sharing_strategy("file_descriptor")
+        logger.info("Set multiprocessing sharing strategy to 'file_descriptor' for robustness.")
+    except RuntimeError:
+        logger.warning("Could not set multiprocessing sharing strategy to 'file_descriptor'. It might already be set or not supported.")
+
     register_slurm_signal_handlers()
 
     # Enable metrics debugging if requested
