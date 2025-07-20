@@ -373,8 +373,8 @@ def main(config, args=None):
     # LINNAEUS_MP_SHARING_STRATEGY: 'file_system' (default, recommended) or 'file_descriptor'.
     # 'file_system' is crucial for avoiding "Too many open files" errors.
     #
-    # LINNAEUS_MP_START_METHOD: 'forkserver' (default, recommended) or 'spawn'.
-    # 'forkserver' is safer than 'fork' with CUDA and more efficient than 'spawn'.
+    # LINNAEUS_MP_START_METHOD: 'spawn' (default, recommended) or 'forkserver'.
+    # 'spawn' is the safest option for CUDA, though slightly less efficient than 'forkserver'.
 
     sharing_strategy = os.environ.get("LINNAEUS_MP_SHARING_STRATEGY", "file_system")
     try:
@@ -383,7 +383,7 @@ def main(config, args=None):
     except RuntimeError:
         logger.warning(f"Could not set sharing strategy to '{sharing_strategy}'. It may be already set or unsupported.")
 
-    start_method = os.environ.get("LINNAEUS_MP_START_METHOD", "forkserver")
+    start_method = os.environ.get("LINNAEUS_MP_START_METHOD", "spawn")
     if mp.get_start_method(allow_none=True) != start_method:
         try:
             mp.set_start_method(start_method, force=True)

@@ -1,18 +1,24 @@
 # Multiprocessing Configuration
 
-As of v0.1.3, Linnaeus provides flexible multiprocessing configuration options for PyTorch tensor sharing and worker process management, while using ThreadPoolExecutor for CPU-bound augmentation operations (which still benefits from native library GIL release in OpenCV/Pillow).
+As of v0.1.3, Linnaeus has transitioned to using ThreadPoolExecutor for all concurrent operations, eliminating the need for multiprocessing in data loading and augmentation pipelines. This change simplifies resource management and avoids common multiprocessing issues with CUDA.
 
-## Threading vs Multiprocessing in v0.1.3
+## Current Architecture (v0.1.3+)
 
-**What uses ThreadPoolExecutor (threads):**
+**All concurrent operations now use ThreadPoolExecutor:**
+- I/O operations (`NUM_IO_THREADS`)
 - Single-sample augmentation preprocessing (`NUM_PREPROCESS_THREADS`)
 - Benefits from OpenCV/Pillow GIL release during image operations
 - Simpler memory management, no pickling overhead
+- No file descriptor multiplication issues
 
-**What still uses multiprocessing:**
-- PyTorch tensor sharing between distributed training processes
-- DataLoader worker processes (if `num_workers > 0`)
-- Controlled by environment variables below
+**Multiprocessing is NOT used for:**
+- Data loading (H5DataLoader uses custom ThreadPoolExecutor-based prefetching)
+- Augmentation pipelines (either ThreadPoolExecutor for CPU or batch-oriented GPU)
+- Any user-facing concurrent operations
+
+**The only remaining multiprocessing:**
+- Distributed training across multiple GPUs (handled by PyTorch's distributed launcher)
+- PyTorch internal operations (largely transparent to users)
 
 ## Environment Variables
 
@@ -37,9 +43,11 @@ linnaeus-host-loop --gpus 8
 Controls how new worker processes are created.
 
 **Options:**
-- `forkserver` (default, recommended): Creates a clean server process for forking workers. Safer than 'fork' with CUDA and more efficient than 'spawn'.
-- `spawn`: Creates fresh Python interpreter for each worker. Most compatible but slower.
+- `spawn` (default as of v0.1.3, recommended): Creates fresh Python interpreter for each worker. Most compatible with CUDA.
+- `forkserver`: Creates a clean server process for forking workers. More efficient but can have CUDA issues.
 - `fork`: Fast but unsafe with CUDA (not recommended).
+
+**Note**: As of v0.1.3, this setting has minimal practical effect since Linnaeus uses ThreadPoolExecutor for all concurrent operations. It may only affect PyTorch's internal operations or future features.
 
 **Example:**
 ```bash
