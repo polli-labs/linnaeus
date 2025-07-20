@@ -1,37 +1,24 @@
 # Changelog
 
-## [0.1.3] - 2025-07-18
+## [0.1.3] - 2025-07-20
+
+### Fixed
+- **Data Pipeline Stability**: Reverted the augmentation pipeline from `ProcessPoolExecutor` back to `ThreadPoolExecutor` to resolve fatal `BrokenProcessPool` errors caused by fork-unsafe native libraries (e.g., OpenCV).
+- **File Descriptor Exhaustion**: Fixed `OSError: [Errno 24] Too many open files` by changing the default PyTorch multiprocessing sharing strategy from `file_descriptor` to `file_system`. This dramatically reduces the number of concurrently open file descriptors.
+- **Multiprocessing Initialization**: Corrected a bug in the `ThreadPoolExecutor` lifecycle management within `base_prefetching_dataset.py` that caused `RuntimeError: cannot schedule new futures after shutdown`.
 
 ### Added
-- ProcessPoolExecutor for CPU-bound augmentations to bypass Python's GIL
-- Multiprocessing configuration with 'spawn' start method for CUDA safety  
-- File descriptor tensor sharing strategy for robust IPC in containerized environments
+- **Flexible Multiprocessing Configuration**: Introduced environment variables `LINNAEUS_MP_START_METHOD` (defaults to `forkserver`) and `LINNAEUS_MP_SHARING_STRATEGY` (defaults to `file_system`) to allow for easier tuning in different deployment environments without code changes.
 - Monitor thread parameters (MONITOR_INTERVAL, MONITOR_ENABLED) for throughput tracking
-- Static method conversion for multiprocessing pickling compatibility
-- Environment variables for flexible multiprocessing configuration:
-  - LINNAEUS_MP_SHARING_STRATEGY: Control tensor sharing method (default: file_system)
-  - LINNAEUS_MP_START_METHOD: Control process creation method (default: forkserver)
 - Comprehensive multiprocessing documentation at docs/training/multiprocessing_configuration.md
 
 ### Changed
-- ThreadPoolExecutor replaced with ProcessPoolExecutor in data prefetching pipeline
-- CPUAutoAugmentBatch lambda functions converted to named instance methods
+- **Default Multiprocessing Settings**: Changed the default PyTorch tensor sharing strategy from `file_descriptor` to `file_system` to prevent file descriptor exhaustion under high load
+- CPUAutoAugmentBatch lambda functions converted to named instance methods for improved compatibility
 - Logger initialization moved from module level to class __init__ to reduce worker process spam
-- NUM_PREPROCESS_THREADS parameter now controls processes instead of threads (backward compatible)
-- Default multiprocessing settings changed to prevent file descriptor exhaustion:
-  - Sharing strategy: file_descriptor → file_system
-  - Start method: spawn → forkserver
-
-### Fixed
-- GIL bottleneck preventing parallel CPU augmentation operations
-- Pickling errors when sharing augmentation pipeline objects between processes
-- SIGBUS crashes from inherited CUDA contexts in forked processes
-- Memory sharing issues in Docker containers with limited shared memory
 
 ### Performance
-- Significant throughput improvements on multi-core systems (3-10x increase in PreprocThrpt)
-- Better CPU utilization scaling with available core count
-- Reduced GPU starvation on high-performance training systems
+- **Tuning Documentation**: Added analysis and recommendations for tuning `DATA.PREFETCH` parameters to fully saturate multi-GPU, high-core-count systems.
 
 ### TODO
 - Review and update documentation to reflect v0.1.2 and v0.1.3 changes
