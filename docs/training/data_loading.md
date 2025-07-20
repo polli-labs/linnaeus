@@ -298,6 +298,57 @@ If missing images are found, the report includes their identifiers and indices:
 +
 +These settings can be specified in your YAML file or passed as command-line overrides (`--opts`).
 +
++### Cache Optimization and Avoiding Thrashing
++
++A critical but subtle aspect of tuning the prefetch system is ensuring that your memory cache can support the in-flight data without thrashing. **Cache thrashing** occurs when the total memory footprint of batches waiting in the preprocessing queue exceeds the available cache size, causing recently cached data to be evicted before it's needed.
++
++#### Understanding the Problem
++
++The prefetch pipeline works as follows:
++1. I/O threads read raw data and place it in the `MemoryCache` 
++2. Batch indices are queued in the preprocessing pipeline
++3. Augmentation threads later retrieve the raw data from cache to apply transforms
++
++If `BATCH_CONCURRENCY` is too high relative to `MEM_CACHE_SIZE`, this can happen:
++- I/O threads quickly read many batches (up to `BATCH_CONCURRENCY` worth)
++- The cache fills up and starts evicting old data (LRU policy)
++- When augmentation threads try to process the first batches, their data has already been evicted
++- This forces expensive re-reads from disk, defeating the cache's purpose
++
++#### The Golden Rule
++
++**`MEM_CACHE_SIZE` must be comfortably larger than the total memory footprint of all batches held in the preprocessing queue.**
++
++Calculate your in-flight memory requirements:
++```
++In-flight memory ≈ BATCH_CONCURRENCY × batch_size × avg_raw_sample_size
++```
++
++For typical RGB images at 384×384 resolution:
++```
++avg_raw_sample_size ≈ 3 × 384 × 384 × 1 byte = ~440 KB
++```
++
++#### Tuning Guidelines
++
++**Safe BATCH_CONCURRENCY sizing:**
++- Start with `BATCH_CONCURRENCY = 8-16` for most setups
++- Ensure in-flight memory is <10% of your `MEM_CACHE_SIZE`
++- Monitor cache hit rates in the logs to detect thrashing
++
++**Example calculation for safety check:**
++```yaml
++BATCH_CONCURRENCY: 8
++batch_size: 64
++# In-flight memory ≈ 8 × 64 × 440KB = ~226MB
++MEM_CACHE_SIZE: 21474836480  # 20GB >> 226MB ✓ Safe
++```
++
++**Warning signs of cache thrashing:**
++- High cache miss rates in monitor logs
++- Unexpectedly slow data loading despite fast storage
++- `PreprocThrpt` (preprocessing throughput) lower than expected
++
 +## GroupedBatchSampler
 
 The `GroupedBatchSampler` is a specialized sampler used in Polli Linnaeus, particularly effective for tasks requiring balanced batches or specific within-batch structures, such as applying mixup or other augmentations to samples from the same group.
