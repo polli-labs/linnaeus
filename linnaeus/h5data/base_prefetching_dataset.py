@@ -371,11 +371,11 @@ class BasePrefetchingDataset(ABC):
             self.main_logger.debug(f"[{class_name}] IO thread pool shut down.")
         self._io_threadpool = None
 
-        if self._transform_processpool:
-            self.main_logger.debug(f"[{class_name}] Shutting down transform process pool...")
-            self._transform_processpool.shutdown(wait=True, cancel_futures=True)
-            self.main_logger.debug(f"[{class_name}] Transform process pool shut down.")
-        self._transform_processpool = None
+        if self._transform_threadpool:
+            self.main_logger.debug(f"[{class_name}] Shutting down transform thread pool...")
+            self._transform_threadpool.shutdown(wait=True)  # cancel_futures=True is default in wait=True
+            self.main_logger.debug(f"[{class_name}] Transform thread pool shut down.")
+        self._transform_threadpool = None
 
         # Drain any leftover items from queues AFTER threads are joined
         self._drain_queue(self._batch_index_queue)
@@ -611,9 +611,11 @@ class BasePrefetchingDataset(ABC):
                     )
                     continue
 
-                # Use ThreadPoolExecutor for CPU-bound augmentations
-                with self._transform_threadpool as executor:
-                    futures = [executor.submit(BasePrefetchingDataset._transform_single, x, self.augmentation_pipeline) for x in raw_batch]
+                # Run transforms in parallel using the persistent ThreadPoolExecutor
+                futures = [
+                    self._transform_threadpool.submit(BasePrefetchingDataset._transform_single, x, self.augmentation_pipeline)
+                    for x in raw_batch
+                ]
                 processed_batch_items = []
 
                 for fut in concurrent.futures.as_completed(futures):
@@ -640,18 +642,6 @@ class BasePrefetchingDataset(ABC):
                 self.h5data_logger.debug(
                     f"[{class_name}] PreprocessManager: sub-batch of {len(valid_indices_for_transform)} items preprocessed in {dt:.2f}s"
                 )
-        except concurrent.futures.process.BrokenProcessPool as bpp:
-            # This specific exception indicates a worker process died unexpectedly.
-            # This is often due to issues with fork-safety in native libraries like OpenCV.
-            self.main_logger.error(
-                f"[{class_name}] CRITICAL: BrokenProcessPool error: {bpp}. "
-                "A worker process crashed, likely due to a native library (e.g., OpenCV) issue. "
-                "The process pool is now unusable. Shutting down pipeline."
-            )
-            self._shutdown_event.set()  # Trigger a full shutdown
-            self._ensure_sentinel_propagated(
-                self._processed_batch_queue, STOP_SENTINEL, f"{class_name}PreprocessManager->ProcessedBatchQueue (BrokenPool)"
-            )
         except Exception as e:
             self.main_logger.error(f"[{class_name}] Unhandled exception in preprocess manager loop: {e}", exc_info=True)
         finally:
