@@ -366,24 +366,32 @@ def main(config, args=None):
     _main_logger = logger
     logger.info("[main] Initialized emergency cleanup system")
 
-    # Set multiprocessing start method to 'spawn' for CUDA safety.
-    # This must be done before any multiprocessing pools are created.
-    # 'fork' (the default on Linux) is unsafe with CUDA and h5py.
-    if mp.get_start_method(allow_none=True) != "spawn":
-        try:
-            mp.set_start_method("spawn", force=True)
-            logger.info("Set multiprocessing start method to 'spawn' for CUDA safety.")
-        except RuntimeError:
-            logger.warning("Could not set multiprocessing start method to 'spawn', it might have been already set.")
+    # --- Multiprocessing Configuration ---
+    # Set the tensor sharing strategy and start method. These can be overridden by environment
+    # variables for flexible deployment and testing.
+    #
+    # LINNAEUS_MP_SHARING_STRATEGY: 'file_system' (default, recommended) or 'file_descriptor'.
+    # 'file_system' is crucial for avoiding "Too many open files" errors.
+    #
+    # LINNAEUS_MP_START_METHOD: 'forkserver' (default, recommended) or 'spawn'.
+    # 'forkserver' is safer than 'fork' with CUDA and more efficient than 'spawn'.
 
-    # Set the tensor sharing strategy to 'file_descriptor'.
-    # This is more robust than the default 'file_system' strategy in some
-    # containerized and DDP environments, preventing SIGBUS errors.
+    sharing_strategy = os.environ.get("LINNAEUS_MP_SHARING_STRATEGY", "file_system")
     try:
-        torch.multiprocessing.set_sharing_strategy("file_descriptor")
-        logger.info("Set multiprocessing sharing strategy to 'file_descriptor' for robustness.")
+        torch.multiprocessing.set_sharing_strategy(sharing_strategy)
+        logger.info(f"Set multiprocessing sharing strategy to '{sharing_strategy}' (from env or default).")
     except RuntimeError:
-        logger.warning("Could not set multiprocessing sharing strategy to 'file_descriptor'. It might already be set or not supported.")
+        logger.warning(f"Could not set sharing strategy to '{sharing_strategy}'. It may be already set or unsupported.")
+
+    start_method = os.environ.get("LINNAEUS_MP_START_METHOD", "forkserver")
+    if mp.get_start_method(allow_none=True) != start_method:
+        try:
+            mp.set_start_method(start_method, force=True)
+            logger.info(f"Set multiprocessing start method to '{start_method}' (from env or default).")
+        except (ValueError, RuntimeError) as e:
+            logger.warning(f"Failed to set start method to '{start_method}': {e}. Using system default.")
+    else:
+        logger.info(f"Multiprocessing start method already set to '{start_method}'.")
 
     register_slurm_signal_handlers()
 
