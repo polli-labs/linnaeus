@@ -4,16 +4,23 @@
 
 ### Added
 - ProcessPoolExecutor for CPU-bound augmentations to bypass Python's GIL
-- Multiprocessing configuration with 'spawn' start method for CUDA safety
+- Multiprocessing configuration with 'spawn' start method for CUDA safety  
 - File descriptor tensor sharing strategy for robust IPC in containerized environments
 - Monitor thread parameters (MONITOR_INTERVAL, MONITOR_ENABLED) for throughput tracking
 - Static method conversion for multiprocessing pickling compatibility
+- Environment variables for flexible multiprocessing configuration:
+  - LINNAEUS_MP_SHARING_STRATEGY: Control tensor sharing method (default: file_system)
+  - LINNAEUS_MP_START_METHOD: Control process creation method (default: forkserver)
+- Comprehensive multiprocessing documentation at docs/training/multiprocessing_configuration.md
 
 ### Changed
 - ThreadPoolExecutor replaced with ProcessPoolExecutor in data prefetching pipeline
 - CPUAutoAugmentBatch lambda functions converted to named instance methods
 - Logger initialization moved from module level to class __init__ to reduce worker process spam
 - NUM_PREPROCESS_THREADS parameter now controls processes instead of threads (backward compatible)
+- Default multiprocessing settings changed to prevent file descriptor exhaustion:
+  - Sharing strategy: file_descriptor → file_system
+  - Start method: spawn → forkserver
 
 ### Fixed
 - GIL bottleneck preventing parallel CPU augmentation operations
