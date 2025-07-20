@@ -4,7 +4,7 @@ import queue
 import threading
 import time
 from abc import ABC, abstractmethod
-from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 import torch
@@ -156,8 +156,10 @@ class BasePrefetchingDataset(ABC):
         self._monitor_thread = None
 
         self._io_threadpool = None
-        # Use ProcessPoolExecutor for CPU-bound augmentation to bypass the GIL
-        self._transform_processpool = ProcessPoolExecutor(max_workers=self.num_preprocess_threads)
+        # Use ThreadPoolExecutor. Heavy augmentations in OpenCV/Pillow release the GIL.
+        self._transform_threadpool = ThreadPoolExecutor(
+            max_workers=self.num_preprocess_threads, thread_name_prefix=f"{self.__class__.__name__}_TransformThread"
+        )
 
         # Thread shutdown management
         self._shutdown_event = threading.Event()
@@ -609,14 +611,12 @@ class BasePrefetchingDataset(ABC):
                     )
                     continue
 
-                # Possibly run transforms in parallel using ProcessPoolExecutor
-                futures = [
-                    self._transform_processpool.submit(BasePrefetchingDataset._transform_single, x, self.augmentation_pipeline)
-                    for x in raw_batch
-                ]
+                # Use ThreadPoolExecutor for CPU-bound augmentations
+                with self._transform_threadpool as executor:
+                    futures = [executor.submit(BasePrefetchingDataset._transform_single, x, self.augmentation_pipeline) for x in raw_batch]
                 processed_batch_items = []
 
-                for fut in futures:
+                for fut in concurrent.futures.as_completed(futures):
                     try:
                         processed_batch_items.append(fut.result(timeout=10.0))  # Add timeout
                     except concurrent.futures.TimeoutError:
@@ -640,6 +640,20 @@ class BasePrefetchingDataset(ABC):
                 self.h5data_logger.debug(
                     f"[{class_name}] PreprocessManager: sub-batch of {len(valid_indices_for_transform)} items preprocessed in {dt:.2f}s"
                 )
+        except concurrent.futures.process.BrokenProcessPool as bpp:
+            # This specific exception indicates a worker process died unexpectedly.
+            # This is often due to issues with fork-safety in native libraries like OpenCV.
+            self.main_logger.error(
+                f"[{class_name}] CRITICAL: BrokenProcessPool error: {bpp}. "
+                "A worker process crashed, likely due to a native library (e.g., OpenCV) issue. "
+                "The process pool is now unusable. Shutting down pipeline."
+            )
+            self._shutdown_event.set()  # Trigger a full shutdown
+            self._ensure_sentinel_propagated(
+                self._processed_batch_queue, STOP_SENTINEL, f"{class_name}PreprocessManager->ProcessedBatchQueue (BrokenPool)"
+            )
+        except Exception as e:
+            self.main_logger.error(f"[{class_name}] Unhandled exception in preprocess manager loop: {e}", exc_info=True)
         finally:
             self.main_logger.info(f"[{class_name}] Preprocess manager thread exited.")
 
