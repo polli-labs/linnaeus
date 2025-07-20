@@ -72,6 +72,7 @@ class H5DataLoader(DataLoader):
         main_logger: logging.Logger = None,
         h5data_logger: logging.Logger = None,
         config=None,
+        augmentation_pipeline=None,
     ):
         """
         Args:
@@ -84,6 +85,7 @@ class H5DataLoader(DataLoader):
             ops_schedule: Typically an OpsSchedule with .get_meta_mask_prob(...) & .get_mixup_prob(...).
             main_logger, h5data_logger: optional loggers.
             config: The configuration object for debug checks.
+            augmentation_pipeline: Optional augmentation pipeline for GPU batch processing.
         """
         self.dataset = dataset
         self.batch_sampler = batch_sampler
@@ -96,6 +98,11 @@ class H5DataLoader(DataLoader):
 
         self.main_logger = main_logger or get_h5data_logger()
         self.h5data_logger = h5data_logger or logging.getLogger("h5data")
+
+        # Store augmentation pipeline to be used in collate_fn for GPU path
+        self.augmentation_pipeline = augmentation_pipeline
+        if self.augmentation_pipeline:
+            self.main_logger.info(f"[H5DataLoader] Augmentation pipeline of type {type(self.augmentation_pipeline).__name__} received.")
 
         # Initialize mixup/cutmix functions to None
         self.gpu_mixup_fn = None
@@ -1769,6 +1776,22 @@ class H5DataLoader(DataLoader):
                                 )
 
                     self.main_logger.debug(f"[GPU_TRANSFER] All tensors moved. Final device for images: {images.device}")
+
+            # --- GPU Augmentation Pipeline ---
+            # Apply batch-oriented GPU augmentation pipeline if enabled and in training mode
+            if (
+                self.is_training
+                and self.augmentation_pipeline is not None
+                and getattr(self.augmentation_pipeline, "is_batch_oriented_gpu_pipeline", False)
+            ):
+                if debug_dataloader_enabled and self.batch_idx < 5:
+                    self.main_logger.debug(f"[GPU_AUG] Applying GPU augmentation pipeline to batch of {images.shape[0]} images")
+
+                images = self.augmentation_pipeline(images)  # Apply augmentations to the batch
+
+                if debug_dataloader_enabled and self.batch_idx < 5:
+                    self.main_logger.debug(f"[GPU_AUG] GPU augmentation completed. Images shape: {images.shape}")
+
         # --- End PHASE 3 REFACTOR ---
 
         # After both mixing and masking, calculate the actual meta stats (% of samples with valid metadata)

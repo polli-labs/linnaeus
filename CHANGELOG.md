@@ -9,11 +9,14 @@
 - **GPU Augmentation Pipeline**: Fixed critical bugs in `GPUAutoAugmentBatch` including TypeError in `_equalize` method, missing `torchvision.transforms.functional` imports, incorrect function calls (F.rotate → TF.rotate), and broken magnitude parameter mapping in `_apply_op`.
 
 ### Added
+- **High-Throughput GPU Augmentation Pipeline**: Refactored the data pipeline to support batch-oriented, GPU-accelerated augmentations. When `AUG.PIPELINE_DEVICE` is set to `'gpu'`, augmentations are now applied to the entire batch on the GPU within the `collate_fn`, drastically reducing Python overhead and improving throughput on high-end systems.
 - **Flexible Multiprocessing Configuration**: Introduced environment variables `LINNAEUS_MP_START_METHOD` (defaults to `forkserver`) and `LINNAEUS_MP_SHARING_STRATEGY` (defaults to `file_system`) to allow for easier tuning in different deployment environments without code changes.
 - Monitor thread parameters (MONITOR_INTERVAL, MONITOR_ENABLED) for throughput tracking
 - Comprehensive multiprocessing documentation at docs/training/multiprocessing_configuration.md
 
 ### Changed
+- **Configuration**: Renamed `AUG.SINGLE_AUG_DEVICE` to `AUG.PIPELINE_DEVICE` for clarity.
+- **Data Flow**: The `BasePrefetchingDataset` preprocessing loop now acts as a high-speed pass-through for raw data when GPU augmentations are enabled, deferring all transforms to the `H5DataLoader`.
 - **Default Multiprocessing Settings**: Changed the default PyTorch tensor sharing strategy from `file_descriptor` to `file_system` to prevent file descriptor exhaustion under high load
 - CPUAutoAugmentBatch lambda functions converted to named instance methods for improved compatibility
 - Logger initialization moved from module level to class __init__ to reduce worker process spam

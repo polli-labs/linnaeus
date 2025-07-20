@@ -28,15 +28,15 @@ def build_augmentation_pipeline(config: dict[str, Any]) -> AugmentationPipeline:
     if check_debug_flag(config, "DEBUG.AUGMENTATION"):
         logger.debug("[build_augmentation_pipeline] Creating augmentation pipeline...")
         logger.debug("[build_augmentation_pipeline] Configuration settings:")
-        logger.debug(f"  - USE_OPENCV: {config.AUG.get('USE_OPENCV', False)}")
-        logger.debug(f"  - SINGLE_AUG_DEVICE: {config.AUG.SINGLE_AUG_DEVICE}")
+        logger.debug(f"  - USE_OPENCV: {config.AUG.USE_OPENCV}")
+        logger.debug(f"  - PIPELINE_DEVICE: {config.AUG.PIPELINE_DEVICE}")
         logger.debug(f"  - Policy: {config.AUG.AUTOAUG.POLICY}")
         logger.debug(f"  - Color jitter: {config.AUG.AUTOAUG.COLOR_JITTER}")
         logger.debug(f"  - Random erase prob: {config.AUG.RANDOM_ERASE.PROB}")
         logger.debug(f"  - Random erase mode: {config.AUG.RANDOM_ERASE.MODE}")
 
-    use_opencv = config.AUG.get("USE_OPENCV", False)
-    device_choice = config.AUG.SINGLE_AUG_DEVICE.lower()
+    use_opencv = config.AUG.USE_OPENCV
+    device_choice = config.AUG.PIPELINE_DEVICE.lower()
 
     if use_opencv:
         logger.info("Building OpenCV/Albumentations AugmentationPipeline (high-performance CPU).")
@@ -44,10 +44,10 @@ def build_augmentation_pipeline(config: dict[str, Any]) -> AugmentationPipeline:
     else:
         # Fallback to the original logic
         if device_choice == "gpu":
-            logger.info("Building GPU AugmentationPipeline for single-image transforms.")
+            logger.info("Building GPU AugmentationPipeline for batch-oriented transforms.")
             return GPUAugmentationPipeline(config)
         elif device_choice == "cpu":
             logger.info("Building PIL-based CPUAugmentationPipeline for single-image transforms.")
             return CPUAugmentationPipeline(config)
         else:
-            raise ValueError(f"Invalid SINGLE_AUG_DEVICE: '{device_choice}'. Must be 'cpu' or 'gpu'.")
+            raise ValueError(f"Invalid PIPELINE_DEVICE: '{device_choice}'. Must be 'cpu' or 'gpu'.")

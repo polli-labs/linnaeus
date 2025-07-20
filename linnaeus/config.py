@@ -385,8 +385,11 @@ _C.DATA.DATASET_META = CN(new_allowed=True)
 _C.AUG = CN()
 _C.AUG.FROM = ""
 
-# New device choice for single-image transforms
-_C.AUG.SINGLE_AUG_DEVICE = "cpu"  # "cpu" or "gpu"
+# Determines the device for the main augmentation pipeline (AutoAugment, Random Erasing).
+# - "cpu": Augmentations are applied per-sample by worker threads before batch collation.
+# - "gpu": Augmentations are applied to the entire batch on the GPU within the collate_fn,
+#          just before being passed to the model. This is the high-performance path.
+_C.AUG.PIPELINE_DEVICE = "cpu"  # "cpu" or "gpu"
 _C.AUG.USE_OPENCV = False
 
 _C.AUG.AUTOAUG = CN()

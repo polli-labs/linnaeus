@@ -569,6 +569,17 @@ class BasePrefetchingDataset(ABC):
         """
         class_name = self.__class__.__name__
         self.main_logger.info(f"[{class_name}] Preprocess manager thread started.")
+
+        # Determine if we are using a batch-oriented GPU pipeline
+        is_gpu_batch_pipeline = self.augmentation_pipeline is not None and getattr(
+            self.augmentation_pipeline, "is_batch_oriented_gpu_pipeline", False
+        )
+
+        if is_gpu_batch_pipeline:
+            self.main_logger.info(f"[{class_name}] Preprocess loop running in pass-through mode for GPU augmentation.")
+        else:
+            self.main_logger.info(f"[{class_name}] Preprocess loop running in CPU transform mode.")
+
         try:
             while not self._shutdown_event.is_set():  # Check shutdown event
                 try:
@@ -611,20 +622,24 @@ class BasePrefetchingDataset(ABC):
                     )
                     continue
 
-                # Run transforms in parallel using the persistent ThreadPoolExecutor
-                futures = [
-                    self._transform_threadpool.submit(BasePrefetchingDataset._transform_single, x, self.augmentation_pipeline)
-                    for x in raw_batch
-                ]
-                processed_batch_items = []
+                if is_gpu_batch_pipeline:
+                    # PASS-THROUGH MODE: Put the raw batch directly on the queue
+                    processed_batch_items = raw_batch
+                else:
+                    # CPU/SINGLE-SAMPLE MODE: Run transforms in parallel using the persistent ThreadPoolExecutor
+                    futures = [
+                        self._transform_threadpool.submit(BasePrefetchingDataset._transform_single, x, self.augmentation_pipeline)
+                        for x in raw_batch
+                    ]
+                    processed_batch_items = []
 
-                for fut in concurrent.futures.as_completed(futures):
-                    try:
-                        processed_batch_items.append(fut.result(timeout=10.0))  # Add timeout
-                    except concurrent.futures.TimeoutError:
-                        self.main_logger.warning(f"[{class_name}] Transform task timed out.")
-                    except Exception as e:
-                        self.main_logger.error(f"[{class_name}] Transform task error: {e}", exc_info=True)
+                    for fut in concurrent.futures.as_completed(futures):
+                        try:
+                            processed_batch_items.append(fut.result(timeout=10.0))  # Add timeout
+                        except concurrent.futures.TimeoutError:
+                            self.main_logger.warning(f"[{class_name}] Transform task timed out.")
+                        except Exception as e:
+                            self.main_logger.error(f"[{class_name}] Transform task error: {e}", exc_info=True)
 
                 if not processed_batch_items:  # If all transform tasks failed
                     self.h5data_logger.debug(
@@ -639,8 +654,9 @@ class BasePrefetchingDataset(ABC):
                 self.preprocess_count += len(processed_batch_items)
                 dt = time.time() - t0
                 self.metrics["preprocess_times"].append(dt)
+                log_mode = "Pass-through" if is_gpu_batch_pipeline else "Preprocessed"
                 self.h5data_logger.debug(
-                    f"[{class_name}] PreprocessManager: sub-batch of {len(valid_indices_for_transform)} items preprocessed in {dt:.2f}s"
+                    f"[{class_name}] PreprocessManager: {log_mode} sub-batch of {len(valid_indices_for_transform)} items in {dt:.2f}s"
                 )
         except Exception as e:
             self.main_logger.error(f"[{class_name}] Unhandled exception in preprocess manager loop: {e}", exc_info=True)

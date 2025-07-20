@@ -349,6 +349,71 @@ If missing images are found, the report includes their identifiers and indices:
 +- Unexpectedly slow data loading despite fast storage
 +- `PreprocThrpt` (preprocessing throughput) lower than expected
 +
++## High-Performance GPU Augmentation Pipeline
++
++As of v0.1.3, Linnaeus supports a revolutionary **batch-oriented GPU augmentation** mode that dramatically reduces Python overhead and maximizes throughput on high-end training systems.
++
++### GPU vs CPU Augmentation Modes
++
++The augmentation execution is controlled by the `AUG.PIPELINE_DEVICE` configuration parameter:
++
++**CPU Mode (`AUG.PIPELINE_DEVICE: "cpu"`):**
++- Traditional approach: augmentations applied per-sample by worker threads before batch collation
++- Heavy use of `NUM_PREPROCESS_THREADS` for parallel single-sample transforms
++- Suitable for most training scenarios and provides backward compatibility
++
++**GPU Mode (`AUG.PIPELINE_DEVICE: "gpu"`):**
++- Revolutionary approach: augmentations applied to entire batches on GPU within `collate_fn`
++- Prefetching loop becomes a high-speed pass-through for raw data
++- Dramatically reduced Python overhead and improved throughput
++- Ideal for high-end GPU systems with fast storage
++
++### Data Flow Architecture
++
++#### CPU Mode Flow
++```
++Raw Data → I/O Threads → Memory Cache → CPU Transform Threads → Collate → GPU Transfer → Model
++```
++
++#### GPU Mode Flow
++```
++Raw Data → I/O Threads → Memory Cache → Pass-through → Collate → GPU Transfer → GPU Augmentation → Model
++```
++
++### Performance Tuning for GPU Mode
++
++When using `AUG.PIPELINE_DEVICE: "gpu"`, the performance characteristics change significantly:
++
++| Parameter | CPU Mode Importance | GPU Mode Importance | GPU Mode Recommendation |
++|-----------|-------------------|-------------------|----------------------|
++| `NUM_IO_THREADS` | High | **Critical** | 16-32 for high-end storage |
++| `NUM_PREPROCESS_THREADS` | **Critical** | Minimal | 2-4 (only for pass-through) |
++| `MEM_CACHE_SIZE` | High | **Critical** | Scale with batch concurrency |
++| `BATCH_CONCURRENCY` | Medium | High | 8-16 (respect cache limits) |
++
++**Example GPU Mode Configuration:**
++```yaml
++AUG:
++  PIPELINE_DEVICE: "gpu"  # Enable GPU augmentation pipeline
++  USE_OPENCV: False       # Ensure GPU pipeline is selected
++  
++DATA:
++  PREFETCH:
++    NUM_IO_THREADS: 16          # Maximize I/O throughput
++    NUM_PREPROCESS_THREADS: 2   # Minimal for pass-through
++    BATCH_CONCURRENCY: 12       # Higher pipeline depth
++    MEM_CACHE_SIZE: 53687091200 # 50GB cache
++```
++
++### Advanced Implementation Details
++
++For developers extending the framework, the GPU pipeline uses the `is_batch_oriented_gpu_pipeline` property to signal its behavior to the data loading system. This property is automatically detected by:
++
++1. **BasePrefetchingDataset**: Switches to pass-through mode for raw data
++2. **H5DataLoader**: Applies batch augmentations after GPU transfer
++
++The GPU augmentation occurs in the `collate_fn` after all tensors are moved to GPU but before mixing operations (mixup/cutmix).
++
 +## GroupedBatchSampler
 
 The `GroupedBatchSampler` is a specialized sampler used in Polli Linnaeus, particularly effective for tasks requiring balanced batches or specific within-batch structures, such as applying mixup or other augmentations to samples from the same group.

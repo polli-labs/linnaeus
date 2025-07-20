@@ -16,20 +16,14 @@ class GPUAugmentationPipeline(AugmentationPipeline):
     """
     GPU implementation of the augmentation pipeline.
 
-    This class orchestrates the application of various GPU-based augmentation techniques
-    (AutoAugment, RandomErasing) on a single sample. For true batch-level operations
-    (like SelectiveMixup), we rely on the data loader's collate_fn now.
-
     Attributes:
         config (Dict[str, Any]): Configuration dictionary for augmentations.
         autoaug (GPUAutoAugmentBatch): AutoAugment implementation for GPU.
         random_erasing (GPURandomErasing): RandomErasing implementation from torchvision-ish.
 
-    IMPORTANT CHANGE:
-    ----------------
-    - Removed in-batch SelectiveMixup from here. That must happen post-collation
-      when we have an entire batch of samples. The HPC pipeline uses single-sample
-      calls for parallelism, so Mixup must be deferred until later.
+    This pipeline is batch-oriented and expects a tensor of shape (B, C, H, W).
+    It is designed to be called from the H5DataLoader's collate_fn after the
+    raw image batch has been moved to the GPU.
     """
 
     def __init__(self, config: dict[str, Any]):
@@ -45,6 +39,11 @@ class GPUAugmentationPipeline(AugmentationPipeline):
         self.autoaug = self._create_autoaug()
         self.random_erasing = self._create_random_erasing()
 
+    @property
+    def is_batch_oriented_gpu_pipeline(self) -> bool:
+        """Property to signal this pipeline's behavior to the dataloader system."""
+        return True
+
     def _create_autoaug(self) -> GPUAutoAugmentBatch:
         """Create and return a GPUAutoAugmentBatch instance."""
         logger.debug("Creating GPUAutoAugmentBatch")
@@ -57,47 +56,30 @@ class GPUAugmentationPipeline(AugmentationPipeline):
         logger.debug("Creating GPURandomErasing")
         return GPURandomErasing(self.config.AUG.RANDOM_ERASE, config=self.config)
 
-    def __call__(
-        self, sample: tuple[torch.Tensor, dict[str, torch.Tensor], torch.Tensor]
-    ) -> tuple[torch.Tensor, dict[str, torch.Tensor], torch.Tensor]:
+    def __call__(self, images_tensor: torch.Tensor) -> torch.Tensor:
         """
-        Apply the GPU-based augmentation pipeline to a *single sample*.
+        Apply the GPU-based augmentation pipeline to a batch of images.
 
         Args:
-            sample: (image_tensor, targets, aux_info)
+            images_tensor: A batch of images as a tensor of shape (B, C, H, W)
+                           already on the target GPU device.
 
         Returns:
-            (augmented_image, same_targets, augmented_aux_info)
-
-        For actual batch-level mixup, see h5dataloader.H5DataLoader.collate_fn.
+            The batch of augmented images as a tensor.
         """
-        image, targets, aux_info = sample
-
         # Ensure input is float32 in [0,1] range
-        if not image.dtype == torch.float32:
-            image = image.float()
-        if image.max() > 1.0:
-            image = image / 255.0
+        if not images_tensor.dtype == torch.float32:
+            images_tensor = images_tensor.float()
+        if images_tensor.max() > 1.0:
+            images_tensor = images_tensor / 255.0
 
-        # GPU autoaugment typically expects (B, C, H, W). We'll artificially expand dim=0:
-        if len(image.shape) == 3:
-            image = image.unsqueeze(0)  # shape (1, C, H, W)
-
-        # Apply AutoAugment (GPU-based)
-        image = self.autoaug(image)  # still shape (1, C, H, W)
-        image = torch.clamp(image, 0, 1)  # Ensure range after autoaug
-
-        # Apply Random Erasing
-        image = self.random_erasing(image)  # shape (1, C, H, W)
-        image = torch.clamp(image, 0, 1)  # Ensure range after random erasing
-
-        # Squeeze back to shape (C, H, W)
-        image = image.squeeze(0)
+        # Apply batch-wise augmentations on the GPU
+        augmented_images = self.autoaug(images_tensor)
+        augmented_images = self.random_erasing(augmented_images)
+        augmented_images = torch.clamp(augmented_images, 0, 1)
 
         # Final sanity check
-        if not image.dtype == torch.float32:
-            image = image.float()
-        if image.max() > 1.0:
-            image = image / 255.0
+        if not augmented_images.dtype == torch.float32:
+            augmented_images = augmented_images.float()
 
-        return image, targets, aux_info
+        return augmented_images
