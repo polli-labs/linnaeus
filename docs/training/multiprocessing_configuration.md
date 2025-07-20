@@ -1,6 +1,18 @@
 # Multiprocessing Configuration
 
-As of v0.1.3, Linnaeus uses multiprocessing to bypass Python's Global Interpreter Lock (GIL) for CPU-bound augmentation operations. This provides significant performance improvements on multi-core systems.
+As of v0.1.3, Linnaeus provides flexible multiprocessing configuration options for PyTorch tensor sharing and worker process management, while using ThreadPoolExecutor for CPU-bound augmentation operations (which still benefits from native library GIL release in OpenCV/Pillow).
+
+## Threading vs Multiprocessing in v0.1.3
+
+**What uses ThreadPoolExecutor (threads):**
+- Single-sample augmentation preprocessing (`NUM_PREPROCESS_THREADS`)
+- Benefits from OpenCV/Pillow GIL release during image operations
+- Simpler memory management, no pickling overhead
+
+**What still uses multiprocessing:**
+- PyTorch tensor sharing between distributed training processes
+- DataLoader worker processes (if `num_workers > 0`)
+- Controlled by environment variables below
 
 ## Environment Variables
 
@@ -39,18 +51,24 @@ linnaeus-host-loop --gpus 8
 
 ### `DATA.PREFETCH.NUM_PREPROCESS_THREADS`
 
-Since v0.1.2, this parameter controls the number of worker **processes** (not threads) for CPU augmentations. Each process runs independently, bypassing the GIL.
+This parameter controls the number of worker **threads** for CPU augmentations. While threads share the same Python interpreter, OpenCV and Pillow operations release the GIL, providing effective parallelization for image processing tasks.
+
+**Why ThreadPoolExecutor instead of ProcessPoolExecutor:**
+- Native libraries (OpenCV, Pillow) release the GIL during heavy operations
+- Avoids pickling overhead and process creation costs
+- Eliminates fork-safety issues with CUDA contexts
+- Simpler memory management and debugging
 
 **Considerations:**
-- More workers = higher throughput but more memory usage
-- Each worker process has its own Python interpreter and memory space
-- On systems with file descriptor limits, reduce this value to stay under ulimit
+- More threads = higher throughput but more memory usage within shared interpreter
+- Threads share memory space, reducing overhead compared to separate processes
+- Effective parallelization for I/O-bound and GIL-releasing operations
 
 **Example configuration:**
 ```yaml
 DATA:
   PREFETCH:
-    NUM_PREPROCESS_THREADS: 4  # 4 worker processes per GPU rank
+    NUM_PREPROCESS_THREADS: 4  # 4 worker threads per GPU rank
 ```
 
 ## Troubleshooting
@@ -69,7 +87,7 @@ If you encounter `OSError: [Errno 24] Too many open files`:
    DATA:
      PREFETCH:
        BATCH_CONCURRENCY: 4  # Lower from default
-       NUM_PREPROCESS_THREADS: 2  # Fewer workers
+       NUM_PREPROCESS_THREADS: 2  # Fewer worker threads
    ```
 
 3. **Check your ulimit**:
@@ -98,15 +116,15 @@ For optimal performance on high-core-count systems:
    [h5data] ... PreprocThrpt=XXX items/s
    ```
 
-2. **Scale workers** with available cores:
-   - EPYC/Xeon systems: Try 4-8 workers per GPU
-   - Consumer CPUs: 2-4 workers typically sufficient
+2. **Scale worker threads** with available cores:
+   - EPYC/Xeon systems: Try 4-8 threads per GPU
+   - Consumer CPUs: 2-4 threads typically sufficient
 
 3. **Ensure sufficient shared memory** in Docker:
    ```yaml
    services:
      training:
-       shm_size: '32g'  # Required for tensor sharing
+       shm_size: '32g'  # Required for PyTorch tensor sharing between processes
    ```
 
 ## Migration from v0.1.2
@@ -125,11 +143,11 @@ If upgrading from v0.1.2 with custom deployments:
 
 ## Docker Requirements
 
-When using multiprocessing in Docker containers:
+When using Linnaeus in Docker containers:
 
 1. **Shared memory size**: Add to docker-compose.yml:
    ```yaml
-   shm_size: '32g'  # Adjust based on batch size and worker count
+   shm_size: '32g'  # Required for PyTorch tensor sharing (multiprocessing components)
    ```
 
 2. **Process limits**: Ensure container can spawn enough processes:
@@ -140,7 +158,7 @@ When using multiprocessing in Docker containers:
        hard: 65535
    ```
 
-3. **File descriptor limits**: May need to increase:
+3. **File descriptor limits**: May need to increase for high-concurrency setups:
    ```yaml
    ulimits:
      nofile:
