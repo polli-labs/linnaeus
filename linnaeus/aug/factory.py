@@ -30,7 +30,7 @@ class AugmentationPipelineFactory:
         Raises:
             ValueError: If an invalid device is specified in the configuration.
         """
-        device_choice = config["AUG"]["SINGLE_AUG_DEVICE"].lower()
+        device_choice = config["AUG"]["PIPELINE_DEVICE"].lower()
 
         if device_choice == "gpu":
             logger.info("Creating GPU AugmentationPipeline for single-image transforms")
@@ -39,4 +39,4 @@ class AugmentationPipelineFactory:
             logger.info("Creating CPU AugmentationPipeline for single-image transforms")
             return CPUAugmentationPipeline(config)
         else:
-            raise ValueError(f"Invalid SINGLE_AUG_DEVICE: {device_choice}. Must be 'cpu' or 'gpu'")
+            raise ValueError(f"Invalid PIPELINE_DEVICE: {device_choice}. Must be 'cpu' or 'gpu'")
