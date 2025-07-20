@@ -3,6 +3,7 @@
 
 import torch
 import torch.nn.functional as F
+import torchvision.transforms.functional as TF
 
 from linnaeus.aug.base import AutoAugmentBatch
 from linnaeus.utils.logging.logger import get_main_logger
@@ -21,19 +22,6 @@ class GPUAutoAugmentBatch(AutoAugmentBatch):
         policy (List[List[Tuple[str, float, int]]]): The augmentation policy to apply.
         hparams (Dict[str, Any]): Hyperparameters for the augmentation operations.
         ops (Dict[str, callable]): Dictionary of augmentation operations.
-
-    Methods:
-        __init__(self, policy: List[List[Tuple[str, float, int]]], hparams: Dict[str, Any]):
-            Initialize the GPUAutoAugmentBatch instance.
-
-        _create_gpu_ops(self) -> Dict[str, callable]:
-            Create a dictionary of GPU-based augmentation operations.
-
-        __call__(self, images: torch.Tensor) -> torch.Tensor:
-            Apply the augmentation pipeline to a batch of images.
-
-        _apply_op(self, images: torch.Tensor, op_name: str, magnitude: int) -> torch.Tensor:
-            Apply a single augmentation operation to a batch of images.
     """
 
     def __init__(self, policy: str, color_jitter: float, config=None):
@@ -54,19 +42,19 @@ class GPUAutoAugmentBatch(AutoAugmentBatch):
             "TranslateYRel": lambda img, magnitude: F.affine(  # Relative to image height
                 img, angle=0, translate=[0, magnitude * img.size(-1)], scale=1, shear=[0, 0]
             ),
-            "Rotate": lambda img, magnitude: F.rotate(img, magnitude),
-            "Color": lambda img, magnitude: self._adjust_color(img, magnitude),
+            "Rotate": lambda img, magnitude: TF.rotate(img, magnitude),
+            "Color": lambda img, magnitude: TF.adjust_saturation(img, 1 + magnitude),
             "Posterize": self._posterize,  # Base implementation
             "PosterizeOriginal": self._posterize_original,  # Original version
             "PosterizeIncreasing": self._posterize_increasing,  # Research version
             "Solarize": self._solarize,
             "SolarizeAdd": self._solarize_add,
-            "Contrast": lambda img, magnitude: F.adjust_contrast(img, 1 + magnitude),
+            "Contrast": lambda img, magnitude: TF.adjust_contrast(img, 1 + magnitude),
             "Sharpness": self._adjust_sharpness,
-            "Brightness": lambda img, magnitude: F.adjust_brightness(img, 1 + magnitude),
+            "Brightness": lambda img, magnitude: TF.adjust_brightness(img, 1 + magnitude),
             "AutoContrast": self._auto_contrast,
             "Equalize": self._equalize,
-            "Invert": lambda img, _: 1 - img,
+            "Invert": lambda img, magnitude: TF.invert(img),
             "Desaturate": self._desaturate,
             "GaussianBlurRand": self._gaussian_blur_rand,
         }
@@ -90,9 +78,6 @@ class GPUAutoAugmentBatch(AutoAugmentBatch):
 
         return torch.clamp(images, 0, 1)  # Final range check
 
-    def _adjust_color(self, img: torch.Tensor, factor: float) -> torch.Tensor:
-        return torch.clamp(F.adjust_saturation(img, 1 + factor), 0, 1)
-
     def _posterize(self, img: torch.Tensor, bits: int) -> torch.Tensor:
         """Base posterize implementation."""
         return torch.clamp(torch.floor(img * 255 / (2**bits)) * (2**bits) / 255, 0, 1)
@@ -113,20 +98,19 @@ class GPUAutoAugmentBatch(AutoAugmentBatch):
         return torch.clamp(torch.where(img < thresh, torch.clamp(img + add, 0, 1), img), 0, 1)
 
     def _adjust_sharpness(self, img: torch.Tensor, factor: float) -> torch.Tensor:
-        return torch.clamp(F.adjust_sharpness(img, factor), 0, 1)
+        return torch.clamp(TF.adjust_sharpness(img, factor), 0, 1)
 
-    def _auto_contrast(self, img: torch.Tensor) -> torch.Tensor:
-        min_val = img.amin(dim=(1, 2), keepdim=True)
-        max_val = img.amax(dim=(1, 2), keepdim=True)
-        return torch.clamp((img - min_val) / (max_val - min_val + 1e-6), 0, 1)
+    def _auto_contrast(self, img: torch.Tensor, magnitude: float) -> torch.Tensor:
+        # magnitude is unused for autocontrast, but kept for API consistency
+        return TF.autocontrast(img)
 
-    def _equalize(self, img: torch.Tensor) -> torch.Tensor:
-        # This is a simplified version of equalize for GPU tensors
-        # For a more accurate implementation, consider using torchvision's equalize function
-        return torch.clamp((img - img.min()) / (img.max() - img.min() + 1e-6), 0, 1)
+    def _equalize(self, img: torch.Tensor, magnitude: float) -> torch.Tensor:
+        # magnitude is unused for equalize, but kept for API consistency
+        # Note: input must be uint8 for torchvision's equalize
+        return TF.equalize((img * 255).byte()).float() / 255.0
 
     def _desaturate(self, img: torch.Tensor, factor: float) -> torch.Tensor:
-        return torch.clamp(self._adjust_color(img, -factor), 0, 1)
+        return torch.clamp(TF.adjust_saturation(img, 1 - factor), 0, 1)
 
     def _gaussian_blur_rand(self, img: torch.Tensor, factor: float) -> torch.Tensor:
         kernel_size = int(factor * 3) * 2 + 1  # Ensure odd kernel size
@@ -135,5 +119,30 @@ class GPUAutoAugmentBatch(AutoAugmentBatch):
     def _apply_op(self, images: torch.Tensor, op_name: str, magnitude: int) -> torch.Tensor:
         if op_name not in self.ops:
             raise ValueError(f"Unknown operation: {op_name}")
-        magnitude = magnitude * 0.1  # Scale magnitude to [0, 1] range
-        return self.ops[op_name](images, magnitude)
+
+        # Map integer magnitude level (0-10) to appropriate parameter ranges for each operation
+        magnitude_level = magnitude
+
+        if op_name in ["Rotate"]:
+            # Map level (0-10) to degrees (e.g., 0-30)
+            level_to_degrees = (magnitude_level / 10.0) * 30.0
+            return self.ops[op_name](images, level_to_degrees)
+        elif op_name in ["ShearX", "ShearY"]:
+            level_to_shear = (magnitude_level / 10.0) * 0.3
+            return self.ops[op_name](images, level_to_shear)
+        elif op_name in ["Color", "Contrast", "Brightness", "Sharpness"]:
+            level_to_factor = (magnitude_level / 10.0) * 0.9  # Map to [0, 0.9] for factor adjustment
+            return self.ops[op_name](images, level_to_factor)
+        elif op_name in ["Solarize"]:
+            level_to_thresh = (256 - (magnitude_level / 10.0) * 256) / 255.0  # Convert to [0,1] range
+            return self.ops[op_name](images, level_to_thresh)
+        elif op_name in ["Posterize", "PosterizeOriginal", "PosterizeIncreasing"]:
+            # These ops take an integer number of bits
+            level_to_bits = int(4 + (magnitude_level / 10.0) * 4)  # Map 0-10 to 4-8 bits
+            return self.ops[op_name](images, level_to_bits)
+        elif op_name in ["TranslateX", "TranslateY"]:
+            level_to_translate = (magnitude_level / 10.0) * 0.45  # Map to translation factor
+            return self.ops[op_name](images, level_to_translate)
+        else:
+            # Ops like Invert, Equalize, AutoContrast don't use magnitude meaningfully
+            return self.ops[op_name](images, magnitude_level)
