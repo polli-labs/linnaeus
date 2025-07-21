@@ -349,6 +349,59 @@ If missing images are found, the report includes their identifiers and indices:
 +- Unexpectedly slow data loading despite fast storage
 +- `PreprocThrpt` (preprocessing throughput) lower than expected
 +
++### Advanced Pipeline Monitoring and Bottleneck Detection
++
++As of v0.1.4, Linnaeus includes comprehensive pipeline monitoring that provides real-time insights into performance bottlenecks. The enhanced monitoring system reports interval-based metrics that help you identify exactly where pipeline stalls occur and make data-driven tuning decisions.
++
++#### Understanding the New Monitor Log Format
++
++The data pipeline monitor now provides a compact, information-dense log line every monitoring interval (default: 120 seconds):
++
++```
++[h5data] Monitor | Q(B/P/R): 12/12/24 | Cache(H/M/E): 98%/2%/0 | Size: 15.8/16.0GB | Tput(IO/H): 355.2/354.8 it/s | Wait(Main/Pre/IO): 450/20/5 ms/s
++```
++
++**Legend:**
++- **`Q(B/P/R)`**: Queue depths for **B**atch Index, **P**reprocess, and **R**eady (Processed) queues
++- **`Cache(H/M/E)`**: Cache statistics as percentages for **H**its, **M**isses, and **E**victions over the last interval
++- **`Size`**: Current memory usage vs. capacity of the `MEM_CACHE_SIZE`
++- **`Tput(IO/H)`**: Interval-based **T**hrough**put** in items/sec for **I/O** and **H**andoff stages
++- **`Wait(Main/Pre/IO)`**: Wait times in `ms/s` for the **Main** thread, **Pre**process threads, and **I/O** manager thread
++
++#### Using Wait Times for Performance Tuning
++
++The wait time metrics (`Wait(Main/Pre/IO)`) are the key bottleneck indicators. They measure thread idleness in **milliseconds of wait time per second of wall time (ms/s)**. A value of 1000 ms/s means the thread was blocked 100% of the time.
++
++| High Wait Time | Bottleneck Location | Tuning Action |
++|----------------|-------------------|---------------|
++| **Main** | GPU is starved - entire data pipeline is slow | Increase `NUM_IO_THREADS`, consider GPU mode |
++| **Pre** | I/O stage is the bottleneck - raw data isn't being read fast enough | Increase `NUM_IO_THREADS`, increase `MEM_CACHE_SIZE` |
++| **IO** | Handoff stage is the bottleneck - raw data is read but can't be processed | Increase `NUM_PREPROCESS_THREADS`, increase `MAX_PROCESSED_BATCHES` |
++
++#### Interpreting Healthy vs. Problematic Metrics
++
++**Healthy Pipeline Indicators:**
++- `Wait(Main)` < 100 ms/s: GPU stays fed
++- `Cache(H/M/E)` showing >90% hit rate: Cache is effective
++- `Tput(IO/H)` values are similar: Balanced pipeline stages
++- Queues at reasonable levels (not empty, not maxed out)
++
++**Warning Signs:**
++- `Wait(Main)` > 500 ms/s: GPU starvation, increase throughput
++- `Cache(H/M/E)` showing <70% hit rate: Possible cache thrashing
++- Large gap between `Tput(IO)` and `Tput(H)`: Stage imbalance
++- `Wait(Pre)` or `Wait(IO)` > 200 ms/s: Specific stage bottleneck
++
++#### Interval-Based vs. Cumulative Metrics
++
++Unlike the previous monitoring system that showed cumulative averages since the start of training, the new system reports **interval-based metrics** calculated over each monitoring period. This provides:
++
++- **Real-time performance visibility**: See current pipeline state, not historical averages
++- **Accurate bottleneck detection**: Identify transient issues or load spikes
++- **Meaningful cache statistics**: Hit/miss rates over the last interval reflect current cache effectiveness
++
++This makes the monitoring data immediately actionable for performance tuning decisions.
++
 +## High-Performance GPU Augmentation Pipeline
 +
 +As of v0.1.3, Linnaeus supports a revolutionary **batch-oriented GPU augmentation** mode that dramatically reduces Python overhead and maximizes throughput on high-end training systems.

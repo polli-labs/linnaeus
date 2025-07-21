@@ -1,5 +1,17 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+- **Advanced Pipeline Monitoring**: Added detailed wait-time metrics (`Wait(Main/Pre/IO)`) to the data pipeline monitor to precisely identify bottlenecks in I/O, data processing, or GPU consumption.
+- **Interval-Based Metrics**: Monitor thread now reports throughput and cache statistics for the last interval, providing a more real-time view of pipeline performance.
+
+### Changed
+- **Monitor Log Format**: Redesigned the monitor log for improved readability and information density, including queue depths, cache stats, interval throughput, and wait times in a single line.
+
+### Fixed
+- **Cache Logic**: Corrected a flaw in `MemoryCache` where `get()` was a destructive operation. This fix ensures the cache functions correctly as an LRU cache and makes hit/miss rate metrics meaningful.
+
 ## [0.1.3] - 2025-07-20
 
 ### Fixed
