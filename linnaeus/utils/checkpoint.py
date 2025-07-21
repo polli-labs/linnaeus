@@ -672,8 +672,25 @@ def load_checkpoint(config, model, optimizer, lr_scheduler, logger, preserve_sch
 
         checkpoint["model"] = new_state_dict
 
-    msg = model.load_state_dict(checkpoint["model"], strict=False)
-    logger.info(msg)
+    # Consolidated logging for load_state_dict
+    missing_keys, unexpected_keys = model.load_state_dict(checkpoint["model"], strict=False)
+
+    if missing_keys:
+        logger.warning(f"{len(missing_keys)} keys were missing from the checkpoint")
+        if check_debug_flag(config, "DEBUG.CHECKPOINT"):
+            logger.debug("Full list of missing keys:")
+            for key in missing_keys:
+                logger.debug(f"  - {key}")
+
+    if unexpected_keys:
+        logger.warning(f"{len(unexpected_keys)} keys from the checkpoint were not found in the model")
+        if check_debug_flag(config, "DEBUG.CHECKPOINT"):
+            logger.debug("Full list of unexpected keys:")
+            for key in unexpected_keys:
+                logger.debug(f"  - {key}")
+
+    if not missing_keys and not unexpected_keys:
+        logger.info("Checkpoint loaded successfully with no missing or unexpected keys")
 
     # Load training progress if provided and exists in checkpoint
     if training_progress is not None and "training_progress" in checkpoint:

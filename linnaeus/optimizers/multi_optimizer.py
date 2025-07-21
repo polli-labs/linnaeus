@@ -96,12 +96,21 @@ class MultiOptimizer:
 
             # Remap parameter IDs to stable indices
             remapped_state = {}
+            unmapped_params = []
             for param_id, param_state in opt_state["state"].items():
                 if param_id in param_to_index:
                     stable_idx = param_to_index[param_id]
                     remapped_state[stable_idx] = param_state
                 else:
-                    logger.warning(f"Parameter with ID {param_id} not found in param_to_index mapping")
+                    unmapped_params.append(param_id)
+
+            # Consolidated logging for unmapped parameters
+            if unmapped_params and get_rank_safely() == 0:
+                logger.warning(f"[MultiOptimizer] {len(unmapped_params)} parameters could not be mapped to stable indices during save")
+                if check_debug_flag(getattr(self, "config", None), "DEBUG.CHECKPOINT"):
+                    logger.debug("Full list of unmapped parameter IDs:")
+                    for param_id in unmapped_params:
+                        logger.debug(f"  - Parameter ID {param_id}")
 
             state_dict["optimizers"][opt_name] = {"state": remapped_state, "param_groups": opt_state["param_groups"]}
 

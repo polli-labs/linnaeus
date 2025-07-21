@@ -16,7 +16,8 @@ def sync_to_backblaze(config):
     local_path = config.ENV.OUTPUT.DIRS.EXP_BASE
     remote_path = f"{remote_name}:{bucket_name}/{config.EXPERIMENT.PROJECT}/{config.EXPERIMENT.GROUP}/{config.EXPERIMENT.NAME}"
 
-    command = ["rclone", "sync", local_path, remote_path, "--progress"]
+    # Use log-friendly flags instead of --progress
+    command = ["rclone", "sync", local_path, remote_path, "--stats-one-line", "--stats", "60s", "--log-level", "NOTICE"]
 
     try:
         subprocess.run(command, check=True)
@@ -41,7 +42,8 @@ def upload_to_backblaze(config, local_path, remote_path):
     bucket_name = config.ENV.OUTPUT.BUCKET.BUCKET
     full_remote_path = f"{remote_name}:{bucket_name}/{remote_path}"
 
-    command = ["rclone", "copy", local_path, full_remote_path, "--progress"]
+    # Use log-friendly flags instead of --progress
+    command = ["rclone", "copy", local_path, full_remote_path, "--stats-one-line", "--stats", "60s", "--log-level", "NOTICE"]
 
     try:
         subprocess.run(command, check=True)
