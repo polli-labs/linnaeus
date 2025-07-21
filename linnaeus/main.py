@@ -327,7 +327,6 @@ def parse_option(args_list=None):
 
     eval_config = None
 
-    print(f"[main.py] Final merged config:\n{config}")
     return config, eval_config, args
 
 
@@ -1977,6 +1976,13 @@ if __name__ == "__main__":
         else:
             rank = 0
             world_size = 1
+
+        # Log the final merged config only from rank 0
+        if rank == 0:
+            logger_for_config = get_main_logger()
+            logger_for_config.info("================ Final Merged Configuration ================")
+            logger_for_config.info(f"\n{config}")
+            logger_for_config.info("==========================================================")
 
         local_rank = int(os.environ.get("LOCAL_RANK", "0"))
 

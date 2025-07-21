@@ -13,6 +13,7 @@
 - **Cache Logic**: Corrected a flaw in `MemoryCache` where `get()` was a destructive operation. This fix ensures the cache functions correctly as an LRU cache and makes hit/miss rate metrics meaningful.
 - **Logging Verbosity**: Consolidated checkpoint loading logs to a single summary line, moving detailed key lists to `DEBUG` level. This significantly reduces console clutter during transfer learning or fine-tuning.
 - **`rclone` Output**: Silenced verbose, multi-line progress bars from `rclone` during output sync operations, replacing them with clean, single-line summaries to improve log readability.
+- **Config Logging**: Suppressed redundant logging of the final merged configuration from non-master ranks during startup.
 
 ## [0.1.3] - 2025-07-20
 
