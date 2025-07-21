@@ -2,32 +2,9 @@
 
 This document provides a comprehensive reference for all environment variables supported by Linnaeus. These variables allow runtime configuration without modifying code or YACS config files.
 
-## Multiprocessing Configuration
+## Multiprocessing Note
 
-**Important Note**: As of v0.1.3, Linnaeus uses ThreadPoolExecutor for all concurrent operations (data loading, I/O, and augmentation). The multiprocessing configuration variables below have **minimal practical effect** in the current implementation. They are retained for compatibility and may affect PyTorch's internal operations.
-
-### `LINNAEUS_MP_SHARING_STRATEGY`
-
-Controls how PyTorch tensors would be shared between processes (if multiprocessing were used).
-
-- **Default**: `file_system`
-- **Options**: 
-  - `file_system` (recommended): Uses shared memory filesystem (/dev/shm). Significantly reduces file descriptor usage.
-  - `file_descriptor`: Uses file descriptors for each shared tensor. Can cause "Too many open files" errors.
-- **Current Impact**: Minimal - Linnaeus uses ThreadPoolExecutor, not multiprocessing pools.
-- **Example**: `export LINNAEUS_MP_SHARING_STRATEGY=file_system`
-
-### `LINNAEUS_MP_START_METHOD`
-
-Controls how new worker processes would be created (if multiprocessing were used).
-
-- **Default**: `spawn` (as of v0.1.3)
-- **Options**:
-  - `spawn` (recommended): Creates fresh Python interpreter for each worker. Most compatible with CUDA.
-  - `forkserver`: Creates a clean server process for forking workers. More efficient but can have CUDA issues.
-  - `fork`: Fast but unsafe with CUDA (not recommended).
-- **Current Impact**: Minimal - may only affect PyTorch's internal operations or distributed training setup.
-- **Example**: `export LINNAEUS_MP_START_METHOD=spawn`
+Linnaeus v0.1.3+ uses ThreadPoolExecutor for all concurrent operations (data loading, I/O, and augmentation). Multiprocessing is only used for distributed training across multiple GPUs, which is handled automatically by PyTorch's distributed launcher.
 
 ## Distributed Training
 
@@ -115,15 +92,11 @@ While not Linnaeus-specific, these CUDA environment variables are commonly used:
 
 ## Best Practices
 
-1. **Multiprocessing Safety**: Always use `LINNAEUS_MP_START_METHOD=spawn` when running with CUDA to avoid potential issues.
+1. **Distributed Training**: Let PyTorch's distributed launcher or SLURM set the distributed training variables automatically.
 
-2. **File Descriptor Management**: Keep `LINNAEUS_MP_SHARING_STRATEGY=file_system` (default) to avoid file descriptor exhaustion.
+2. **Container Deployments**: Use `CONFIG_DIR` to specify configuration locations in containers.
 
-3. **Distributed Training**: Let PyTorch's distributed launcher or SLURM set the distributed training variables automatically.
-
-4. **Container Deployments**: Use `CONFIG_DIR` to specify configuration locations in containers.
-
-5. **Debugging**: When debugging multiprocessing issues, try different combinations of start methods and sharing strategies.
+3. **CUDA Safety**: Linnaeus automatically configures safe multiprocessing defaults for CUDA compatibility.
 
 ## Examples
 
@@ -138,17 +111,9 @@ python -m linnaeus.main --cfg experiment.yaml
 python -m torch.distributed.run --nproc_per_node=4 -m linnaeus.main --cfg experiment.yaml
 ```
 
-### Custom Multiprocessing Configuration
-```bash
-export LINNAEUS_MP_START_METHOD=spawn
-export LINNAEUS_MP_SHARING_STRATEGY=file_system
-python -m linnaeus.main --cfg experiment.yaml
-```
-
 ### Container with Custom Config Location
 ```bash
 docker run -e CONFIG_DIR=/configs \
-           -e LINNAEUS_MP_START_METHOD=spawn \
            -v /local/configs:/configs \
            linnaeus:latest
 ```
@@ -156,10 +121,7 @@ docker run -e CONFIG_DIR=/configs \
 ## Troubleshooting
 
 ### "Too many open files" Error
-Set `LINNAEUS_MP_SHARING_STRATEGY=file_system` (default) or increase system ulimits.
-
-### CUDA Initialization Errors
-Try `LINNAEUS_MP_START_METHOD=spawn` for better CUDA compatibility.
+This is typically resolved by Linnaeus's ThreadPoolExecutor architecture. If issues persist, increase system ulimits.
 
 ### Distributed Training Not Starting
 Verify that `MASTER_ADDR` and `MASTER_PORT` are correctly set and accessible.

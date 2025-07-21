@@ -367,31 +367,24 @@ def main(config, args=None):
     logger.info("[main] Initialized emergency cleanup system")
 
     # --- Multiprocessing Configuration ---
-    # Set the tensor sharing strategy and start method. These can be overridden by environment
-    # variables for flexible deployment and testing.
-    #
-    # LINNAEUS_MP_SHARING_STRATEGY: 'file_system' (default, recommended) or 'file_descriptor'.
-    # 'file_system' is crucial for avoiding "Too many open files" errors.
-    #
-    # LINNAEUS_MP_START_METHOD: 'spawn' (default, recommended) or 'forkserver'.
-    # 'spawn' is the safest option for CUDA, though slightly less efficient than 'forkserver'.
+    # Set safe defaults for tensor sharing and start method for CUDA compatibility.
+    # Note: Linnaeus uses ThreadPoolExecutor for all concurrent operations, so these settings
+    # primarily affect PyTorch's internal operations and distributed training setup.
 
-    sharing_strategy = os.environ.get("LINNAEUS_MP_SHARING_STRATEGY", "file_system")
     try:
-        torch.multiprocessing.set_sharing_strategy(sharing_strategy)
-        logger.info(f"Set multiprocessing sharing strategy to '{sharing_strategy}' (from env or default).")
+        torch.multiprocessing.set_sharing_strategy("file_system")
+        logger.info("Set multiprocessing sharing strategy to 'file_system' for CUDA safety.")
     except RuntimeError:
-        logger.warning(f"Could not set sharing strategy to '{sharing_strategy}'. It may be already set or unsupported.")
+        logger.warning("Could not set sharing strategy to 'file_system'. It may be already set or unsupported.")
 
-    start_method = os.environ.get("LINNAEUS_MP_START_METHOD", "spawn")
-    if mp.get_start_method(allow_none=True) != start_method:
+    if mp.get_start_method(allow_none=True) != "spawn":
         try:
-            mp.set_start_method(start_method, force=True)
-            logger.info(f"Set multiprocessing start method to '{start_method}' (from env or default).")
+            mp.set_start_method("spawn", force=True)
+            logger.info("Set multiprocessing start method to 'spawn' for CUDA safety.")
         except (ValueError, RuntimeError) as e:
-            logger.warning(f"Failed to set start method to '{start_method}': {e}. Using system default.")
+            logger.warning(f"Failed to set start method to 'spawn': {e}. Using system default.")
     else:
-        logger.info(f"Multiprocessing start method already set to '{start_method}'.")
+        logger.info("Multiprocessing start method already set to 'spawn'.")
 
     register_slurm_signal_handlers()
 

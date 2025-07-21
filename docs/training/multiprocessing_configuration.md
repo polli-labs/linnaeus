@@ -20,40 +20,13 @@ As of v0.1.3, Linnaeus has transitioned to using ThreadPoolExecutor for all conc
 - Distributed training across multiple GPUs (handled by PyTorch's distributed launcher)
 - PyTorch internal operations (largely transparent to users)
 
-## Environment Variables
+## PyTorch Multiprocessing
 
-The multiprocessing behavior can be configured via environment variables, allowing flexible deployment without code changes:
+Linnaeus automatically configures PyTorch's multiprocessing with safe defaults:
+- **Sharing strategy**: `file_system` (avoids file descriptor issues)  
+- **Start method**: `spawn` (CUDA-safe)
 
-### `LINNAEUS_MP_SHARING_STRATEGY`
-
-Controls how PyTorch tensors are shared between processes.
-
-**Options:**
-- `file_system` (default, recommended): Uses shared memory filesystem (/dev/shm). Passes filenames between processes instead of file descriptors, drastically reducing concurrent FD usage.
-- `file_descriptor`: Uses file descriptors for each shared tensor. Can cause "Too many open files" errors on systems with ulimit constraints.
-
-**Example:**
-```bash
-export LINNAEUS_MP_SHARING_STRATEGY=file_system
-linnaeus-host-loop --gpus 8
-```
-
-### `LINNAEUS_MP_START_METHOD`
-
-Controls how new worker processes are created.
-
-**Options:**
-- `spawn` (default as of v0.1.3, recommended): Creates fresh Python interpreter for each worker. Most compatible with CUDA.
-- `forkserver`: Creates a clean server process for forking workers. More efficient but can have CUDA issues.
-- `fork`: Fast but unsafe with CUDA (not recommended).
-
-**Note**: As of v0.1.3, this setting has minimal practical effect since Linnaeus uses ThreadPoolExecutor for all concurrent operations. It may only affect PyTorch's internal operations or future features.
-
-**Example:**
-```bash
-export LINNAEUS_MP_START_METHOD=forkserver
-linnaeus-host-loop --gpus 8
-```
+These settings primarily affect PyTorch's internal operations and distributed training setup, not Linnaeus's data loading or augmentation pipelines.
 
 ## Configuration Parameters
 
@@ -85,12 +58,7 @@ DATA:
 
 If you encounter `OSError: [Errno 24] Too many open files`:
 
-1. **Use file_system sharing** (default in v0.1.3+):
-   ```bash
-   export LINNAEUS_MP_SHARING_STRATEGY=file_system
-   ```
-
-2. **Reduce concurrency** in your config:
+1. **Reduce concurrency** in your config:
    ```yaml
    DATA:
      PREFETCH:
@@ -106,14 +74,7 @@ If you encounter `OSError: [Errno 24] Too many open files`:
 
 ### CUDA initialization errors
 
-If workers crash with CUDA errors:
-
-1. **Use forkserver or spawn** (forkserver is default in v0.1.3+):
-   ```bash
-   export LINNAEUS_MP_START_METHOD=forkserver
-   ```
-
-2. Never use 'fork' with CUDA - it inherits invalid contexts.
+CUDA initialization issues are typically resolved by Linnaeus's automatic configuration of safe multiprocessing defaults. ThreadPoolExecutor architecture also avoids many multiprocessing-related CUDA issues.
 
 ### Performance tuning
 
@@ -139,15 +100,9 @@ For optimal performance on high-core-count systems:
 
 If upgrading from v0.1.2 with custom deployments:
 
-1. **File descriptor exhaustion**: The default sharing strategy changed from `file_descriptor` to `file_system` to prevent FD exhaustion.
-   
-2. **Start method change**: Default changed from `spawn` to `forkserver` for better efficiency.
+1. **Architecture change**: v0.1.3+ uses ThreadPoolExecutor for all concurrent operations, eliminating many multiprocessing-related issues.
 
-3. **Backward compatibility**: To restore v0.1.2 behavior:
-   ```bash
-   export LINNAEUS_MP_SHARING_STRATEGY=file_descriptor
-   export LINNAEUS_MP_START_METHOD=spawn
-   ```
+2. **File descriptor improvements**: The ThreadPoolExecutor architecture dramatically reduces file descriptor usage compared to previous versions.
 
 ## Docker Requirements
 
