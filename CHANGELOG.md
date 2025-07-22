@@ -14,7 +14,7 @@
 - **Logging Verbosity**: Consolidated checkpoint loading logs to a single summary line, moving detailed key lists to `DEBUG` level. This significantly reduces console clutter during transfer learning or fine-tuning.
 - **`rclone` Output**: Silenced verbose, multi-line progress bars from `rclone` during output sync operations, replacing them with clean, single-line summaries to improve log readability.
 - **Config Logging**: Suppressed redundant logging of the final merged configuration from non-master ranks during startup.
-- **Image Verification**: Fixed `ImageVerifier` to strip leading/trailing whitespace from image identifiers, preventing false "missing image" errors caused by hidden characters in HDF5 metadata.
+- **Image Verification**: Fixed `ImageVerifier` to strip leading/trailing whitespace from image identifiers and normalize filenames to lowercase, preventing false "missing image" errors caused by hidden characters and case mismatches in HDF5 metadata on case-sensitive filesystems.
 
 ## [0.1.3] - 2025-07-20
 
