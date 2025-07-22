@@ -240,3 +240,70 @@ DEBUG:
 3. **Set Log Level**: Use with appropriate log levels (e.g., `EXPERIMENT.LOG_LEVEL_MAIN: DEBUG`).
 4. **Rotate Logs**: Consider log rotation for long-running experiments with heavy debugging.
 5. **Clear Flags**: Remember to disable debug flags when they're no longer needed, especially before production runs.
+
+## PyTorch Profiler Configuration
+
+The `DEBUG.PROFILER` section enables deep performance profiling of training runs using PyTorch's built-in profiler. This captures detailed CPU/CUDA activity traces for performance analysis.
+
+### Configuration Options
+
+```yaml
+DEBUG:
+  PROFILER:
+    ENABLED: False                    # Master switch for profiling
+    OUTPUT_DIR: "{output_dir}/assets/profiler"  # Where to save traces
+    SCHEDULE: [1, 1, 3, 2]           # [wait, warmup, active, repeat] steps
+    RECORD_SHAPES: False             # Record tensor shapes (increases overhead)
+    WITH_STACK: False                # Record call stacks (increases overhead)
+```
+
+### Parameters Explained
+
+- **ENABLED**: When `True`, activates the PyTorch profiler during training (rank 0 only)
+- **OUTPUT_DIR**: Directory for saving profiler traces. Supports `{output_dir}` placeholder
+- **SCHEDULE**: Controls profiling schedule `[wait, warmup, active, repeat]`:
+  - `wait`: Number of steps to skip before profiling starts
+  - `warmup`: Number of warmup steps (results discarded)
+  - `active`: Number of steps to actively profile
+  - `repeat`: Number of times to repeat the cycle
+- **RECORD_SHAPES**: Records tensor shapes in traces (useful but adds overhead)
+- **WITH_STACK**: Records Python call stacks (very useful but significant overhead)
+
+### Usage Example
+
+```yaml
+DEBUG:
+  PROFILER:
+    ENABLED: True
+    SCHEDULE: [2, 1, 5, 3]  # Skip 2, warmup 1, profile 5, repeat 3x
+    RECORD_SHAPES: True
+    WITH_STACK: True
+```
+
+### Viewing Results
+
+Profiler traces are saved in TensorBoard format. View them with:
+
+```bash
+tensorboard --logdir /path/to/output/assets/profiler
+```
+
+Navigate to the "PyTorch Profiler" tab to analyze:
+- CPU/GPU timeline visualization
+- Kernel execution times
+- Memory transfers
+- Operation breakdown
+- Performance recommendations
+
+### Performance Considerations
+
+1. **Overhead**: Profiling adds 10-30% overhead depending on settings
+2. **Storage**: Traces can be large (100s of MB) especially with `RECORD_SHAPES`
+3. **Production**: Always disable profiling for production training runs
+
+### Common Use Cases
+
+1. **Identifying Bottlenecks**: See which operations dominate training time
+2. **Kernel Analysis**: Analyze GPU kernel efficiency and fusion opportunities
+3. **Memory Bandwidth**: Identify memory-bound vs compute-bound operations
+4. **CPU/GPU Overlap**: Optimize asynchronous execution patterns

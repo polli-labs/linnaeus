@@ -403,6 +403,12 @@ _C.AUG.RANDOM_ERASE.COUNT = 1
 _C.AUG.RANDOM_ERASE.AREA_RANGE = [0.02, 0.4]  # Erase between 2% and 40% of the image area
 _C.AUG.RANDOM_ERASE.ASPECT_RATIO = [0.3, 3.3]  # Aspect ratio range for the erased region
 
+# Configuration for torch.compile on GPU augmentation pipeline
+_C.AUG.GPU_COMPILE = CN()
+_C.AUG.GPU_COMPILE.ENABLED = False
+_C.AUG.GPU_COMPILE.BACKEND = "inductor"
+_C.AUG.GPU_COMPILE.MODE = "default"  # Options: 'default', 'reduce-overhead', 'max-autotune'
+
 # ----------------------------------------------------------------------------
 # Model Settings
 # ----------------------------------------------------------------------------
@@ -867,6 +873,14 @@ _C.DEBUG.DATASET.READ_ITEM_VERBOSE = False  # New flag for verbose _read_raw_ite
 
 # Special debug flag for early termination of training
 _C.DEBUG.EARLY_EXIT_AFTER_N_OPTIMIZER_STEPS = 0  # Default to 0 (disabled)
+
+# PyTorch Profiler configuration
+_C.DEBUG.PROFILER = CN()
+_C.DEBUG.PROFILER.ENABLED = False
+_C.DEBUG.PROFILER.OUTPUT_DIR = "{output_dir}/assets/profiler"
+_C.DEBUG.PROFILER.SCHEDULE = [1, 1, 3, 2]  # [wait, warmup, active, repeat]
+_C.DEBUG.PROFILER.RECORD_SHAPES = False
+_C.DEBUG.PROFILER.WITH_STACK = False
 
 # ----------------------------------------------------------------------------
 # Internal Flags

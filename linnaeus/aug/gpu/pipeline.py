@@ -39,6 +39,21 @@ class GPUAugmentationPipeline(AugmentationPipeline):
         self.autoaug = self._create_autoaug()
         self.random_erasing = self._create_random_erasing()
 
+        # Conditional compilation with torch.compile
+        if config.AUG.GPU_COMPILE.ENABLED:
+            logger.info("torch.compile for GPU augmentation pipeline is ENABLED.")
+            try:
+                self.autoaug = torch.compile(self.autoaug, backend=config.AUG.GPU_COMPILE.BACKEND, mode=config.AUG.GPU_COMPILE.MODE)
+                self.random_erasing = torch.compile(
+                    self.random_erasing, backend=config.AUG.GPU_COMPILE.BACKEND, mode=config.AUG.GPU_COMPILE.MODE
+                )
+                logger.info("Successfully compiled GPU augmentation components.")
+            except Exception as e:
+                logger.error(f"Failed to torch.compile augmentation pipeline: {e}. Falling back to eager mode.")
+                # self.autoaug and self.random_erasing remain as the original, non-compiled instances
+        else:
+            logger.info("torch.compile for GPU augmentation pipeline is DISABLED.")
+
     @property
     def is_batch_oriented_gpu_pipeline(self) -> bool:
         """Property to signal this pipeline's behavior to the dataloader system."""

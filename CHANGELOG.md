@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.1.4] - TBD
+
+### Added
+- **GPU Augmentation Kernel Fusion**: Integrated `torch.compile` for GPU augmentation pipeline components (`GPUAutoAugmentBatch` and `GPURandomErasing`). This fuses multiple small CUDA kernels into optimized single kernels, significantly reducing CPU dispatch overhead and GPU memory bandwidth pressure.
+- **PyTorch Profiler Integration**: Added comprehensive profiling support controlled by `DEBUG.PROFILER` configuration. Captures CPU/CUDA activity traces for performance analysis via TensorBoard.
+- **Configurable Compilation**: New `AUG.GPU_COMPILE` configuration section enables JIT compilation with configurable backend and mode settings.
+
+### Performance
+- **Kernel Fusion**: Expected significant throughput increase through reduced kernel launch overhead and intermediate memory transfers. Addresses dual-constraint bottleneck of CPU-bound orchestration and GPU memory bandwidth.
+
 ## [Unreleased]
 
 ### Added

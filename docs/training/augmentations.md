@@ -28,6 +28,43 @@ Most augmentations have both CPU (`linnaeus.aug.cpu.*`) and GPU (`linnaeus.aug.g
 
 The `AugmentationPipelineFactory` (`linnaeus.aug.factory.py`) creates the appropriate single-sample pipeline based on the configuration.
 
+### High-Performance GPU Augmentations with `torch.compile`
+
+When using GPU augmentations (`AUG.PIPELINE_DEVICE: 'gpu'`), linnaeus supports JIT compilation via PyTorch's `torch.compile` to dramatically improve performance. This feature fuses multiple small CUDA kernels into optimized single kernels, addressing two key bottlenecks:
+
+1. **CPU Dispatch Overhead**: Reduces the number of kernel launches required
+2. **GPU Memory Bandwidth**: Keeps intermediate tensors in registers/cache instead of writing to VRAM between operations
+
+#### Configuration
+
+Enable kernel fusion with the `AUG.GPU_COMPILE` configuration:
+
+```yaml
+AUG:
+  PIPELINE_DEVICE: 'gpu'
+  GPU_COMPILE:
+    ENABLED: True           # Enable torch.compile for GPU augmentations
+    BACKEND: 'inductor'     # Compilation backend (default: inductor)
+    MODE: 'default'         # Compilation mode: 'default', 'reduce-overhead', or 'max-autotune'
+```
+
+#### Performance Impact
+
+With kernel fusion enabled:
+- **Reduced CPU Overhead**: Fewer kernel launches mean less CPU time spent orchestrating GPU work
+- **Improved GPU Utilization**: Expected increase from ~55% to >80% on memory-bandwidth-limited workloads
+- **Higher Throughput**: Significant samples/second improvement, especially on high-end GPUs
+
+#### Compilation Modes
+
+- `default`: Balanced compilation with reasonable compile time
+- `reduce-overhead`: Focuses on minimizing kernel launch overhead (recommended for production)
+- `max-autotune`: Exhaustive optimization search (longer compile time but potentially best performance)
+
+#### Fallback Behavior
+
+If compilation fails (e.g., due to unsupported operations), the pipeline automatically falls back to eager mode execution with a warning in the logs.
+
 ## Selective Mixup and CutMix
 
 ### Overview
