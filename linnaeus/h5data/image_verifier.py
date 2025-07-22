@@ -133,9 +133,6 @@ class ImageVerifier:
         else:
             filename = img_id_str
 
-        # Always normalize the filename to lowercase to handle case-sensitive filesystems
-        # when file_extension is empty and actual files have mixed case extensions
-        filename = filename.lower()
         return self.images_dir / filename
 
     def generate_report(
