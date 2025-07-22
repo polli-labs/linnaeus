@@ -298,6 +298,175 @@ If missing images are found, the report includes their identifiers and indices:
 +
 +These settings can be specified in your YAML file or passed as command-line overrides (`--opts`).
 +
++### Cache Optimization and Avoiding Thrashing
++
++A critical but subtle aspect of tuning the prefetch system is ensuring that your memory cache can support the in-flight data without thrashing. **Cache thrashing** occurs when the total memory footprint of batches waiting in the preprocessing queue exceeds the available cache size, causing recently cached data to be evicted before it's needed.
++
++#### Understanding the Problem
++
++The prefetch pipeline works as follows:
++1. I/O threads read raw data and place it in the `MemoryCache` 
++2. Batch indices are queued in the preprocessing pipeline
++3. Augmentation threads later retrieve the raw data from cache to apply transforms
++
++If `BATCH_CONCURRENCY` is too high relative to `MEM_CACHE_SIZE`, this can happen:
++- I/O threads quickly read many batches (up to `BATCH_CONCURRENCY` worth)
++- The cache fills up and starts evicting old data (LRU policy)
++- When augmentation threads try to process the first batches, their data has already been evicted
++- This forces expensive re-reads from disk, defeating the cache's purpose
++
++#### The Golden Rule
++
++**`MEM_CACHE_SIZE` must be comfortably larger than the total memory footprint of all batches held in the preprocessing queue.**
++
++Calculate your in-flight memory requirements:
++```
++In-flight memory ≈ BATCH_CONCURRENCY × batch_size × avg_raw_sample_size
++```
++
++For typical RGB images at 384×384 resolution:
++```
++avg_raw_sample_size ≈ 3 × 384 × 384 × 1 byte = ~440 KB
++```
++
++#### Tuning Guidelines
++
++**Safe BATCH_CONCURRENCY sizing:**
++- Start with `BATCH_CONCURRENCY = 8-16` for most setups
++- Ensure in-flight memory is <10% of your `MEM_CACHE_SIZE`
++- Monitor cache hit rates in the logs to detect thrashing
++
++**Example calculation for safety check:**
++```yaml
++BATCH_CONCURRENCY: 8
++batch_size: 64
++# In-flight memory ≈ 8 × 64 × 440KB = ~226MB
++MEM_CACHE_SIZE: 21474836480  # 20GB >> 226MB ✓ Safe
++```
++
++**Warning signs of cache thrashing:**
++- High cache miss rates in monitor logs
++- Unexpectedly slow data loading despite fast storage
++- `PreprocThrpt` (preprocessing throughput) lower than expected
++
++### Advanced Pipeline Monitoring and Bottleneck Detection
++
++As of v0.1.4, Linnaeus includes comprehensive pipeline monitoring that provides real-time insights into performance bottlenecks. The enhanced monitoring system reports interval-based metrics that help you identify exactly where pipeline stalls occur and make data-driven tuning decisions.
++
++#### Understanding the New Monitor Log Format
++
++The data pipeline monitor now provides a compact, information-dense log line every monitoring interval (default: 120 seconds):
++
++```
++[h5data] Monitor | Q(B/P/R): 12/12/24 | Cache(H/M/E): 98%/2%/0 | Size: 15.8/16.0GB | Tput(IO/H): 355.2/354.8 it/s | Wait(Main/Pre/IO): 450/20/5 ms/s
++```
++
++**Legend:**
++- **`Q(B/P/R)`**: Queue depths for **B**atch Index, **P**reprocess, and **R**eady (Processed) queues
++- **`Cache(H/M/E)`**: Cache statistics as percentages for **H**its, **M**isses, and **E**victions over the last interval
++- **`Size`**: Current memory usage vs. capacity of the `MEM_CACHE_SIZE`
++- **`Tput(IO/H)`**: Interval-based **T**hrough**put** in items/sec for **I/O** and **H**andoff stages
++- **`Wait(Main/Pre/IO)`**: Wait times in `ms/s` for the **Main** thread, **Pre**process threads, and **I/O** manager thread
++
++#### Using Wait Times for Performance Tuning
++
++The wait time metrics (`Wait(Main/Pre/IO)`) are the key bottleneck indicators. They measure thread idleness in **milliseconds of wait time per second of wall time (ms/s)**. A value of 1000 ms/s means the thread was blocked 100% of the time.
++
++| High Wait Time | Bottleneck Location | Tuning Action |
++|----------------|-------------------|---------------|
++| **Main** | GPU is starved - entire data pipeline is slow | Increase `NUM_IO_THREADS`, consider GPU mode |
++| **Pre** | I/O stage is the bottleneck - raw data isn't being read fast enough | Increase `NUM_IO_THREADS`, increase `MEM_CACHE_SIZE` |
++| **IO** | Handoff stage is the bottleneck - raw data is read but can't be processed | Increase `NUM_PREPROCESS_THREADS`, increase `MAX_PROCESSED_BATCHES` |
++
++#### Interpreting Healthy vs. Problematic Metrics
++
++**Healthy Pipeline Indicators:**
++- `Wait(Main)` < 100 ms/s: GPU stays fed
++- `Cache(H/M/E)` showing >90% hit rate: Cache is effective
++- `Tput(IO/H)` values are similar: Balanced pipeline stages
++- Queues at reasonable levels (not empty, not maxed out)
++
++**Warning Signs:**
++- `Wait(Main)` > 500 ms/s: GPU starvation, increase throughput
++- `Cache(H/M/E)` showing <70% hit rate: Possible cache thrashing
++- Large gap between `Tput(IO)` and `Tput(H)`: Stage imbalance
++- `Wait(Pre)` or `Wait(IO)` > 200 ms/s: Specific stage bottleneck
++
++#### Interval-Based vs. Cumulative Metrics
++
++Unlike the previous monitoring system that showed cumulative averages since the start of training, the new system reports **interval-based metrics** calculated over each monitoring period. This provides:
++
++- **Real-time performance visibility**: See current pipeline state, not historical averages
++- **Accurate bottleneck detection**: Identify transient issues or load spikes
++- **Meaningful cache statistics**: Hit/miss rates over the last interval reflect current cache effectiveness
++
++This makes the monitoring data immediately actionable for performance tuning decisions.
++
++## High-Performance GPU Augmentation Pipeline
++
++As of v0.1.3, Linnaeus supports a revolutionary **batch-oriented GPU augmentation** mode that dramatically reduces Python overhead and maximizes throughput on high-end training systems.
++
++### GPU vs CPU Augmentation Modes
++
++The augmentation execution is controlled by the `AUG.PIPELINE_DEVICE` configuration parameter:
++
++**CPU Mode (`AUG.PIPELINE_DEVICE: "cpu"`):**
++- Traditional approach: augmentations applied per-sample by worker threads before batch collation
++- Heavy use of `NUM_PREPROCESS_THREADS` for parallel single-sample transforms
++- Suitable for most training scenarios and provides backward compatibility
++
++**GPU Mode (`AUG.PIPELINE_DEVICE: "gpu"`):**
++- Revolutionary approach: augmentations applied to entire batches on GPU within `collate_fn`
++- Prefetching loop becomes a high-speed pass-through for raw data
++- Dramatically reduced Python overhead and improved throughput
++- Ideal for high-end GPU systems with fast storage
++
++### Data Flow Architecture
++
++#### CPU Mode Flow
++```
++Raw Data → I/O Threads → Memory Cache → CPU Transform Threads → Collate → GPU Transfer → Model
++```
++
++#### GPU Mode Flow
++```
++Raw Data → I/O Threads → Memory Cache → Pass-through → Collate → GPU Transfer → GPU Augmentation → Model
++```
++
++### Performance Tuning for GPU Mode
++
++When using `AUG.PIPELINE_DEVICE: "gpu"`, the performance characteristics change significantly:
++
++| Parameter | CPU Mode Importance | GPU Mode Importance | GPU Mode Recommendation |
++|-----------|-------------------|-------------------|----------------------|
++| `NUM_IO_THREADS` | High | **Critical** | 16-32 for high-end storage |
++| `NUM_PREPROCESS_THREADS` | **Critical** | Minimal | 2-4 (only for pass-through) |
++| `MEM_CACHE_SIZE` | High | **Critical** | Scale with batch concurrency |
++| `BATCH_CONCURRENCY` | Medium | High | 8-16 (respect cache limits) |
++
++**Example GPU Mode Configuration:**
++```yaml
++AUG:
++  PIPELINE_DEVICE: "gpu"  # Enable GPU augmentation pipeline
++  USE_OPENCV: False       # Ensure GPU pipeline is selected
++  
++DATA:
++  PREFETCH:
++    NUM_IO_THREADS: 16          # Maximize I/O throughput
++    NUM_PREPROCESS_THREADS: 2   # Minimal for pass-through
++    BATCH_CONCURRENCY: 12       # Higher pipeline depth
++    MEM_CACHE_SIZE: 53687091200 # 50GB cache
++```
++
++### Advanced Implementation Details
++
++For developers extending the framework, the GPU pipeline uses the `is_batch_oriented_gpu_pipeline` property to signal its behavior to the data loading system. This property is automatically detected by:
++
++1. **BasePrefetchingDataset**: Switches to pass-through mode for raw data
++2. **H5DataLoader**: Applies batch augmentations after GPU transfer
++
++The GPU augmentation occurs in the `collate_fn` after all tensors are moved to GPU but before mixing operations (mixup/cutmix).
++
 +## GroupedBatchSampler
 
 The `GroupedBatchSampler` is a specialized sampler used in Polli Linnaeus, particularly effective for tasks requiring balanced batches or specific within-batch structures, such as applying mixup or other augmentations to samples from the same group.

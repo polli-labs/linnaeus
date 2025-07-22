@@ -35,6 +35,7 @@ import numpy as np
 import torch
 import torch.backends.cudnn as cudnn
 import torch.distributed as dist
+import torch.multiprocessing as mp
 from torch.nn.parallel import DistributedDataParallel as DDP
 
 import linnaeus.h5data.base_prefetching_dataset as bpd
@@ -326,7 +327,6 @@ def parse_option(args_list=None):
 
     eval_config = None
 
-    print(f"[main.py] Final merged config:\n{config}")
     return config, eval_config, args
 
 
@@ -364,6 +364,26 @@ def main(config, args=None):
     global _main_logger
     _main_logger = logger
     logger.info("[main] Initialized emergency cleanup system")
+
+    # --- Multiprocessing Configuration ---
+    # Set safe defaults for tensor sharing and start method for CUDA compatibility.
+    # Note: Linnaeus uses ThreadPoolExecutor for all concurrent operations, so these settings
+    # primarily affect PyTorch's internal operations and distributed training setup.
+
+    try:
+        torch.multiprocessing.set_sharing_strategy("file_system")
+        logger.info("Set multiprocessing sharing strategy to 'file_system' for CUDA safety.")
+    except RuntimeError:
+        logger.warning("Could not set sharing strategy to 'file_system'. It may be already set or unsupported.")
+
+    if mp.get_start_method(allow_none=True) != "spawn":
+        try:
+            mp.set_start_method("spawn", force=True)
+            logger.info("Set multiprocessing start method to 'spawn' for CUDA safety.")
+        except (ValueError, RuntimeError) as e:
+            logger.warning(f"Failed to set start method to 'spawn': {e}. Using system default.")
+    else:
+        logger.info("Multiprocessing start method already set to 'spawn'.")
 
     register_slurm_signal_handlers()
 
@@ -1956,6 +1976,13 @@ if __name__ == "__main__":
         else:
             rank = 0
             world_size = 1
+
+        # Log the final merged config only from rank 0
+        if rank == 0:
+            logger_for_config = get_main_logger()
+            logger_for_config.info("================ Final Merged Configuration ================")
+            logger_for_config.info(f"\n{config}")
+            logger_for_config.info("==========================================================")
 
         local_rank = int(os.environ.get("LOCAL_RANK", "0"))
 

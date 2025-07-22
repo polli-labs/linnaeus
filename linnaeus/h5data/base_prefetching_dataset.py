@@ -22,7 +22,7 @@ class BasePrefetchingDataset(ABC):
     """
     BasePrefetchingDataset
     -----------------------
-    A multi-threaded, proactive dataset pipeline that stages data through three bounded queues:
+    A multi-threaded/multi-process proactive dataset pipeline that stages data through three bounded queues:
 
       1) _batch_index_queue
          - Receives sub-batches of indices from a short-lived "batch feeder" thread
@@ -40,7 +40,8 @@ class BasePrefetchingDataset(ABC):
 
       3) _processed_batch_queue
          - The "preprocess manager thread" reads raw data from _preprocess_queue =>
-           applies single-sample augmentation or transforms => enqueues the final
+           applies single-sample augmentation or transforms using a ProcessPoolExecutor
+           (to bypass the GIL for CPU-bound augmentations) => enqueues the final
            processed batch onto _processed_batch_queue.  If it receives None =>
            forward None -> signals end-of-epoch. If STOP_SENTINEL => forward it
            and stop.
@@ -155,10 +156,24 @@ class BasePrefetchingDataset(ABC):
         self._monitor_thread = None
 
         self._io_threadpool = None
-        self._transform_threadpool = ThreadPoolExecutor(max_workers=self.num_preprocess_threads)
+        # Use ThreadPoolExecutor. Heavy augmentations in OpenCV/Pillow release the GIL.
+        self._transform_threadpool = ThreadPoolExecutor(
+            max_workers=self.num_preprocess_threads, thread_name_prefix=f"{self.__class__.__name__}_TransformThread"
+        )
 
         # Thread shutdown management
         self._shutdown_event = threading.Event()
+
+        # Wait time tracking for pipeline monitoring
+        self._metric_lock = threading.Lock()  # Separate lock for metrics
+        self._main_thread_wait_time = 0.0
+        self._preprocess_thread_wait_time = 0.0
+        self._io_thread_wait_time = 0.0
+
+        # Interval-based monitoring state
+        self._last_monitor_time = time.monotonic()
+        self._last_prefetch_count = 0
+        self._last_preprocess_count = 0
 
         # Counters, metrics
         self.start_time = time.time()
@@ -282,8 +297,16 @@ class BasePrefetchingDataset(ABC):
 
         try:
             # Use a timeout to prevent blocking indefinitely if the pipeline is shutting down
+            get_start_time = time.monotonic()
             batch = self._processed_batch_queue.get(block=True, timeout=0.1)  # Short timeout
+            wait_time = time.monotonic() - get_start_time
+            with self._metric_lock:
+                self._main_thread_wait_time += wait_time
         except queue.Empty:
+            # Even timeouts count as wait time for the main thread since it represents starvation
+            wait_time = time.monotonic() - get_start_time
+            with self._metric_lock:
+                self._main_thread_wait_time += wait_time
             # Queue is empty. Check if shutdown is requested.
             if self._shutdown_event.is_set():
                 self.main_logger.debug(f"[{class_name}] fetch_next_batch() got Empty queue during shutdown, returning STOP_SENTINEL.")
@@ -369,7 +392,7 @@ class BasePrefetchingDataset(ABC):
 
         if self._transform_threadpool:
             self.main_logger.debug(f"[{class_name}] Shutting down transform thread pool...")
-            self._transform_threadpool.shutdown(wait=True, cancel_futures=True)
+            self._transform_threadpool.shutdown(wait=True)  # cancel_futures=True is default in wait=True
             self.main_logger.debug(f"[{class_name}] Transform thread pool shut down.")
         self._transform_threadpool = None
 
@@ -407,52 +430,70 @@ class BasePrefetchingDataset(ABC):
             self._monitor_thread.start()
 
     def _monitor_loop(self):
-        """Periodically logs queue sizes and other metrics."""
+        """Periodically logs queue sizes, wait times, and other interval-based metrics."""
         class_name = self.__class__.__name__
         self.main_logger.info(f"[{class_name}] Monitor thread started. Logging interval: {self.monitor_interval}s.")
         try:
-            while not self._shutdown_event.wait(self.monitor_interval):  # Wait for interval or shutdown
+            while not self._shutdown_event.wait(self.monitor_interval):
                 if self._shutdown_event.is_set():
                     break
 
-                # Log queue sizes
-                batch_idx_q_size = self._batch_index_queue.qsize()
-                preprocess_q_size = self._preprocess_queue.qsize()
-                processed_batch_q_size = self._processed_batch_queue.qsize()
+                with self._metric_lock:
+                    # Capture metrics and times atomically
+                    current_time = time.monotonic()
+                    interval_duration = current_time - self._last_monitor_time
+                    if interval_duration < 1e-6:
+                        continue
 
-                self.metrics["queue_depths"]["batch_index_q"].append(batch_idx_q_size)
-                self.metrics["queue_depths"]["preprocess_q"].append(preprocess_q_size)
-                self.metrics["queue_depths"]["processed_batch_q"].append(processed_batch_q_size)
+                    # --- Gather Stats for the Interval ---
+                    # Throughput
+                    interval_prefetched = self.prefetch_count - self._last_prefetch_count
+                    interval_preprocessed = self.preprocess_count - self._last_preprocess_count
+                    io_throughput = interval_prefetched / interval_duration
+                    handoff_throughput = interval_preprocessed / interval_duration
 
-                # Log cache metrics
-                cache_stats = self.prefetch_cache.get_stats()
-                self.metrics["cache_metrics"]["size"].append(cache_stats["size"])
-                self.metrics["cache_metrics"]["hits"] = cache_stats["hits"]
-                self.metrics["cache_metrics"]["misses"] = cache_stats["misses"]
-                self.metrics["cache_metrics"]["evictions"] = cache_stats["evictions"]
-                self.metrics["cache_metrics"]["memory_usage_bytes"] = cache_stats["memory_usage_bytes"]
+                    # Wait Times (ms/s)
+                    main_wait_ms_s = (self._main_thread_wait_time / interval_duration) * 1000
+                    preproc_wait_ms_s = (self._preprocess_thread_wait_time / interval_duration) * 1000
+                    io_wait_ms_s = (self._io_thread_wait_time / interval_duration) * 1000
 
-                # Calculate throughput (simple version: items per interval)
-                # More sophisticated throughput might require tracking items over time differently
-                current_time = time.time()
-                elapsed_time = current_time - self.start_time
+                    # Cache
+                    cache_stats = self.prefetch_cache.get_stats()
+                    interval_hits = cache_stats["hits"]
+                    interval_misses = cache_stats["misses"]
+                    interval_evictions = cache_stats["evictions"]
 
-                if elapsed_time > 0:
-                    prefetch_throughput = self.prefetch_count / elapsed_time
-                    preprocess_throughput = self.preprocess_count / elapsed_time
-                    self.metrics["throughput"]["prefetch"].append(prefetch_throughput)
-                    self.metrics["throughput"]["preprocess"].append(preprocess_throughput)
-                else:
-                    prefetch_throughput = 0
-                    preprocess_throughput = 0
+                    total_accesses = interval_hits + interval_misses
+                    hit_rate_pct = (interval_hits / total_accesses) * 100 if total_accesses > 0 else 0
+                    miss_rate_pct = (interval_misses / total_accesses) * 100 if total_accesses > 0 else 0
 
+                    # Queues
+                    b_q = self._batch_index_queue.qsize()
+                    p_q = self._preprocess_queue.qsize()
+                    r_q = self._processed_batch_queue.qsize()
+
+                    # Memory
+                    mem_used_gb = cache_stats["memory_usage_bytes"] / (1024**3)
+                    mem_cap_gb = cache_stats["memory_capacity_bytes"] / (1024**3)
+
+                    # --- Reset Interval Counters ---
+                    self._last_monitor_time = current_time
+                    self._last_prefetch_count = self.prefetch_count
+                    self._last_preprocess_count = self.preprocess_count
+                    self._main_thread_wait_time = 0.0
+                    self._preprocess_thread_wait_time = 0.0
+                    self._io_thread_wait_time = 0.0
+                    self.prefetch_cache.clear_stats()
+
+                # --- Format and Log ---
                 log_msg = (
-                    f"[{class_name}] Monitor: "
-                    f"BatchIdxQ={batch_idx_q_size}, PreprocQ={preprocess_q_size}, ProcessedQ={processed_batch_q_size} | "
-                    f"CacheSize={cache_stats['size']}, Hits={cache_stats['hits']}, Misses={cache_stats['misses']}, Evictions={cache_stats['evictions']}, MemUsage={cache_stats['memory_usage_bytes'] / (1024 * 1024):.2f}MB | "
-                    f"PrefetchThrpt={prefetch_throughput:.2f} items/s, PreprocThrpt={preprocess_throughput:.2f} items/s"
+                    f"Monitor | Q(B/P/R): {b_q}/{p_q}/{r_q} | "
+                    f"Cache(H/M/E): {hit_rate_pct:.0f}%/{miss_rate_pct:.0f}%/{interval_evictions} | "
+                    f"Size: {mem_used_gb:.1f}/{mem_cap_gb:.1f}GB | "
+                    f"Tput(IO/H): {io_throughput:.1f}/{handoff_throughput:.1f} it/s | "
+                    f"Wait(Main/Pre/IO): {main_wait_ms_s:.0f}/{preproc_wait_ms_s:.0f}/{io_wait_ms_s:.0f} ms/s"
                 )
-                self.main_logger.info(log_msg)
+                self.h5data_logger.info(log_msg)
 
         except Exception as e:
             self.main_logger.error(f"[{class_name}] Error in monitor loop: {e}", exc_info=True)
@@ -466,7 +507,6 @@ class BasePrefetchingDataset(ABC):
         """
         class_name = self.__class__.__name__
         self.main_logger.info(f"[{class_name}] Prefetch manager thread started.")
-        from concurrent.futures import ThreadPoolExecutor
 
         io_pool = None
         if self.num_io_threads > 0:  # Create pool only if needed
@@ -501,7 +541,7 @@ class BasePrefetchingDataset(ABC):
                     for idx_ in batch_indices:
                         if self._shutdown_event.is_set():
                             break  # Check before submitting
-                        if self.prefetch_cache.get(idx_) is None:
+                        if idx_ not in self.prefetch_cache:
                             # not in cache => read from disk/HDF5 in parallel
                             futures.append(io_pool.submit(self._read_and_cache_item, idx_))
 
@@ -518,14 +558,16 @@ class BasePrefetchingDataset(ABC):
                             self.main_logger.warning(f"[{class_name}] IO task timed out.")
                         except Exception as e:
                             self.main_logger.error(f"[{class_name}] Error in IO task: {e}", exc_info=True)
-                    
+
                     if completed_count != len(batch_indices):
-                        self.main_logger.warning(f"[{class_name}] Only {completed_count}/{len(batch_indices)} IO tasks completed successfully for the batch.")
+                        self.main_logger.warning(
+                            f"[{class_name}] Only {completed_count}/{len(batch_indices)} IO tasks completed successfully for the batch."
+                        )
                 else:  # Fallback to synchronous IO
                     for idx_ in batch_indices:
                         if self._shutdown_event.is_set():
                             break  # Check during synchronous operation
-                        if self.prefetch_cache.get(idx_) is None:
+                        if idx_ not in self.prefetch_cache:
                             self._read_and_cache_item(idx_)
 
                     if self._shutdown_event.is_set():
@@ -536,7 +578,11 @@ class BasePrefetchingDataset(ABC):
 
                 # Now we place the raw sub-batch indices into _preprocess_queue if not shutting down
                 if not self._shutdown_event.is_set():
+                    put_start_time = time.monotonic()
                     self._preprocess_queue.put(batch_indices)
+                    wait_time = time.monotonic() - put_start_time
+                    with self._metric_lock:
+                        self._io_thread_wait_time += wait_time
 
                 dt = time.time() - t0
                 self.h5data_logger.debug(f"[{class_name}] PrefetchManager: sub-batch {len(batch_indices)} read+cached in {dt:.2f}s")
@@ -564,11 +610,27 @@ class BasePrefetchingDataset(ABC):
         """
         class_name = self.__class__.__name__
         self.main_logger.info(f"[{class_name}] Preprocess manager thread started.")
+
+        # Determine if we are using a batch-oriented GPU pipeline
+        is_gpu_batch_pipeline = self.augmentation_pipeline is not None and getattr(
+            self.augmentation_pipeline, "is_batch_oriented_gpu_pipeline", False
+        )
+
+        if is_gpu_batch_pipeline:
+            self.main_logger.info(f"[{class_name}] Preprocess loop running in pass-through mode for GPU augmentation.")
+        else:
+            self.main_logger.info(f"[{class_name}] Preprocess loop running in CPU transform mode.")
+
         try:
             while not self._shutdown_event.is_set():  # Check shutdown event
                 try:
+                    get_start_time = time.monotonic()
                     b_indices = self._preprocess_queue.get(timeout=0.5)  # Use timeout to check shutdown_event regularly
+                    wait_time = time.monotonic() - get_start_time
+                    with self._metric_lock:
+                        self._preprocess_thread_wait_time += wait_time
                 except queue.Empty:
+                    # Note: timeout doesn't count as wait time since it's designed behavior
                     continue  # Loop back to check shutdown_event
 
                 if b_indices is STOP_SENTINEL or self._shutdown_event.is_set():
@@ -591,7 +653,7 @@ class BasePrefetchingDataset(ABC):
                 valid_indices_for_transform = []  # Keep track of which indices are processed
 
                 for idx_ in b_indices:
-                    item = self.prefetch_cache.get(idx_)  # get() also removes from cache
+                    item = self.prefetch_cache.pop(idx_)  # pop() removes from cache
                     if item is not None:
                         raw_batch.append(item)
                         valid_indices_for_transform.append(idx_)
@@ -606,17 +668,24 @@ class BasePrefetchingDataset(ABC):
                     )
                     continue
 
-                # Possibly run transforms in parallel
-                futures = [self._transform_threadpool.submit(self._transform_single, x) for x in raw_batch]
-                processed_batch_items = []
+                if is_gpu_batch_pipeline:
+                    # PASS-THROUGH MODE: Put the raw batch directly on the queue
+                    processed_batch_items = raw_batch
+                else:
+                    # CPU/SINGLE-SAMPLE MODE: Run transforms in parallel using the persistent ThreadPoolExecutor
+                    futures = [
+                        self._transform_threadpool.submit(BasePrefetchingDataset._transform_single, x, self.augmentation_pipeline)
+                        for x in raw_batch
+                    ]
+                    processed_batch_items = []
 
-                for fut in futures:
-                    try:
-                        processed_batch_items.append(fut.result(timeout=10.0))  # Add timeout
-                    except concurrent.futures.TimeoutError:
-                        self.main_logger.warning(f"[{class_name}] Transform task timed out.")
-                    except Exception as e:
-                        self.main_logger.error(f"[{class_name}] Transform task error: {e}", exc_info=True)
+                    for fut in concurrent.futures.as_completed(futures):
+                        try:
+                            processed_batch_items.append(fut.result(timeout=10.0))  # Add timeout
+                        except concurrent.futures.TimeoutError:
+                            self.main_logger.warning(f"[{class_name}] Transform task timed out.")
+                        except Exception as e:
+                            self.main_logger.error(f"[{class_name}] Transform task error: {e}", exc_info=True)
 
                 if not processed_batch_items:  # If all transform tasks failed
                     self.h5data_logger.debug(
@@ -631,23 +700,32 @@ class BasePrefetchingDataset(ABC):
                 self.preprocess_count += len(processed_batch_items)
                 dt = time.time() - t0
                 self.metrics["preprocess_times"].append(dt)
+                log_mode = "Pass-through" if is_gpu_batch_pipeline else "Preprocessed"
                 self.h5data_logger.debug(
-                    f"[{class_name}] PreprocessManager: sub-batch of {len(valid_indices_for_transform)} items preprocessed in {dt:.2f}s"
+                    f"[{class_name}] PreprocessManager: {log_mode} sub-batch of {len(valid_indices_for_transform)} items in {dt:.2f}s"
                 )
+        except Exception as e:
+            self.main_logger.error(f"[{class_name}] Unhandled exception in preprocess manager loop: {e}", exc_info=True)
         finally:
             self.main_logger.info(f"[{class_name}] Preprocess manager thread exited.")
 
-    def _transform_single(self, sample):
+    @staticmethod
+    def _transform_single(sample, augmentation_pipeline):
         """
         Applies single-sample augmentation if defined.
-        Expected input sample tuple:
-          (image, targets, aux_info, group_id, subset_ids, meta_validity_mask)
-        If augmentation is defined, applies it to image, targets, and aux_info.
-        Otherwise, returns the sample unchanged.
+        This is a static method to make it picklable for multiprocessing.
+
+        Args:
+            sample (tuple): The input sample data.
+                Expected tuple: (image, targets, aux_info, group_id, subset_ids, meta_validity_mask)
+            augmentation_pipeline (AugmentationPipeline or None): The augmentation pipeline to apply.
+
+        Returns:
+            tuple: The transformed sample.
         """
-        if self.augmentation_pipeline is not None:
+        if augmentation_pipeline is not None:
             img_t, tgt_t, aux_t, g_id, subs_id, meta_mask = sample
-            img_t, tgt_t, aux_t = self.augmentation_pipeline((img_t, tgt_t, aux_t))
+            img_t, tgt_t, aux_t = augmentation_pipeline((img_t, tgt_t, aux_t))
             return (img_t, tgt_t, aux_t, g_id, subs_id, meta_mask)
         else:
             return sample

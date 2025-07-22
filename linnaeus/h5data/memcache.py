@@ -82,10 +82,42 @@ class MemoryCache:
             self.current_size += item_size
             # self.h5data_logger.debug(f"Added item to cache: {key}. New size: {self.current_size}/{self.max_size}")
 
+    def __contains__(self, key):
+        """Check if a key exists in the cache without affecting LRU order.
+
+        Thread-safe non-destructive operation for cache existence checks.
+
+        Args:
+            key: Cache key
+
+        Returns:
+            bool: True if key exists in cache, False otherwise
+        """
+        with self.lock:
+            return key in self.cache
+
     def get(self, key):
+        """Retrieve an item from the cache without removing it.
+
+        Thread-safe non-destructive operation that moves item to most recently used.
+
+        Args:
+            key: Cache key
+
+        Returns:
+            Cached value or None if key not found
+        """
+        with self.lock:
+            if key in self.cache:
+                # Move to end (most recently used) without removing
+                self.cache.move_to_end(key)
+                return self.cache[key]
+            return None
+
+    def pop(self, key):
         """Retrieve and remove an item from the cache.
 
-        Thread-safe operation that updates access statistics.
+        Thread-safe destructive operation that updates access statistics.
 
         Args:
             key: Cache key
@@ -145,6 +177,17 @@ class MemoryCache:
         if self.access_count % log_interval == 0:
             if check_debug_flag(config, "DEBUG.DATALOADER"):
                 self.log_stats()
+
+    def clear_stats(self):
+        """Reset all statistics counters.
+
+        Thread-safe operation to reset hit/miss/eviction counters for interval-based monitoring.
+        """
+        with self.lock:
+            self.hit_count = 0
+            self.miss_count = 0
+            self.eviction_count = 0
+            self.access_count = 0
 
     def get_stats(self) -> dict:
         """

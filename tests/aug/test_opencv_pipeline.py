@@ -20,7 +20,7 @@ def mock_config():
     cfg = CN()
     cfg.AUG = CN()
     cfg.AUG.USE_OPENCV = True
-    cfg.AUG.SINGLE_AUG_DEVICE = "cpu"
+    cfg.AUG.PIPELINE_DEVICE = "cpu"
     cfg.AUG.AUTOAUG = CN()
     cfg.AUG.AUTOAUG.POLICY = "original"
     cfg.AUG.AUTOAUG.COLOR_JITTER = 0.4

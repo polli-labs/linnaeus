@@ -121,17 +121,18 @@ class ImageVerifier:
 
     def _get_image_path(self, img_id: str) -> Path:
         """Consistently construct the full image path."""
-        # Ensure img_id is decoded string (not bytes)
+        # Ensure img_id is decoded string (not bytes) and strip whitespace
         if isinstance(img_id, bytes):
-            img_id_str = img_id.decode("utf-8", errors="replace")
+            img_id_str = img_id.decode("utf-8", errors="replace").strip()
         else:
-            img_id_str = str(img_id)
+            img_id_str = str(img_id).strip()
 
         # Append extension only if necessary
         if self.file_extension and not img_id_str.lower().endswith(self.file_extension.lower()):
             filename = f"{img_id_str}{self.file_extension}"
         else:
             filename = img_id_str
+
         return self.images_dir / filename
 
     def generate_report(

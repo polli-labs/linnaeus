@@ -23,7 +23,7 @@ Core augmentation logic is defined by abstract base classes in `linnaeus.aug.bas
 
 Most augmentations have both CPU (`linnaeus.aug.cpu.*`) and GPU (`linnaeus.aug.gpu.*`) implementations.
 
--   **Single-sample augmentations** (AutoAugment, RandomErasing) are typically run on the CPU as part of the data preprocessing pipeline managed by `PrefetchingH5Dataset` or `PrefetchingHybridDataset`. The choice is configurable via `AUG.SINGLE_AUG_DEVICE`.
+-   **Single-sample augmentations** (AutoAugment, RandomErasing) can run on CPU (per-sample during preprocessing) or GPU (batch-oriented within collate_fn). The choice is configurable via `AUG.PIPELINE_DEVICE`. GPU mode offers dramatically improved throughput by eliminating Python overhead.
 -   **Batch-wise augmentations** (SelectiveMixup, SelectiveCutMix) can run on either CPU or GPU, configured via `SCHEDULE.MIX.USE_GPU`. GPU is generally preferred for speed when tensors are already on the GPU after collation.
 
 The `AugmentationPipelineFactory` (`linnaeus.aug.factory.py`) creates the appropriate single-sample pipeline based on the configuration.
@@ -124,7 +124,7 @@ When using taxonomy-aware components (like `TaxonomyAwareLabelSmoothingCE` or `H
 
 ```yaml
 AUG:
-  SINGLE_AUG_DEVICE: "cpu" # or "gpu"
+  PIPELINE_DEVICE: "cpu" # "cpu" (per-sample) or "gpu" (batch-oriented, high-performance)
   AUTOAUG:
     POLICY: 'originalr'    # Choose an AutoAugment policy
     COLOR_JITTER: 0.4

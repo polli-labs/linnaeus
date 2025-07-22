@@ -746,6 +746,7 @@ def build_loaders(
         ops_schedule=None,  # Will be set later in main.py
         main_logger=main_logger,
         h5data_logger=h5data_logger,
+        augmentation_pipeline=getattr(dataset_train, "augmentation_pipeline", None),
         config=config,  # Pass config for debug checks
     )
 
@@ -769,11 +770,17 @@ def build_loaders(
             num_workers=config.DATA.NUM_WORKERS,
             pin_memory=config.DATA.PIN_MEMORY,
             use_gpu=(torch.cuda.is_available()),
+            augmentation_pipeline=None,  # No augmentation on validation
         )
     else:
         # If val is empty, build a dummy DataLoader with an empty batch sampler.
         data_loader_val = H5DataLoader(
-            dataset_val, batch_sampler=[], num_workers=0, pin_memory=config.DATA.PIN_MEMORY, use_gpu=(torch.cuda.is_available())
+            dataset_val,
+            batch_sampler=[],
+            num_workers=0,
+            pin_memory=config.DATA.PIN_MEMORY,
+            use_gpu=(torch.cuda.is_available()),
+            augmentation_pipeline=None,  # No augmentation on validation
         )
 
     main_logger.info("Completed dataloader building.")
