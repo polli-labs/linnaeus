@@ -46,6 +46,9 @@ dependencies = [
     "python-dateutil",
 ]
 
+[project.scripts]
+linnaeus-prof = "linnaeus.profiling.cli:main"
+
 [project.optional-dependencies]
 dev = [
     "pytest",
@@ -58,6 +61,10 @@ inference = [
     "polli-typus>=0.1.10",
     "uvicorn[standard]",
     "pydantic",
+]
+profiling = [
+    "tensorboard",
+    "torch-tb-profiler",
 ]
 
 cuda-fa = [
