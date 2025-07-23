@@ -400,6 +400,7 @@ _C.AUG.RANDOM_ERASE = CN()
 _C.AUG.RANDOM_ERASE.PROB = 0.25
 _C.AUG.RANDOM_ERASE.MODE = "pixel"
 _C.AUG.RANDOM_ERASE.COUNT = 1
+_C.AUG.RANDOM_ERASE.MAX_COUNT = 1  # Alias for COUNT for backward compatibility
 _C.AUG.RANDOM_ERASE.AREA_RANGE = [0.02, 0.4]  # Erase between 2% and 40% of the image area
 _C.AUG.RANDOM_ERASE.ASPECT_RATIO = [0.3, 3.3]  # Aspect ratio range for the erased region
 

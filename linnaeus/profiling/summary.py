@@ -33,6 +33,8 @@ class ProfilerMetrics:
     total_kernels: int
     trace_duration_ms: float
     steps_profiled: int
+    batch_aug_time_ms: float = 0.0
+    mixing_time_ms: float = 0.0
 
 
 @dataclass
@@ -199,6 +201,8 @@ def analyze_profiler_traces(trace_files: List[Path]) -> ProfilerMetrics:
     total_kernel_count = 0
     total_duration = 0.0
     steps_profiled = 0
+    total_batch_aug_time = 0.0
+    total_mixing_time = 0.0
     
     for trace_file in trace_files:
         with open(trace_file, 'r') as f:
@@ -238,6 +242,18 @@ def analyze_profiler_traces(trace_files: List[Path]) -> ProfilerMetrics:
             if 'dur' in event:
                 total_memory_time += event['dur'] / 1000.0
         
+        # Extract custom profiler regions
+        batch_aug_events = [e for e in events if e.get('name') == 'gpu_batch_augmentations']
+        mixing_events = [e for e in events if e.get('name') == 'gpu_selective_mixing']
+        
+        for event in batch_aug_events:
+            if 'dur' in event:
+                total_batch_aug_time += event['dur'] / 1000.0
+        
+        for event in mixing_events:
+            if 'dur' in event:
+                total_mixing_time += event['dur'] / 1000.0
+        
         # Calculate total trace duration
         if events:
             timestamps = [e.get('ts', 0) for e in events if 'ts' in e]
@@ -264,7 +280,9 @@ def analyze_profiler_traces(trace_files: List[Path]) -> ProfilerMetrics:
         kernel_count=total_kernel_count,
         total_kernels=total_kernel_count,
         trace_duration_ms=total_duration,
-        steps_profiled=steps_profiled
+        steps_profiled=steps_profiled,
+        batch_aug_time_ms=total_batch_aug_time,
+        mixing_time_ms=total_mixing_time
     )
 
 
@@ -310,6 +328,12 @@ def format_pretty(summary: RunSummary) -> Panel:
         metrics_table.add_row("Kernel Count", str(m.kernel_count))
         metrics_table.add_row("Steps Profiled", str(m.steps_profiled))
         metrics_table.add_row("Trace Duration", f"{m.trace_duration_ms:.1f} ms")
+        
+        # Add new augmentation-specific metrics
+        if m.batch_aug_time_ms > 0:
+            metrics_table.add_row("Batch Aug Time", f"{m.batch_aug_time_ms:.1f} ms")
+        if m.mixing_time_ms > 0:
+            metrics_table.add_row("Mixing Time", f"{m.mixing_time_ms:.1f} ms")
         
         content.append(metrics_table)
     elif summary.has_profiler_traces:
@@ -380,9 +404,22 @@ def format_markdown(summary: RunSummary) -> str:
             f"- **Memory Bandwidth**: {m.memory_bandwidth_pct:.1f}%",
             f"- **Kernel Count**: {m.kernel_count}",
             f"- **Steps Profiled**: {m.steps_profiled}",
-            f"- **Trace Duration**: {m.trace_duration_ms:.1f} ms",
-            ""
+            f"- **Trace Duration**: {m.trace_duration_ms:.1f} ms"
         ])
+        
+        # Add augmentation-specific metrics if present
+        if m.batch_aug_time_ms > 0 or m.mixing_time_ms > 0:
+            lines.extend([
+                "",
+                "### Augmentation Breakdown",
+                ""
+            ])
+            if m.batch_aug_time_ms > 0:
+                lines.append(f"- **Batch Augmentations**: {m.batch_aug_time_ms:.1f} ms")
+            if m.mixing_time_ms > 0:
+                lines.append(f"- **Selective Mixing**: {m.mixing_time_ms:.1f} ms")
+        
+        lines.append("")
     elif summary.has_profiler_traces:
         lines.extend([
             "## Profiler Metrics",

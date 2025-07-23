@@ -77,6 +77,14 @@ rl = [
     "gymnasium>=0.29.1",
 ]
 
+all = [
+  # re-export everything so 'uv pip install .[all]' pulls it in one go. cuda-fa excluded (system-dependent, needs separate toolchain)
+  "linnaeus[dev]",
+  "linnaeus[inference]",
+  "linnaeus[profiling]",
+  "linnaeus[rl]",
+]
+
 [project.urls]
 Homepage = "https://github.com/polli-labs/linnaeus"
 Issues = "https://github.com/polli-labs/linnaeus/issues"

@@ -144,7 +144,9 @@ def generate_summary(config_diffs: Dict[str, MetricDiff],
         perf_metrics = {
             'avg_step_time_ms': 'Average Step Time',
             'gpu_utilization_pct': 'GPU Utilization',
-            'memory_bandwidth_pct': 'Memory Bandwidth Usage'
+            'memory_bandwidth_pct': 'Memory Bandwidth Usage',
+            'batch_aug_time_ms': 'Batch Augmentation Time',
+            'mixing_time_ms': 'Selective Mixing Time'
         }
         
         for key, display_name in perf_metrics.items():
