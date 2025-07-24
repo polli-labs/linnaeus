@@ -6,8 +6,8 @@ import torch
 import torch.nn as nn
 
 from linnaeus.aug.base import AugmentationPipeline
-from linnaeus.aug.gpu.traceable_autoaug import TraceableGPUAutoAugment
 from linnaeus.aug.gpu.random_erasing import GPURandomErasing
+from linnaeus.aug.gpu.traceable_autoaug import TraceableGPUAutoAugment
 from linnaeus.utils.logging.logger import get_main_logger
 
 logger = get_main_logger()
@@ -38,11 +38,11 @@ class GPUAugmentationPipeline(AugmentationPipeline):
         super().__init__(config)
         logger.info("Initializing GPUAugmentationPipeline")
         self.config = config
-        
+
         # Create instances of augmentation modules
         self.autoaug = self._create_traceable_autoaug()
         self.random_erasing = self._create_random_erasing()
-        
+
         # Define the entire pipeline as a single nn.Module
         self.pipeline = nn.Sequential(self.autoaug, self.random_erasing)
 
@@ -51,11 +51,7 @@ class GPUAugmentationPipeline(AugmentationPipeline):
             logger.info(f"torch.compile for GPU augmentation pipeline is ENABLED (mode: {config.AUG.GPU_COMPILE.MODE}).")
             try:
                 # Compile the sequential module
-                self.pipeline = torch.compile(
-                    self.pipeline,
-                    backend=config.AUG.GPU_COMPILE.BACKEND,
-                    mode=config.AUG.GPU_COMPILE.MODE
-                )
+                self.pipeline = torch.compile(self.pipeline, backend=config.AUG.GPU_COMPILE.BACKEND, mode=config.AUG.GPU_COMPILE.MODE)
                 logger.info("Successfully compiled the sequential GPU augmentation pipeline.")
             except Exception as e:
                 logger.error(f"Failed to torch.compile augmentation pipeline: {e}. Falling back to eager mode.")
