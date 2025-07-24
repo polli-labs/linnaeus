@@ -1,0 +1,16 @@
+# v0.1.4e Optimized Configuration  
+# Uses new v0.1.4e code with Kornia integration and torch.compile ENABLED
+# for kernel fusion testing
+
+BASE: ['configs/experiments/v014e_baseline.yaml']
+
+EXPERIMENT:
+  NAME: 'v014e_optimized'
+  TAGS: ['v014e', 'optimized', 'kornia', 'compile', 'profiling']
+
+# Augmentation configuration - Kornia-based pipeline with compilation ENABLED
+AUG:
+  GPU_COMPILE:
+    ENABLED: True
+    BACKEND: "inductor"
+    MODE: "max-autotune"  # Use max-autotune for aggressive optimization

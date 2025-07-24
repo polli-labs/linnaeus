@@ -2,160 +2,166 @@
 
 from typing import Any
 
+import kornia.augmentation as K
 import torch
 import torch.nn as nn
+from kornia.constants import DataKey
 
 from linnaeus.aug.base import AugmentationPipeline
-from linnaeus.aug.gpu.compiled_policy import CompiledAugmentationPolicy
-from linnaeus.aug.gpu.random_erasing import GPURandomErasing
 from linnaeus.aug.policies import get_policy
+from linnaeus.utils.debug_utils import check_debug_flag
 from linnaeus.utils.logging.logger import get_main_logger
 
 logger = get_main_logger()
 
+# Mapping from our AutoAugment operations to Kornia equivalents
+_OP_MAP = {
+    "ShearX": lambda m: K.RandomAffine(degrees=0.0, shear=(m, 0)),
+    "ShearY": lambda m: K.RandomAffine(degrees=0.0, shear=(0, m)),
+    "TranslateX": lambda m: K.RandomAffine(degrees=0.0, translate=(m, 0)),
+    "TranslateY": lambda m: K.RandomAffine(degrees=0.0, translate=(0, m)),
+    "TranslateXRel": lambda m: K.RandomAffine(degrees=0.0, translate=(m, 0)),  # Relative translation
+    "TranslateYRel": lambda m: K.RandomAffine(degrees=0.0, translate=(0, m)),  # Relative translation
+    "Rotate": lambda m: K.RandomRotation(degrees=float(m)),
+    "Color": lambda m: K.RandomSaturation(saturation=(m, m)),
+    "Contrast": lambda m: K.RandomContrast(contrast=(m, m)),
+    "Brightness": lambda m: K.RandomBrightness(brightness=(m, m)),
+    "Sharpness": lambda m: K.RandomSharpness(sharpness=(m, m)),
+    "AutoContrast": lambda _: K.RandomAutocontrast(),
+    "Equalize": lambda _: K.RandomEqualize(),
+    "PosterizeOriginal": lambda b: K.RandomPosterize(bits=int(b)),
+    "Posterize": lambda b: K.RandomPosterize(bits=int(8 - (b / 10.0) * 4)),  # Map magnitude to bits
+    "PosterizeIncreasing": lambda b: K.RandomPosterize(bits=int(4 + (b / 10.0) * 4)),
+    "Solarize": lambda t: K.RandomSolarize(threshold=float((256 - (t / 10.0) * 256) / 255.0)),
+    "Invert": lambda _: K.RandomInvert(),
+    "GaussianBlurRand": lambda f: K.RandomGaussianBlur(kernel_size=3, sigma=(f * 0.5, f * 0.5)),
+    "Desaturate": lambda f: K.RandomSaturation(saturation=(1.0 - f / 10.0, 1.0 - f / 10.0)),
+    "SolarizeAdd": lambda add: K.RandomSolarize(threshold=0.5, addition=add * 0.1),  # Approximate mapping
+}
+
+
+def _make_subpolicy(policy_ops: list) -> nn.Sequential:
+    """
+    Convert a sub-policy (list of operations) to a Kornia Sequential module.
+
+    Args:
+        policy_ops: List of (op_name, prob, magnitude) tuples
+
+    Returns:
+        nn.Sequential containing the Kornia augmentation operations
+    """
+    ops = []
+    for op_name, prob, magnitude in policy_ops:
+        if op_name in _OP_MAP:
+            # Create the Kornia operation with the given magnitude
+            kornia_op = _OP_MAP[op_name](magnitude)
+            # Wrap with RandomApply to honor the probability
+            ops.append(K.RandomApply([kornia_op], p=prob))
+        else:
+            logger.warning(f"Unknown augmentation operation: {op_name}. Skipping.")
+
+    return nn.Sequential(*ops) if ops else nn.Identity()
+
 
 class GPUAugmentationPipeline(AugmentationPipeline):
     """
-    GPU implementation of the augmentation pipeline.
+    Kornia-based GPU augmentation pipeline with torch.compile support.
+
+    This implementation uses Kornia's AugmentationSequential to create a fully
+    traceable augmentation pipeline that can be compiled with torch.compile
+    for kernel fusion.
 
     Attributes:
-        config (Dict[str, Any]): Configuration dictionary for augmentations.
-        compiled_policies (nn.ModuleList): List of individually compiled augmentation policies.
-        random_erasing (GPURandomErasing): RandomErasing implementation from torchvision-ish.
-        pipeline (nn.Sequential): The compiled sequential pipeline of augmentations.
-
-    This pipeline is batch-oriented and expects a tensor of shape (B, C, H, W).
-    It is designed to be called from the H5DataLoader's collate_fn after the
-    raw image batch has been moved to the GPU.
+        config: Configuration dictionary for augmentations
+        seq: Kornia AugmentationSequential containing the full pipeline
     """
 
     def __init__(self, config: dict[str, Any]):
-        """
-        Initialize the GPUAugmentationPipeline.
-
-        Args:
-            config (Dict[str, Any]): Configuration dictionary for augmentations.
-        """
         super().__init__(config)
-        logger.info("Initializing GPUAugmentationPipeline")
         self.config = config
 
-        # Create individually compiled augmentation policies
-        self.compiled_policies = self._create_compiled_policies()
-        self.random_erasing = self._create_random_erasing()
+        logger.info("Initializing Kornia-based GPUAugmentationPipeline")
 
-        # Create wrapper that applies selected policy + random erasing
-        self.pipeline = self._create_compiled_pipeline()
+        # Create the Kornia augmentation sequence
+        self.seq = self._create_kornia_pipeline()
+
+        # Conditionally compile the entire pipeline
+        if config.AUG.GPU_COMPILE.ENABLED:
+            logger.info(f"torch.compile for Kornia pipeline is ENABLED (mode: {config.AUG.GPU_COMPILE.MODE})")
+            try:
+                self.seq = torch.compile(self.seq, backend=config.AUG.GPU_COMPILE.BACKEND, mode=config.AUG.GPU_COMPILE.MODE)
+                logger.info("Successfully compiled Kornia augmentation pipeline")
+            except Exception as e:
+                logger.error(f"Failed to compile Kornia pipeline: {e}. Falling back to eager mode.")
+        else:
+            logger.info("torch.compile for Kornia augmentation pipeline is DISABLED")
 
     @property
     def is_batch_oriented_gpu_pipeline(self) -> bool:
         """Property to signal this pipeline's behavior to the dataloader system."""
         return True
 
-    def _create_compiled_policies(self) -> nn.ModuleList:
-        """Create a ModuleList of individually compiled augmentation policies."""
-        logger.debug("Creating compiled augmentation policies")
+    def _create_kornia_pipeline(self) -> K.AugmentationSequential:
+        """
+        Create the Kornia augmentation pipeline.
 
-        # Get the policy configuration
+        Returns:
+            K.AugmentationSequential containing the full augmentation pipeline
+        """
+        # Get policy configuration
         policy_name = self.config.AUG.AUTOAUG.POLICY
         color_jitter = self.config.AUG.AUTOAUG.COLOR_JITTER
         hparams = {"color_jitter": color_jitter}
 
-        # Get all sub-policies
+        # Get all sub-policies from our existing policy system
         policies = get_policy(policy_name, hparams)
-        logger.info(f"Creating {len(policies)} individually compiled policies")
 
-        # Create a list to hold compiled policies
-        compiled_policies = nn.ModuleList()
+        if check_debug_flag(self.config, "DEBUG.AUGMENTATION"):
+            logger.debug(f"Creating Kornia pipeline with {len(policies)} sub-policies")
 
+        # Convert each sub-policy to Kornia operations
+        kornia_policies = []
         for i, policy_ops in enumerate(policies):
-            # Create individual policy module
-            policy_module = CompiledAugmentationPolicy(policy_ops, config=self.config)
-
-            # Conditionally compile each individual policy
-            if self.config.AUG.GPU_COMPILE.ENABLED:
-                logger.debug(f"Compiling policy {i + 1}/{len(policies)} with mode: {self.config.AUG.GPU_COMPILE.MODE}")
-                try:
-                    compiled_policy = torch.compile(
-                        policy_module, backend=self.config.AUG.GPU_COMPILE.BACKEND, mode=self.config.AUG.GPU_COMPILE.MODE
-                    )
-                    compiled_policies.append(compiled_policy)
-                    logger.debug(f"Successfully compiled policy {i + 1}")
-                except Exception as e:
-                    logger.warning(f"Failed to compile policy {i + 1}: {e}. Using eager mode.")
-                    compiled_policies.append(policy_module)
-            else:
-                compiled_policies.append(policy_module)
-
-        if self.config.AUG.GPU_COMPILE.ENABLED:
-            logger.info(f"Successfully created {len(compiled_policies)} compiled augmentation policies")
-        else:
-            logger.info(f"Created {len(compiled_policies)} augmentation policies (compilation disabled)")
-
-        return compiled_policies
-
-    def _create_random_erasing(self) -> GPURandomErasing:
-        """Create and return a GPURandomErasing instance."""
-        logger.debug("Creating GPURandomErasing")
-        return GPURandomErasing(self.config.AUG.RANDOM_ERASE, config=self.config)
-
-    def _create_compiled_pipeline(self) -> nn.Module:
-        """Create a wrapper module that selects and applies a policy plus random erasing."""
-
-        class CompiledPipelineWrapper(nn.Module):
-            def __init__(self, compiled_policies, random_erasing):
-                super().__init__()
-                self.compiled_policies = compiled_policies
-                self.random_erasing = random_erasing
-                self.num_policies = len(compiled_policies)
-
-            def forward(self, images: torch.Tensor) -> torch.Tensor:
-                # Select a policy index using torch.randint
-                policy_idx = torch.randint(self.num_policies, (1,), device=images.device)
-
-                # Apply all policies and use torch.where to select the right one
-                # This eliminates the graph break from .item() and Python indexing
-                policy_results = []
-                for policy in self.compiled_policies:
-                    policy_results.append(policy(images))
-
-                # Stack all policy results
-                stacked_results = torch.stack(policy_results, dim=0)  # Shape: [num_policies, B, C, H, W]
-
-                # Create one-hot selection mask and use it to select the result
-                policy_mask = torch.zeros(self.num_policies, device=images.device)
-                policy_mask = policy_mask.scatter(0, policy_idx, 1.0)  # One-hot at policy_idx
-
-                # Apply mask to select the chosen policy result
-                # Reshape mask for broadcasting: [num_policies, 1, 1, 1, 1]
-                policy_mask = policy_mask.view(-1, 1, 1, 1, 1)
-                selected_result = (stacked_results * policy_mask).sum(dim=0)
-
-                # Apply random erasing
-                return self.random_erasing(selected_result)
-
-        wrapper = CompiledPipelineWrapper(self.compiled_policies, self.random_erasing)
-
-        # Optionally compile the entire wrapper
-        if self.config.AUG.GPU_COMPILE.ENABLED:
-            logger.info("torch.compile for GPU augmentation pipeline wrapper is ENABLED")
             try:
-                wrapper = torch.compile(wrapper, backend=self.config.AUG.GPU_COMPILE.BACKEND, mode=self.config.AUG.GPU_COMPILE.MODE)
-                logger.info("Successfully compiled pipeline wrapper")
+                subpolicy = _make_subpolicy(policy_ops)
+                kornia_policies.append(subpolicy)
+                if check_debug_flag(self.config, "DEBUG.AUGMENTATION"):
+                    logger.debug(f"Created sub-policy {i + 1}/{len(policies)} with {len(policy_ops)} operations")
             except Exception as e:
-                logger.warning(f"Failed to compile pipeline wrapper: {e}. Using eager mode.")
-        else:
-            logger.info("torch.compile for GPU augmentation pipeline is DISABLED")
+                logger.warning(f"Failed to create sub-policy {i + 1}: {e}. Using identity.")
+                kornia_policies.append(nn.Identity())
 
-        return wrapper
+        # Create RandomChoice to select among sub-policies (this is traceable)
+        if kornia_policies:
+            # Use uniform probabilities for all sub-policies
+            num_policies = len(kornia_policies)
+            probabilities = torch.ones(num_policies) / num_policies
+            auto_augment = K.RandomChoice(kornia_policies, p=probabilities, same_on_batch=False)
+        else:
+            logger.warning("No valid sub-policies created. Using identity for AutoAugment.")
+            auto_augment = nn.Identity()
+
+        # Create RandomErasing
+        random_erasing = K.RandomErasing(
+            p=self.config.AUG.RANDOM_ERASE.PROB,
+            scale=tuple(self.config.AUG.RANDOM_ERASE.AREA_RANGE),
+            ratio=tuple(self.config.AUG.RANDOM_ERASE.ASPECT_RATIO),
+            value="random",
+        )
+
+        # Create the complete traceable pipeline
+        pipeline = K.AugmentationSequential(auto_augment, random_erasing, data_keys=[DataKey.INPUT], same_on_batch=False)
+
+        logger.info("Successfully created Kornia augmentation pipeline")
+        return pipeline
 
     def __call__(self, images_tensor: torch.Tensor) -> torch.Tensor:
         """
-        Apply the GPU-based augmentation pipeline to a batch of images.
+        Apply the Kornia-based augmentation pipeline to a batch of images.
 
         Args:
             images_tensor: A batch of images as a tensor of shape (B, C, H, W)
-                           already on the target GPU device.
+                          already on the target GPU device.
 
         Returns:
             The batch of augmented images as a tensor.
@@ -171,9 +177,14 @@ class GPUAugmentationPipeline(AugmentationPipeline):
             if images_tensor.max() > 1.0:
                 images_tensor = images_tensor / 255.0
 
-            # Apply batch-wise augmentations on the GPU using the compiled pipeline
-            augmented_images = self.pipeline(images_tensor)
-            augmented_images = torch.clamp(augmented_images, 0, 1)
+            # Convert to channels_last for better performance (optional optimization)
+            images_tensor = images_tensor.clamp_(0, 1).to(memory_format=torch.channels_last)
+
+            # Apply Kornia augmentation pipeline
+            augmented_images = self.seq(images_tensor)
+
+            # Ensure output is properly clamped and in the right format
+            augmented_images = augmented_images.clamp_(0, 1)
 
             # Final sanity check
             if not augmented_images.dtype == torch.float32:

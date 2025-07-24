@@ -115,8 +115,9 @@ class H5DataLoader(DataLoader):
 
         if config:
             self.meta_chunk_bounds_list, self.meta_chunk_bounds_map = compute_meta_chunk_bounds(config)
-            self.main_logger.debug(f"[H5DataLoader] Computed meta chunk boundaries: {self.meta_chunk_bounds_list}")
-            self.main_logger.debug(f"[H5DataLoader] Component boundary mapping: {self.meta_chunk_bounds_map}")
+            if check_debug_flag(config, "DEBUG.DATALOADER"):
+                self.main_logger.debug(f"[H5DataLoader] Computed meta chunk boundaries: {self.meta_chunk_bounds_list}")
+                self.main_logger.debug(f"[H5DataLoader] Component boundary mapping: {self.meta_chunk_bounds_map}")
         else:
             self.meta_chunk_bounds_list, self.meta_chunk_bounds_map = [], {}
             self.main_logger.warning("[H5DataLoader] No config provided, using empty meta chunk boundaries")
@@ -124,8 +125,9 @@ class H5DataLoader(DataLoader):
         # Add explicit check for DEBUG.LOSS.NULL_MASKING at initialization time
         if config:
             self.meta_chunk_bounds_list, self.meta_chunk_bounds_map = compute_meta_chunk_bounds(config)
-            self.main_logger.debug(f"[H5DataLoader] Computed meta chunk boundaries: {self.meta_chunk_bounds_list}")
-            self.main_logger.debug(f"[H5DataLoader] Component boundary mapping: {self.meta_chunk_bounds_map}")
+            if check_debug_flag(config, "DEBUG.DATALOADER"):
+                self.main_logger.debug(f"[H5DataLoader] Computed meta chunk boundaries: {self.meta_chunk_bounds_list}")
+                self.main_logger.debug(f"[H5DataLoader] Component boundary mapping: {self.meta_chunk_bounds_map}")
         else:
             self.meta_chunk_bounds_list, self.meta_chunk_bounds_map = [], {}
             self.main_logger.warning("[H5DataLoader] No config provided, using empty meta chunk boundaries")
@@ -304,15 +306,16 @@ class H5DataLoader(DataLoader):
                     self.cpu_cutmix_fn = CPUSelectiveCutMix(mix_config=cutmix_config, config=self.config)  # Using CPU specific class
                     self.main_logger.info("[H5DataLoader] Initialized CPUSelectiveCutMix function.")
         else:
-            self.main_logger.debug("[H5DataLoader] Mixup/CutMix initialization skipped - conditions not met")
-            if not self.is_training:
-                self.main_logger.debug("  - is_training is False")
-            if not self.ops_schedule:
-                self.main_logger.debug("  - ops_schedule is None")
-            if not hasattr(self.config, "SCHEDULE"):
-                self.main_logger.debug("  - config has no SCHEDULE section")
-            elif not hasattr(self.config.SCHEDULE, "MIX"):
-                self.main_logger.debug("  - config.SCHEDULE has no MIX section")
+            if check_debug_flag(self.config, "DEBUG.DATALOADER"):
+                self.main_logger.debug("[H5DataLoader] Mixup/CutMix initialization skipped - conditions not met")
+                if not self.is_training:
+                    self.main_logger.debug("  - is_training is False")
+                if not self.ops_schedule:
+                    self.main_logger.debug("  - ops_schedule is None")
+                if not hasattr(self.config, "SCHEDULE"):
+                    self.main_logger.debug("  - config has no SCHEDULE section")
+                elif not hasattr(self.config.SCHEDULE, "MIX"):
+                    self.main_logger.debug("  - config.SCHEDULE has no MIX section")
 
     def set_epoch(self, epoch: int):
         """
@@ -322,7 +325,8 @@ class H5DataLoader(DataLoader):
         if hasattr(self.batch_sampler, "set_epoch"):
             self.batch_sampler.set_epoch(epoch)
 
-        self.main_logger.debug(f"[H5DataLoader] set_epoch({epoch}) => updated current_epoch.")
+        if hasattr(self, "config") and check_debug_flag(self.config, "DEBUG.DATALOADER"):
+            self.main_logger.debug(f"[H5DataLoader] set_epoch({epoch}) => updated current_epoch.")
 
         # Add more detailed debug logs if we have debug flags
 

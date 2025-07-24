@@ -62,7 +62,8 @@ class GPUSelectiveCutMix(SelectiveCutMix):
         # Use the precomputed chunk boundaries if provided
         if "meta_chunk_bounds_list" in mix_config and isinstance(mix_config["meta_chunk_bounds_list"], list):
             self.chunk_bounds = mix_config["meta_chunk_bounds_list"]
-            logger.debug("GPUSelectiveCutMix using precomputed chunk bounds")
+            if self.config and check_debug_flag(self.config, "DEBUG.AUGMENTATION"):
+                logger.debug("GPUSelectiveCutMix using precomputed chunk bounds")
         else:
             logger.warning(
                 "GPUSelectiveCutMix: 'meta_chunk_bounds_list' not found or invalid in config. "
@@ -70,7 +71,8 @@ class GPUSelectiveCutMix(SelectiveCutMix):
             )
             self.chunk_bounds = None
 
-        logger.debug("Initializing GPUSelectiveCutMix")
+        if self.config and check_debug_flag(self.config, "DEBUG.AUGMENTATION"):
+            logger.debug("Initializing GPUSelectiveCutMix")
 
         # Debug logging if enabled
         debug_flag = self.config is not None and check_debug_flag(self.config, "DEBUG.AUGMENTATION")
