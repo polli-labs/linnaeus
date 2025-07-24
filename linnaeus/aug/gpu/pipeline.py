@@ -4,108 +4,18 @@ from typing import Any
 
 import kornia.augmentation as K
 import torch
-import torch.nn as nn
 from kornia.constants import DataKey
 
 from linnaeus.aug.base import AugmentationPipeline
-from linnaeus.aug.policies import get_policy
 from linnaeus.utils.debug_utils import check_debug_flag
 from linnaeus.utils.logging.logger import get_main_logger
 
 logger = get_main_logger()
 
-# Mapping from our AutoAugment operations to Kornia equivalents
-_OP_MAP = {
-    "ShearX": lambda m: K.RandomAffine(degrees=0.0, shear=(-abs(m), abs(m), 0, 0)),
-    "ShearY": lambda m: K.RandomAffine(degrees=0.0, shear=(0, 0, -abs(m), abs(m))),
-    "TranslateX": lambda m: K.RandomAffine(degrees=0.0, translate=(abs(m), 0)),
-    "TranslateY": lambda m: K.RandomAffine(degrees=0.0, translate=(0, abs(m))),
-    "TranslateXRel": lambda m: K.RandomAffine(degrees=0.0, translate=(abs(m), 0)),  # Relative translation
-    "TranslateYRel": lambda m: K.RandomAffine(degrees=0.0, translate=(0, abs(m))),  # Relative translation
-    "Rotate": lambda m: K.RandomRotation(degrees=float(abs(m))),
-    "Color": lambda m: K.RandomSaturation(saturation=(max(0.0, m), max(2.0, m))),
-    "Contrast": lambda m: K.RandomContrast(contrast=(max(0.0, m), max(2.0, m))),
-    "Brightness": lambda m: K.RandomBrightness(brightness=(max(0.0, m), max(2.0, m))),
-    "Sharpness": lambda m: K.RandomSharpness(sharpness=(max(0.0, m), max(2.0, m))),
-    "AutoContrast": lambda _: K.RandomAutoContrast(),
-    "Equalize": lambda _: K.RandomEqualize(),
-    "PosterizeOriginal": lambda b: K.RandomPosterize(bits=int(b)),
-    "Posterize": lambda b: K.RandomPosterize(bits=int(8 - (b / 10.0) * 4)),  # Map magnitude to bits
-    "PosterizeIncreasing": lambda b: K.RandomPosterize(bits=int(4 + (b / 10.0) * 4)),
-    "Solarize": lambda t: K.RandomSolarize(thresholds=float((256 - (t / 10.0) * 256) / 255.0)),
-    "Invert": lambda _: K.RandomInvert(),
-    "GaussianBlurRand": lambda f: K.RandomGaussianBlur(kernel_size=3, sigma=(f * 0.5, f * 0.5)),
-    "Desaturate": lambda f: K.RandomSaturation(saturation=(1.0 - f / 10.0, 1.0 - f / 10.0)),
-    "SolarizeAdd": lambda add: K.RandomSolarize(thresholds=0.5, additions=add * 0.1),
-}
+# Using Kornia's native RandomAutoAugment instead of custom operation mapping
 
 
-class TraceableRandomPolicySelector(nn.Module):
-    """
-    A traceable module that randomly selects between multiple sub-policies.
-
-    Since Kornia doesn't have RandomChoice, we implement our own traceable
-    version using torch.where to avoid graph breaks.
-    """
-
-    def __init__(self, policies: list[nn.Module]):
-        super().__init__()
-        self.policies = nn.ModuleList(policies)
-        self.num_policies = len(policies)
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        if self.num_policies == 1:
-            return self.policies[0](x)
-
-        # Generate random selector in [0, 1)
-        selector = torch.rand(1, device=x.device)
-
-        # Apply all policies and use torch.where to select
-        results = []
-        for policy in self.policies:
-            results.append(policy(x))
-
-        # Stack results and use torch.where for selection
-        stacked_results = torch.stack(results, dim=0)  # Shape: [num_policies, B, C, H, W]
-
-        # Create selection mask based on uniform distribution
-        step = 1.0 / self.num_policies
-        result = stacked_results[0]  # Start with first policy
-
-        for i in range(1, self.num_policies):
-            # Select this policy if selector is in its range
-            mask = (selector >= i * step) & (selector < (i + 1) * step)
-            mask = mask.view(1, 1, 1, 1)  # Broadcast shape
-            result = torch.where(mask, stacked_results[i], result)
-
-        return result
-
-
-def _make_subpolicy(policy_ops: list) -> nn.Sequential:
-    """
-    Convert a sub-policy (list of operations) to a Kornia Sequential module.
-
-    Args:
-        policy_ops: List of (op_name, prob, magnitude) tuples
-
-    Returns:
-        nn.Sequential containing the Kornia augmentation operations
-    """
-    ops = []
-    for op_name, prob, magnitude in policy_ops:
-        if op_name in _OP_MAP:
-            try:
-                # Create the Kornia operation with the given magnitude and probability
-                kornia_op = _OP_MAP[op_name](magnitude)
-                # Set the probability directly on the Kornia operation
-                kornia_op.p = prob
-                ops.append(kornia_op)
-            except Exception as e:
-                logger.warning(f"Failed to create operation {op_name}: {e}. Skipping.")
-        else:
-            logger.warning(f"Unknown augmentation operation: {op_name}. Skipping.")
-
-    return nn.Sequential(*ops) if ops else nn.Identity()
+# Removed TraceableRandomPolicySelector and _make_subpolicy - using Kornia's native RandomAutoAugment instead
 
 
 class GPUAugmentationPipeline(AugmentationPipeline):
@@ -148,40 +58,24 @@ class GPUAugmentationPipeline(AugmentationPipeline):
 
     def _create_kornia_pipeline(self) -> K.AugmentationSequential:
         """
-        Create the Kornia augmentation pipeline.
+        Create the Kornia augmentation pipeline using high-level APIs.
 
         Returns:
             K.AugmentationSequential containing the full augmentation pipeline
         """
         # Get policy configuration
         policy_name = self.config.AUG.AUTOAUG.POLICY
-        color_jitter = self.config.AUG.AUTOAUG.COLOR_JITTER
-        hparams = {"color_jitter": color_jitter}
 
-        # Get all sub-policies from our existing policy system
-        policies = get_policy(policy_name, hparams)
+        # Kornia's RandomAutoAugment supports standard policies by name
+        # We can map our 'original' to 'imagenet'
+        if policy_name == "original":
+            policy_name = "imagenet"
 
         if check_debug_flag(self.config, "DEBUG.AUGMENTATION"):
-            logger.debug(f"Creating Kornia pipeline with {len(policies)} sub-policies")
+            logger.debug(f"Creating Kornia pipeline with RandomAutoAugment policy: {policy_name}")
 
-        # Convert each sub-policy to Kornia operations
-        kornia_policies = []
-        for i, policy_ops in enumerate(policies):
-            try:
-                subpolicy = _make_subpolicy(policy_ops)
-                kornia_policies.append(subpolicy)
-                if check_debug_flag(self.config, "DEBUG.AUGMENTATION"):
-                    logger.debug(f"Created sub-policy {i + 1}/{len(policies)} with {len(policy_ops)} operations")
-            except Exception as e:
-                logger.warning(f"Failed to create sub-policy {i + 1}: {e}. Using identity.")
-                kornia_policies.append(nn.Identity())
-
-        # Create a traceable random policy selector
-        if kornia_policies:
-            auto_augment = TraceableRandomPolicySelector(kornia_policies)
-        else:
-            logger.warning("No valid sub-policies created. Using identity for AutoAugment.")
-            auto_augment = nn.Identity()
+        # Use Kornia's native RandomAutoAugment - much simpler and more robust
+        auto_augment = K.RandomAutoAugment(policy=policy_name)
 
         # Create RandomErasing
         random_erasing = K.RandomErasing(
@@ -194,7 +88,7 @@ class GPUAugmentationPipeline(AugmentationPipeline):
         # Create the complete traceable pipeline
         pipeline = K.AugmentationSequential(auto_augment, random_erasing, data_keys=[DataKey.INPUT], same_on_batch=False)
 
-        logger.info("Successfully created Kornia augmentation pipeline")
+        logger.info("Successfully created Kornia augmentation pipeline using RandomAutoAugment.")
         return pipeline
 
     def __call__(self, images_tensor: torch.Tensor) -> torch.Tensor:

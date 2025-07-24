@@ -1197,8 +1197,6 @@ class H5DataLoader(DataLoader):
                         mixup_prob = self.ops_schedule.get_mixup_prob(current_global_optimizer_step)
 
                     # Debug log the mixing probability
-                    from linnaeus.utils.debug_utils import check_debug_flag
-
                     if check_debug_flag(self.ops_schedule.config, "DEBUG.AUGMENTATION"):
                         self.main_logger.debug(
                             f"[MIXUP_DEBUG] Current global_optimizer_step {current_global_optimizer_step}, mixup_prob={mixup_prob:.4f}"
@@ -1213,8 +1211,6 @@ class H5DataLoader(DataLoader):
                         apply_mixing = True
                 else:
                     # Log that we're skipping mixing because standard sampler is used
-                    from linnaeus.utils.debug_utils import check_debug_flag
-
                     if check_debug_flag(self.ops_schedule.config, "DEBUG.AUGMENTATION"):
                         self.main_logger.debug("[MIXUP_DEBUG] Skipping mixing - using standard sampler")
             else:
@@ -1303,8 +1299,6 @@ class H5DataLoader(DataLoader):
 
                         # Add critical NULL_MASKING debug logging
                         try:
-                            from linnaeus.utils.debug_utils import check_debug_flag
-
                             if hasattr(self.ops_schedule, "config") and check_debug_flag(
                                 self.ops_schedule.config, "DEBUG.LOSS.NULL_MASKING"
                             ):
@@ -1645,8 +1639,6 @@ class H5DataLoader(DataLoader):
 
                         # Add critical NULL_MASKING debug logging
                         try:
-                            from linnaeus.utils.debug_utils import check_debug_flag
-
                             if hasattr(self.ops_schedule, "config") and check_debug_flag(
                                 self.ops_schedule.config, "DEBUG.LOSS.NULL_MASKING"
                             ):
@@ -1801,8 +1793,6 @@ class H5DataLoader(DataLoader):
         actual_meta_stats = {}
 
         # Debug logging before calculating stats
-        from linnaeus.utils.debug_utils import check_debug_flag
-
         debug_enabled = get_rank_safely() == 0 and hasattr(self, "config") and check_debug_flag(self.config, "DEBUG.DATALOADER")
 
         # Add final tensor id check before stats calculation
@@ -2097,8 +2087,6 @@ class H5DataLoader(DataLoader):
         self.batch_idx = 0
 
         # Add detailed debug logs if ops_schedule has a config
-        from linnaeus.utils.debug_utils import check_debug_flag
-
         if self.ops_schedule and hasattr(self.ops_schedule, "config") and check_debug_flag(self.ops_schedule.config, "DEBUG.DATALOADER"):
             self.main_logger.debug(f"[H5DataLoader] Starting iteration for epoch {self.current_epoch}:")
             self.main_logger.debug(f"  - Total batches from sampler: {total_batches}")
@@ -2118,8 +2106,6 @@ class H5DataLoader(DataLoader):
 
         # If the dataset has concurrency pipeline:
         if hasattr(self.dataset, "start_prefetching") and hasattr(self.dataset, "fetch_next_batch"):
-            from linnaeus.utils.debug_utils import check_debug_flag
-
             if (
                 self.ops_schedule
                 and hasattr(self.ops_schedule, "config")
@@ -2139,8 +2125,6 @@ class H5DataLoader(DataLoader):
 
                 # Normal handling for valid batch, None, or STOP_SENTINEL
                 if raw_batch is None:
-                    from linnaeus.utils.debug_utils import check_debug_flag
-
                     if (
                         self.ops_schedule
                         and hasattr(self.ops_schedule, "config")
@@ -2156,8 +2140,6 @@ class H5DataLoader(DataLoader):
                     break
 
                 # Debug raw batch info if enabled
-                from linnaeus.utils.debug_utils import check_debug_flag
-
                 if (
                     self.ops_schedule
                     and hasattr(self.ops_schedule, "config")
@@ -2183,8 +2165,6 @@ class H5DataLoader(DataLoader):
                 self.batch_idx += 1
 
                 # Additional debug log for collate_fn output on first batch
-                from linnaeus.utils.debug_utils import check_debug_flag
-
                 if (
                     self.ops_schedule
                     and hasattr(self.ops_schedule, "config")
@@ -2213,8 +2193,6 @@ class H5DataLoader(DataLoader):
                 yield out_batch
         else:
             # fallback if not concurrency-based
-            from linnaeus.utils.debug_utils import check_debug_flag
-
             if (
                 self.ops_schedule
                 and hasattr(self.ops_schedule, "config")
@@ -2228,8 +2206,6 @@ class H5DataLoader(DataLoader):
                 self.batch_idx += 1
 
                 # Log first batch details for debugging
-                from linnaeus.utils.debug_utils import check_debug_flag
-
                 if (
                     self.ops_schedule
                     and hasattr(self.ops_schedule, "config")
