@@ -1472,9 +1472,15 @@ class H5DataLoader(DataLoader):
                     if apply_mixing:
                         # Add profiler region for mixing
                         with torch.profiler.record_function("gpu_selective_mixing"):
+                            if self.config.DEBUG.PROFILER.ENABLED:
+                                torch.cuda.synchronize()  # Sync at start
+
                             images, merged_targets, aux_info, meta_validity_masks = mixing_fn(
                                 batch_tuple, exclude_null_samples=exclude_null_samples, null_task_keys=null_task_keys
                             )
+
+                            if self.config.DEBUG.PROFILER.ENABLED:
+                                torch.cuda.synchronize()  # Sync at end
 
                     # Debug the output from the GPU mixing function
                     if debug_enabled and self.batch_idx < 5:
@@ -1544,11 +1550,17 @@ class H5DataLoader(DataLoader):
                         # The mixing functions expect (images, targets, aux_info, meta_masks, group_ids)
                         # Add profiler region for mixing
                         with torch.profiler.record_function("gpu_selective_mixing"):
+                            if self.config.DEBUG.PROFILER.ENABLED:
+                                torch.cuda.synchronize()  # Sync at start
+
                             images, merged_targets, aux_info, meta_validity_masks = mixing_fn(
                                 (images, merged_targets, aux_info, meta_validity_masks, group_ids),
                                 exclude_null_samples=True,  # Let the mixing function handle null exclusion
                                 null_task_keys=null_task_keys,
                             )
+
+                            if self.config.DEBUG.PROFILER.ENABLED:
+                                torch.cuda.synchronize()  # Sync at end
                     # else: mixing was skipped, tensors remain as they were.
 
                     # Debug the output from the CPU mixing function

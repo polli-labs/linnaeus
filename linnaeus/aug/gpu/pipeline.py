@@ -88,6 +88,9 @@ class GPUAugmentationPipeline(AugmentationPipeline):
         """
         # Add profiler region
         with torch.profiler.record_function("gpu_batch_augmentations"):
+            if self.config.DEBUG.PROFILER.ENABLED:
+                torch.cuda.synchronize()  # Sync at start of block
+
             # Ensure input is float32 in [0,1] range
             if not images_tensor.dtype == torch.float32:
                 images_tensor = images_tensor.float()
@@ -101,5 +104,8 @@ class GPUAugmentationPipeline(AugmentationPipeline):
             # Final sanity check
             if not augmented_images.dtype == torch.float32:
                 augmented_images = augmented_images.float()
+
+            if self.config.DEBUG.PROFILER.ENABLED:
+                torch.cuda.synchronize()  # Sync at end of block
 
             return augmented_images

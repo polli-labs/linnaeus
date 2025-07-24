@@ -63,16 +63,17 @@ class TraceableGPUAutoAugment(nn.Module):
         selected_policy = self.policies[policy_idx]
 
         # Apply each operation in the selected policy
+        output = images
         for op_name, prob, magnitude_level in selected_policy:
             # Use torch.rand for probability check
             apply_mask = torch.rand(1, device=images.device) < prob
 
-            # Apply the operation and blend with original based on mask
-            if apply_mask:
-                transformed = self._apply_op_traceable(images, op_name, magnitude_level)
-                images = torch.clamp(transformed, 0, 1)
+            # Use torch.where to make the conditional application traceable.
+            # This prevents a graph break.
+            transformed = self._apply_op_traceable(output, op_name, magnitude_level)
+            output = torch.where(apply_mask.view(-1, 1, 1, 1), transformed, output)
 
-        return images
+        return output
 
     def _apply_op_traceable(self, images: torch.Tensor, op_name: str, magnitude_level: int) -> torch.Tensor:
         """Apply operation in a traceable manner."""
