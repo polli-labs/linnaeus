@@ -218,36 +218,40 @@ class GPUSelectiveCutMix(SelectiveCutMix):
                     sample_size = min(3, targets[k].size(0))
                     if targets[k].dim() > 1:
                         # For one-hot targets, log the index 0 (null category) values
-                        logger.debug(f"[CUTMIX_TARGET_DEBUG] Task {k} BEFORE mixing:")
-                        logger.debug(f"  - Shape: {targets[k].shape}, dtype: {targets[k].dtype}")
-                        logger.debug(f"  - First {sample_size} samples, index 0 values: {targets[k][:sample_size, 0]}")
+                        if self.config and check_debug_flag(self.config, "DEBUG.AUGMENTATION"):
+                            logger.debug(f"[CUTMIX_TARGET_DEBUG] Task {k} BEFORE mixing:")
+                            logger.debug(f"  - Shape: {targets[k].shape}, dtype: {targets[k].dtype}")
+                            logger.debug(f"  - First {sample_size} samples, index 0 values: {targets[k][:sample_size, 0]}")
 
                         # Check null distribution in the original and permuted targets
                         idx0_vals_orig = targets[k][valid_indices, 0]
                         idx0_vals_perm = targets[k][valid_perm_indices, 0]
                         null_orig = (idx0_vals_orig > 0.5).sum().item()
                         null_perm = (idx0_vals_perm > 0.5).sum().item()
-                        logger.debug(
-                            f"  - Nulls in original targets: {null_orig}/{len(idx0_vals_orig)} ({100 * null_orig / len(idx0_vals_orig) if len(idx0_vals_orig) > 0 else 0:.1f}%)"
-                        )
-                        logger.debug(
-                            f"  - Nulls in permuted targets: {null_perm}/{len(idx0_vals_perm)} ({100 * null_perm / len(idx0_vals_perm) if len(idx0_vals_perm) > 0 else 0:.1f}%)"
-                        )
+                        if self.config and check_debug_flag(self.config, "DEBUG.AUGMENTATION"):
+                            logger.debug(
+                                f"  - Nulls in original targets: {null_orig}/{len(idx0_vals_orig)} ({100 * null_orig / len(idx0_vals_orig) if len(idx0_vals_orig) > 0 else 0:.1f}%)"
+                            )
+                            logger.debug(
+                                f"  - Nulls in permuted targets: {null_perm}/{len(idx0_vals_perm)} ({100 * null_perm / len(idx0_vals_perm) if len(idx0_vals_perm) > 0 else 0:.1f}%)"
+                            )
 
                         # Check for mixed null/non-null pairs
                         if len(idx0_vals_orig) > 0:
                             orig_nulls = idx0_vals_orig > 0.5
                             perm_nulls = idx0_vals_perm > 0.5
                             mixed_types = (orig_nulls != perm_nulls).sum().item()
-                            logger.debug(
-                                f"  - Mixed null/non-null pairs: {mixed_types}/{len(orig_nulls)} ({100 * mixed_types / len(orig_nulls) if len(orig_nulls) > 0 else 0:.1f}%)"
-                            )
+                            if self.config and check_debug_flag(self.config, "DEBUG.AUGMENTATION"):
+                                logger.debug(
+                                    f"  - Mixed null/non-null pairs: {mixed_types}/{len(orig_nulls)} ({100 * mixed_types / len(orig_nulls) if len(orig_nulls) > 0 else 0:.1f}%)"
+                                )
                     else:
                         # For hard labels
-                        logger.debug(f"[CUTMIX_TARGET_DEBUG] Task {k} BEFORE mixing (hard labels):")
-                        logger.debug(f"  - Shape: {targets[k].shape}, dtype: {targets[k].dtype}")
-                        logger.debug(f"  - First {sample_size} samples: {targets[k][:sample_size]}")
-                        logger.debug(f"  - First {sample_size} permuted samples: {targets[k][perm][:sample_size]}")
+                        if self.config and check_debug_flag(self.config, "DEBUG.AUGMENTATION"):
+                            logger.debug(f"[CUTMIX_TARGET_DEBUG] Task {k} BEFORE mixing (hard labels):")
+                            logger.debug(f"  - Shape: {targets[k].shape}, dtype: {targets[k].dtype}")
+                            logger.debug(f"  - First {sample_size} samples: {targets[k][:sample_size]}")
+                            logger.debug(f"  - First {sample_size} permuted samples: {targets[k][perm][:sample_size]}")
 
                 # Apply CutMix to targets based on adjusted lambda
                 mixed_targets[k][valid_indices] = (
@@ -259,34 +263,39 @@ class GPUSelectiveCutMix(SelectiveCutMix):
                     sample_size = min(3, targets[k].size(0))
                     if mixed_targets[k].dim() > 1:
                         # For one-hot targets, check the mixed results
-                        logger.debug(f"[CUTMIX_TARGET_DEBUG] Task {k} AFTER mixing:")
-                        logger.debug(f"  - First {sample_size} mixed samples, index 0 values: {mixed_targets[k][:sample_size, 0]}")
+                        if self.config and check_debug_flag(self.config, "DEBUG.AUGMENTATION"):
+                            logger.debug(f"[CUTMIX_TARGET_DEBUG] Task {k} AFTER mixing:")
+                            logger.debug(f"  - First {sample_size} mixed samples, index 0 values: {mixed_targets[k][:sample_size, 0]}")
 
                         # Calculate how many values are near critical thresholds
                         idx0_vals_mixed = mixed_targets[k][valid_indices, 0]
                         if len(idx0_vals_mixed) > 0:
                             near_half = ((idx0_vals_mixed > 0.4) & (idx0_vals_mixed < 0.6)).sum().item()
-                            logger.debug(
-                                f"  - Values near 0.5 threshold: {near_half}/{len(idx0_vals_mixed)} ({100 * near_half / len(idx0_vals_mixed) if len(idx0_vals_mixed) > 0 else 0:.1f}%)"
-                            )
+                            if self.config and check_debug_flag(self.config, "DEBUG.AUGMENTATION"):
+                                logger.debug(
+                                    f"  - Values near 0.5 threshold: {near_half}/{len(idx0_vals_mixed)} ({100 * near_half / len(idx0_vals_mixed) if len(idx0_vals_mixed) > 0 else 0:.1f}%)"
+                                )
 
                         # Compare lam value with the mixing effect
-                        logger.debug(f"  - Mixing coefficient lam_adjusted={lam_adjusted:.4f}")
+                        if self.config and check_debug_flag(self.config, "DEBUG.AUGMENTATION"):
+                            logger.debug(f"  - Mixing coefficient lam_adjusted={lam_adjusted:.4f}")
 
                         # Show a detailed example of how the mixing worked on the first sample
                         if sample_size > 0 and len(valid_indices) > 0:
                             idx = valid_indices[0].item()
                             perm_idx = valid_perm_indices[0].item()
-                            logger.debug(f"  - Example: Sample {idx}")
-                            logger.debug(f"    Original: index 0 = {targets[k][idx, 0].item():.4f}")
-                            logger.debug(f"    Permuted: index 0 = {targets[k][perm_idx, 0].item():.4f}")
-                            logger.debug(
-                                f"    Mixed:    index 0 = {mixed_targets[k][idx, 0].item():.4f} (formula: {lam_adjusted:.4f} * {targets[k][idx, 0].item():.4f} + {1 - lam_adjusted:.4f} * {targets[k][perm_idx, 0].item():.4f})"
-                            )
+                            if self.config and check_debug_flag(self.config, "DEBUG.AUGMENTATION"):
+                                logger.debug(f"  - Example: Sample {idx}")
+                                logger.debug(f"    Original: index 0 = {targets[k][idx, 0].item():.4f}")
+                                logger.debug(f"    Permuted: index 0 = {targets[k][perm_idx, 0].item():.4f}")
+                                logger.debug(
+                                    f"    Mixed:    index 0 = {mixed_targets[k][idx, 0].item():.4f} (formula: {lam_adjusted:.4f} * {targets[k][idx, 0].item():.4f} + {1 - lam_adjusted:.4f} * {targets[k][perm_idx, 0].item():.4f})"
+                                )
                     else:
                         # For hard labels
-                        logger.debug(f"[CUTMIX_TARGET_DEBUG] Task {k} AFTER mixing (hard labels):")
-                        logger.debug(f"  - First {sample_size} mixed samples: {mixed_targets[k][:sample_size]}")
+                        if self.config and check_debug_flag(self.config, "DEBUG.AUGMENTATION"):
+                            logger.debug(f"[CUTMIX_TARGET_DEBUG] Task {k} AFTER mixing (hard labels):")
+                            logger.debug(f"  - First {sample_size} mixed samples: {mixed_targets[k][:sample_size]}")
 
                 # Add critical NULL_MASKING debug logging that respects the NULL_MASKING flag
                 if (

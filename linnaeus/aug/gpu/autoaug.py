@@ -1,4 +1,8 @@
 # linnaeus/aug/gpu/autoaug.py
+# DEPRECATED: This module will be removed in v0.1.4f
+# Use linnaeus.aug.kornia_wrappers.get_random_autoaugment() instead
+
+import warnings
 
 import torch
 import torchvision.transforms.functional as TF
@@ -23,8 +27,14 @@ class GPUAutoAugmentBatch(AutoAugmentBatch):
     """
 
     def __init__(self, policy: str, color_jitter: float, config=None):
+        warnings.warn(
+            "GPUAutoAugmentBatch is deprecated and will be removed in v0.1.4f. "
+            "Use linnaeus.aug.kornia_wrappers.get_random_autoaugment() instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         super().__init__(policy, color_jitter, config=config)
-        logger.info("Initializing GPUAutoAugmentBatch")
+        logger.warning("GPUAutoAugmentBatch is deprecated - use Kornia-based augmentation instead")
         self.ops = self._create_gpu_ops()
 
     def _create_gpu_ops(self) -> dict[str, callable]:

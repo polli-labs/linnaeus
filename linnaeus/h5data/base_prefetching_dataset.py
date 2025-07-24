@@ -10,6 +10,7 @@ from typing import Any
 import torch
 
 from linnaeus.aug.base import AugmentationPipeline
+from linnaeus.utils.debug_utils import check_debug_flag
 from linnaeus.utils.logging.logger import get_h5data_logger
 
 from .memcache import MemoryCache
@@ -585,7 +586,8 @@ class BasePrefetchingDataset(ABC):
                         self._io_thread_wait_time += wait_time
 
                 dt = time.time() - t0
-                self.h5data_logger.debug(f"[{class_name}] PrefetchManager: sub-batch {len(batch_indices)} read+cached in {dt:.2f}s")
+                if self.config and check_debug_flag(self.config, "DEBUG.DATALOADER"):
+                    self.h5data_logger.debug(f"[{class_name}] PrefetchManager: sub-batch {len(batch_indices)} read+cached in {dt:.2f}s")
         finally:
             if io_pool:
                 self.main_logger.debug(f"[{class_name}] PrefetchManager: Shutting down IO pool...")
@@ -663,9 +665,10 @@ class BasePrefetchingDataset(ABC):
                         )
 
                 if not raw_batch:  # If all items resulted in cache miss
-                    self.h5data_logger.debug(
-                        f"[{class_name}] PreprocessManager: Raw batch empty after cache lookup for indices: {b_indices}. Skipping."
-                    )
+                    if self.config and check_debug_flag(self.config, "DEBUG.DATALOADER"):
+                        self.h5data_logger.debug(
+                            f"[{class_name}] PreprocessManager: Raw batch empty after cache lookup for indices: {b_indices}. Skipping."
+                        )
                     continue
 
                 if is_gpu_batch_pipeline:
@@ -688,9 +691,10 @@ class BasePrefetchingDataset(ABC):
                             self.main_logger.error(f"[{class_name}] Transform task error: {e}", exc_info=True)
 
                 if not processed_batch_items:  # If all transform tasks failed
-                    self.h5data_logger.debug(
-                        f"[{class_name}] PreprocessManager: Processed batch empty after transforms for indices: {valid_indices_for_transform}. Skipping."
-                    )
+                    if self.config and check_debug_flag(self.config, "DEBUG.DATALOADER"):
+                        self.h5data_logger.debug(
+                            f"[{class_name}] PreprocessManager: Processed batch empty after transforms for indices: {valid_indices_for_transform}. Skipping."
+                        )
                     continue
 
                 # Only put items in queue if not shutting down
@@ -701,9 +705,10 @@ class BasePrefetchingDataset(ABC):
                 dt = time.time() - t0
                 self.metrics["preprocess_times"].append(dt)
                 log_mode = "Pass-through" if is_gpu_batch_pipeline else "Preprocessed"
-                self.h5data_logger.debug(
-                    f"[{class_name}] PreprocessManager: {log_mode} sub-batch of {len(valid_indices_for_transform)} items in {dt:.2f}s"
-                )
+                if self.config and check_debug_flag(self.config, "DEBUG.DATALOADER"):
+                    self.h5data_logger.debug(
+                        f"[{class_name}] PreprocessManager: {log_mode} sub-batch of {len(valid_indices_for_transform)} items in {dt:.2f}s"
+                    )
         except Exception as e:
             self.main_logger.error(f"[{class_name}] Unhandled exception in preprocess manager loop: {e}", exc_info=True)
         finally:

@@ -60,8 +60,9 @@ def get_main_logger() -> logging.Logger:
     if not logger.hasHandlers():
         # Basic fallback configuration if called before create_logger
         # This shouldn't happen in the normal flow but prevents errors
-        logging.basicConfig(level=logging.INFO)
-        logger.warning("get_main_logger called before create_logger was run. Using basic config.")
+        if get_rank_safely() == 0:
+            logging.basicConfig(level=logging.INFO)
+            logger.warning("get_main_logger called before create_logger was run. Using basic config.")
     return logger
 
 
@@ -71,8 +72,9 @@ def get_h5data_logger() -> logging.Logger:
     logger = logging.getLogger("h5data")
     if not logger.hasHandlers():
         # Basic fallback
-        logging.basicConfig(level=logging.INFO)
-        logger.warning("get_h5data_logger called before create_h5data_logger was run. Using basic config.")
+        if get_rank_safely() == 0:
+            logging.basicConfig(level=logging.INFO)
+            logger.warning("get_h5data_logger called before create_h5data_logger was run. Using basic config.")
     return logger
 
 

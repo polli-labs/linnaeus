@@ -7,6 +7,7 @@ import torch
 from kornia.constants import DataKey
 
 from linnaeus.aug.base import AugmentationPipeline
+from linnaeus.aug.kornia_wrappers import get_random_autoaugment
 from linnaeus.utils.debug_utils import check_debug_flag
 from linnaeus.utils.logging.logger import get_main_logger
 
@@ -40,14 +41,10 @@ class GPUAugmentationPipeline(AugmentationPipeline):
         # Create the Kornia augmentation sequence
         self.seq = self._create_kornia_pipeline()
 
-        # Conditionally compile the entire pipeline
+        # Conditionally compile the entire pipeline with capability probe
         if config.AUG.GPU_COMPILE.ENABLED:
             logger.info(f"torch.compile for Kornia pipeline is ENABLED (mode: {config.AUG.GPU_COMPILE.MODE})")
-            try:
-                self.seq = torch.compile(self.seq, backend=config.AUG.GPU_COMPILE.BACKEND, mode=config.AUG.GPU_COMPILE.MODE)
-                logger.info("Successfully compiled Kornia augmentation pipeline")
-            except Exception as e:
-                logger.error(f"Failed to compile Kornia pipeline: {e}. Falling back to eager mode.")
+            self.seq = self._try_compile_pipeline(self.seq, config)
         else:
             logger.info("torch.compile for Kornia augmentation pipeline is DISABLED")
 
@@ -55,6 +52,42 @@ class GPUAugmentationPipeline(AugmentationPipeline):
     def is_batch_oriented_gpu_pipeline(self) -> bool:
         """Property to signal this pipeline's behavior to the dataloader system."""
         return True
+
+    def _try_compile_pipeline(self, pipeline, config):
+        """
+        Attempt to compile the pipeline with explicit capability detection.
+
+        Args:
+            pipeline: The pipeline to compile
+            config: Configuration object
+
+        Returns:
+            Compiled pipeline if successful, otherwise original pipeline
+        """
+        try:
+            # Probe compilation capability with a small test
+            logger.info("Probing torch.compile capability for Kornia pipeline...")
+            compiled_pipeline = torch.compile(
+                pipeline, backend=config.AUG.GPU_COMPILE.BACKEND, mode=config.AUG.GPU_COMPILE.MODE, dynamic=False
+            )
+            logger.info("Successfully compiled Kornia augmentation pipeline")
+            return compiled_pipeline
+
+        except Exception as e:
+            # Check for specific compilation issues
+            if "Unsupported" in str(e) or "graph break" in str(e).lower():
+                logger.warning(
+                    f"Kornia pipeline is not torch.compile compatible: {e}. "
+                    "This is expected with stochastic operations like RandomErasing. "
+                    "Falling back to eager mode - performance will not be degraded."
+                )
+            else:
+                logger.error(f"Unexpected error during torch.compile: {e}. Falling back to eager mode.")
+
+            # Disable compilation flag to prevent retry attempts
+            config.AUG.GPU_COMPILE.ENABLED = False
+            logger.info("Disabled GPU_COMPILE.ENABLED flag to prevent further compilation attempts")
+            return pipeline
 
     def _create_kornia_pipeline(self) -> K.AugmentationSequential:
         """
@@ -74,8 +107,8 @@ class GPUAugmentationPipeline(AugmentationPipeline):
         if check_debug_flag(self.config, "DEBUG.AUGMENTATION"):
             logger.debug(f"Creating Kornia pipeline with RandomAutoAugment policy: {policy_name}")
 
-        # Use Kornia's native RandomAutoAugment - much simpler and more robust
-        auto_augment = K.RandomAutoAugment(policy=policy_name)
+        # Use version-adaptive AutoAugment wrapper
+        auto_augment = get_random_autoaugment(policy_name)
 
         # Create RandomErasing
         random_erasing = K.RandomErasing(
@@ -107,14 +140,17 @@ class GPUAugmentationPipeline(AugmentationPipeline):
             if self.config.DEBUG.PROFILER.ENABLED and getattr(self.config.DEBUG.PROFILER, "SYNC_PROFILING", False):
                 torch.cuda.synchronize()  # Sync at start of block
 
-            # Ensure input is float32 in [0,1] range
-            if not images_tensor.dtype == torch.float32:
+            # Early-exit optimizations for dtype/range/memory-format conversions
+            if images_tensor.dtype != torch.float32:
                 images_tensor = images_tensor.float()
             if images_tensor.max() > 1.0:
                 images_tensor = images_tensor / 255.0
-
-            # Convert to channels_last for better performance (optional optimization)
-            images_tensor = images_tensor.clamp_(0, 1).to(memory_format=torch.channels_last)
+            # Only convert memory format if not already channels_last
+            if not images_tensor.is_contiguous(memory_format=torch.channels_last):
+                images_tensor = images_tensor.to(memory_format=torch.channels_last)
+            # Only clamp if values are outside [0,1] range
+            if images_tensor.min() < 0.0 or images_tensor.max() > 1.0:
+                images_tensor = images_tensor.clamp_(0, 1)
 
             # Apply Kornia augmentation pipeline
             augmented_images = self.seq(images_tensor)

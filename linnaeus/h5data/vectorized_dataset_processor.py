@@ -49,6 +49,7 @@ from typing import Any
 import h5py
 import numpy as np
 
+from linnaeus.utils.debug_utils import check_debug_flag
 from linnaeus.utils.logging.logger import get_h5data_logger
 from linnaeus.utils.taxonomy.taxonomy_tree import TaxonomyTree
 
@@ -725,13 +726,15 @@ class VectorizedDatasetProcessorOnePass:
                 continue
 
             arr = h5_file[src][:]
-            self.main_logger.debug(f"[{dataset_type}] Reading meta component '{comp_name}' from dataset='{src}', shape={arr.shape}")
+            if self.config and check_debug_flag(self.config, "DEBUG.DATALOADER"):
+                self.main_logger.debug(f"[{dataset_type}] Reading meta component '{comp_name}' from dataset='{src}', shape={arr.shape}")
 
             # Possibly zero out OOR if comp_cfg["OOR_MASK"] is True
             if zero_funcs.get(comp_name, None) is not None:
                 fn = zero_funcs[comp_name]
                 fn(arr)
-                self.main_logger.debug(f"[{dataset_type}] Zeroed out OOR rows for '{comp_name}'")
+                if self.config and check_debug_flag(self.config, "DEBUG.DATALOADER"):
+                    self.main_logger.debug(f"[{dataset_type}] Zeroed out OOR rows for '{comp_name}'")
 
             # If we have columns
             col_list = comp_cfg.get("COLUMNS", [])
@@ -779,9 +782,10 @@ class VectorizedDatasetProcessorOnePass:
                 new_count = valid_mask.sum()
                 if old_count - new_count > 0:
                     ratio = (old_count - new_count) / old_count * 100.0
-                    self.main_logger.debug(
-                        f"[{dataset_type}] Removing {old_count - new_count} samples (~{ratio:.1f}%) for all-zero '{comp_name}'"
-                    )
+                    if self.config and check_debug_flag(self.config, "DEBUG.DATALOADER"):
+                        self.main_logger.debug(
+                            f"[{dataset_type}] Removing {old_count - new_count} samples (~{ratio:.1f}%) for all-zero '{comp_name}'"
+                        )
 
             meta_arrays[comp_name] = arr
 
@@ -925,9 +929,10 @@ class VectorizedDatasetProcessorOnePass:
             ratio = (valid_count / len(all_comp_entries)) * 100 if all_comp_entries else 0
             if ratio < 5.0 and len(valid_indices) > 0:
                 self.main_logger.warning(f"[{dataset_type}] meta component '{comp_name}' => only {ratio:.1f}% coverage among valid samples")
-            self.main_logger.debug(
-                f"[{dataset_type}] meta component '{comp_name}' => {valid_count}/{len(all_comp_entries)} (~{ratio:.1f}%) non-zero coverage"
-            )
+            if self.config and check_debug_flag(self.config, "DEBUG.DATALOADER"):
+                self.main_logger.debug(
+                    f"[{dataset_type}] meta component '{comp_name}' => {valid_count}/{len(all_comp_entries)} (~{ratio:.1f}%) non-zero coverage"
+                )
 
     def _apply_in_region_logic(self, h5_file, valid_mask: np.ndarray):
         """

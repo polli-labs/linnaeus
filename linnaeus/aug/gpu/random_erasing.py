@@ -22,6 +22,7 @@ class GPURandomErasing(nn.Module, RandomErasing):
         if config and check_debug_flag(config, "DEBUG.AUGMENTATION"):
             logger.debug("[GPURandomErasing] Initializing GPURandomErasing")
         self.config = re_config
+        self._debug_config = config  # Store config for debug checks
 
     def forward(self, images: torch.Tensor) -> torch.Tensor:
         """
@@ -34,7 +35,8 @@ class GPURandomErasing(nn.Module, RandomErasing):
         Returns:
             torch.Tensor: Images with random erasing applied, as float tensor in range [0, 1].
         """
-        logger.debug(f"Applying GPU RandomErasing to batch of {images.shape[0]} images")
+        if self._debug_config and check_debug_flag(self._debug_config, "DEBUG.AUGMENTATION"):
+            logger.debug(f"Applying GPU RandomErasing to batch of {images.shape[0]} images")
         if torch.rand(1, device=images.device).item() > self.config["PROB"]:
             return images
 
