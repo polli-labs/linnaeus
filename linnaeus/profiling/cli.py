@@ -8,12 +8,11 @@ PyTorch profiler traces from Linnaeus experiments.
 import argparse
 import sys
 from pathlib import Path
-from typing import Optional
 
 from rich.console import Console
 from rich.table import Table
 
-from . import scanner, summary, diff, tensorboard_launcher
+from . import diff, scanner, summary, tensorboard_launcher
 
 console = Console()
 

@@ -1472,14 +1472,14 @@ class H5DataLoader(DataLoader):
                     if apply_mixing:
                         # Add profiler region for mixing
                         with torch.profiler.record_function("gpu_selective_mixing"):
-                            if self.config.DEBUG.PROFILER.ENABLED:
+                            if self.config.DEBUG.PROFILER.ENABLED and getattr(self.config.DEBUG.PROFILER, "SYNC_PROFILING", False):
                                 torch.cuda.synchronize()  # Sync at start
 
                             images, merged_targets, aux_info, meta_validity_masks = mixing_fn(
                                 batch_tuple, exclude_null_samples=exclude_null_samples, null_task_keys=null_task_keys
                             )
 
-                            if self.config.DEBUG.PROFILER.ENABLED:
+                            if self.config.DEBUG.PROFILER.ENABLED and getattr(self.config.DEBUG.PROFILER, "SYNC_PROFILING", False):
                                 torch.cuda.synchronize()  # Sync at end
 
                     # Debug the output from the GPU mixing function
@@ -1550,7 +1550,7 @@ class H5DataLoader(DataLoader):
                         # The mixing functions expect (images, targets, aux_info, meta_masks, group_ids)
                         # Add profiler region for mixing
                         with torch.profiler.record_function("gpu_selective_mixing"):
-                            if self.config.DEBUG.PROFILER.ENABLED:
+                            if self.config.DEBUG.PROFILER.ENABLED and getattr(self.config.DEBUG.PROFILER, "SYNC_PROFILING", False):
                                 torch.cuda.synchronize()  # Sync at start
 
                             images, merged_targets, aux_info, meta_validity_masks = mixing_fn(
@@ -1559,7 +1559,7 @@ class H5DataLoader(DataLoader):
                                 null_task_keys=null_task_keys,
                             )
 
-                            if self.config.DEBUG.PROFILER.ENABLED:
+                            if self.config.DEBUG.PROFILER.ENABLED and getattr(self.config.DEBUG.PROFILER, "SYNC_PROFILING", False):
                                 torch.cuda.synchronize()  # Sync at end
                     # else: mixing was skipped, tensors remain as they were.
 

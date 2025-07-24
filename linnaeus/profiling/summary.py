@@ -7,14 +7,14 @@ to generate performance summaries and metrics.
 
 import json
 import pickle
-from dataclasses import dataclass, asdict
+from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Dict, List, Optional, Any
+from typing import Any
 
 import yaml
 from rich.console import Console
-from rich.table import Table
 from rich.panel import Panel
+from rich.table import Table
 
 from .scanner import find_profiler_traces, get_experiment_config_path
 
@@ -60,12 +60,12 @@ class RunSummary:
     run_path: Path
     run_id: str
     config: ExperimentConfig
-    profiler_metrics: Optional[ProfilerMetrics]
+    profiler_metrics: ProfilerMetrics | None
     has_profiler_traces: bool
     trace_files_count: int
-    error_message: Optional[str] = None
+    error_message: str | None = None
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
         return {
             "run_path": str(self.run_path),
@@ -173,7 +173,7 @@ def load_experiment_config(run_path: Path) -> ExperimentConfig:
     """
     config_path = get_experiment_config_path(run_path)
 
-    with open(config_path, "r") as f:
+    with open(config_path) as f:
         config_data = yaml.load(f, Loader=yaml.UnsafeLoader)
 
     return ExperimentConfig(
@@ -189,7 +189,7 @@ def load_experiment_config(run_path: Path) -> ExperimentConfig:
     )
 
 
-def analyze_profiler_traces(trace_files: List[Path]) -> ProfilerMetrics:
+def analyze_profiler_traces(trace_files: list[Path]) -> ProfilerMetrics:
     """
     Analyze PyTorch profiler trace files to extract metrics.
 
@@ -213,7 +213,7 @@ def analyze_profiler_traces(trace_files: List[Path]) -> ProfilerMetrics:
     total_mixing_time = 0.0
 
     for trace_file in trace_files:
-        with open(trace_file, "r") as f:
+        with open(trace_file) as f:
             trace_data = json.load(f)
 
         events = trace_data.get("traceEvents", [])

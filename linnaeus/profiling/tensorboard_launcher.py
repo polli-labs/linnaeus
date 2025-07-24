@@ -5,11 +5,9 @@ Provides functions to launch TensorBoard with proper configuration
 for Linnaeus experiment directory structures.
 """
 
-import os
 import subprocess
 import webbrowser
 from pathlib import Path
-from typing import Optional
 
 from rich.console import Console
 
@@ -48,7 +46,7 @@ def launch(logdir: Path, port: int = 6006, bind_all: bool = False, auto_open: bo
     host = "0.0.0.0" if bind_all else "localhost"
     url = f"http://{host}:{port}/"
 
-    console.print(f"[green]Launching TensorBoard...[/green]")
+    console.print("[green]Launching TensorBoard...[/green]")
     console.print(f"[cyan]Command:[/cyan] {' '.join(cmd)}")
     console.print(f"[cyan]URL:[/cyan] {url}")
     console.print(f"[cyan]Logdir:[/cyan] {logdir}")
@@ -65,8 +63,8 @@ def launch(logdir: Path, port: int = 6006, bind_all: bool = False, auto_open: bo
             except Exception as e:
                 console.print(f"[yellow]Could not auto-open browser: {e}[/yellow]")
 
-        console.print(f"[green]TensorBoard started successfully![/green]")
-        console.print(f"[yellow]Press Ctrl+C to stop TensorBoard[/yellow]")
+        console.print("[green]TensorBoard started successfully![/green]")
+        console.print("[yellow]Press Ctrl+C to stop TensorBoard[/yellow]")
 
         # Stream output
         try:
@@ -74,10 +72,10 @@ def launch(logdir: Path, port: int = 6006, bind_all: bool = False, auto_open: bo
                 if line.strip():
                     console.print(f"[dim]TB: {line.strip()}[/dim]")
         except KeyboardInterrupt:
-            console.print(f"\n[yellow]Stopping TensorBoard...[/yellow]")
+            console.print("\n[yellow]Stopping TensorBoard...[/yellow]")
             process.terminate()
             process.wait()
-            console.print(f"[green]TensorBoard stopped.[/green]")
+            console.print("[green]TensorBoard stopped.[/green]")
 
     except FileNotFoundError:
         raise RuntimeError("TensorBoard not found. Please install with: pip install tensorboard")

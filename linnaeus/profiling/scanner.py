@@ -5,11 +5,10 @@ Provides functions to recursively discover Linnaeus experiment runs
 following the canonical <PROJECT>/<GROUP>/<NAME> directory structure.
 """
 
-import os
+from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Iterator, List
 
 
 @dataclass
@@ -97,7 +96,7 @@ def is_experiment_run(path: Path) -> bool:
     return {"configs", "logs"}.issubset(actual_subdirs)
 
 
-def find_profiler_traces(run_path: Path) -> List[Path]:
+def find_profiler_traces(run_path: Path) -> list[Path]:
     """
     Find profiler trace files in an experiment run.
 
@@ -119,7 +118,7 @@ def find_profiler_traces(run_path: Path) -> List[Path]:
     return sorted(trace_files)
 
 
-def runs_to_markdown(runs: List[Run], base_dir: Path) -> str:
+def runs_to_markdown(runs: list[Run], base_dir: Path) -> str:
     """
     Format list of runs as a markdown table.
 

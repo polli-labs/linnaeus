@@ -2,13 +2,20 @@
 
 ## [0.1.4] - TBD
 
-### Added
-- **GPU Augmentation Kernel Fusion**: Integrated `torch.compile` for GPU augmentation pipeline components (`GPUAutoAugmentBatch` and `GPURandomErasing`). This fuses multiple small CUDA kernels into optimized single kernels, significantly reducing CPU dispatch overhead and GPU memory bandwidth pressure.
+### Added  
+- **Compiled Augmentation Policies**: Completely refactored GPU augmentation architecture with individually compiled policies in `CompiledAugmentationPolicy` for maximum kernel fusion potential. Each sub-policy is now a static, traceable module.
+- **Enhanced Profiler Synchronization**: Added `DEBUG.PROFILER.SYNC_PROFILING` configuration flag to enable CUDA synchronization for accurate GPU timing measurements without always-on overhead.
+- **Graph Break Elimination**: Replaced dynamic policy selection and Python loops with fully traceable tensor operations using `torch.where`, one-hot selection masks, and static policy execution.
 - **PyTorch Profiler Integration**: Added comprehensive profiling support controlled by `DEBUG.PROFILER` configuration. Captures CPU/CUDA activity traces for performance analysis via TensorBoard.
 - **Configurable Compilation**: New `AUG.GPU_COMPILE` configuration section enables JIT compilation with configurable backend and mode settings.
 
+### Changed
+- **GPU Pipeline Architecture**: Migrated from `TraceableGPUAutoAugment` to `CompiledAugmentationPolicy` with `nn.ModuleList` of individually compiled policies to eliminate all graph breaks preventing kernel fusion.
+- **Pure Torch Operations**: Replaced `TF.invert` and other torchvision.transforms.functional calls with pure torch operations (`1.0 - images`) where possible for better compilation compatibility.
+
 ### Performance
-- **Kernel Fusion**: Expected significant throughput increase through reduced kernel launch overhead and intermediate memory transfers. Addresses dual-constraint bottleneck of CPU-bound orchestration and GPU memory bandwidth.
+- **Kernel Fusion Target**: Designed to achieve >90% kernel count reduction from ~38,000 to <4,000 through complete elimination of graph breaks and static compilation of augmentation policies.
+- **Expected Throughput**: Targeting 10-30% additional step time reduction beyond v0.1.4c through successful kernel fusion implementation.
 
 ## [Unreleased]
 

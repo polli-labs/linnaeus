@@ -5,14 +5,14 @@ Provides functions to compare performance metrics between experiment runs
 and generate side-by-side reports highlighting differences.
 """
 
-from dataclasses import dataclass, asdict
-from typing import Optional, Any, Dict
+from dataclasses import asdict, dataclass
+from typing import Any
 
 from rich.console import Console
-from rich.table import Table
 from rich.panel import Panel
+from rich.table import Table
 
-from .summary import RunSummary, ProfilerMetrics
+from .summary import RunSummary
 
 console = Console()
 
@@ -24,8 +24,8 @@ class MetricDiff:
     name: str
     value_a: Any
     value_b: Any
-    diff_abs: Optional[float] = None
-    diff_pct: Optional[float] = None
+    diff_abs: float | None = None
+    diff_pct: float | None = None
     significant: bool = False
 
     def __post_init__(self):
@@ -47,11 +47,11 @@ class RunComparison:
 
     run_a: RunSummary
     run_b: RunSummary
-    config_diffs: Dict[str, MetricDiff]
-    profiler_diffs: Optional[Dict[str, MetricDiff]]
+    config_diffs: dict[str, MetricDiff]
+    profiler_diffs: dict[str, MetricDiff] | None
     summary: str
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
         return {
             "run_a": self.run_a.to_dict(),
@@ -99,7 +99,7 @@ def compare_runs(run_a: RunSummary, run_b: RunSummary) -> RunComparison:
     return RunComparison(run_a=run_a, run_b=run_b, config_diffs=config_diffs, profiler_diffs=profiler_diffs, summary=summary)
 
 
-def generate_summary(config_diffs: Dict[str, MetricDiff], profiler_diffs: Optional[Dict[str, MetricDiff]]) -> str:
+def generate_summary(config_diffs: dict[str, MetricDiff], profiler_diffs: dict[str, MetricDiff] | None) -> str:
     """
     Generate a high-level summary of the differences.
 
@@ -228,12 +228,12 @@ def format_markdown(comparison: RunComparison) -> str:
         Markdown formatted string
     """
     lines = [
-        f"# Run Comparison",
+        "# Run Comparison",
         "",
         f"**Run A**: {comparison.run_a.run_id}",
         f"**Run B**: {comparison.run_b.run_id}",
         "",
-        f"## Summary",
+        "## Summary",
         "",
         comparison.summary,
         "",

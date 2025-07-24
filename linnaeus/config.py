@@ -882,6 +882,7 @@ _C.DEBUG.PROFILER.OUTPUT_DIR = "{output_dir}/assets/profiler"
 _C.DEBUG.PROFILER.SCHEDULE = [1, 1, 3, 2]  # [wait, warmup, active, repeat]
 _C.DEBUG.PROFILER.RECORD_SHAPES = False
 _C.DEBUG.PROFILER.WITH_STACK = False
+_C.DEBUG.PROFILER.SYNC_PROFILING = False  # Enable CUDA synchronization for accurate timing
 
 # ----------------------------------------------------------------------------
 # Internal Flags

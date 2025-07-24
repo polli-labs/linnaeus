@@ -6,8 +6,9 @@ import torch
 import torch.nn as nn
 
 from linnaeus.aug.base import AugmentationPipeline
+from linnaeus.aug.gpu.compiled_policy import CompiledAugmentationPolicy
 from linnaeus.aug.gpu.random_erasing import GPURandomErasing
-from linnaeus.aug.gpu.traceable_autoaug import TraceableGPUAutoAugment
+from linnaeus.aug.policies import get_policy
 from linnaeus.utils.logging.logger import get_main_logger
 
 logger = get_main_logger()
@@ -19,7 +20,7 @@ class GPUAugmentationPipeline(AugmentationPipeline):
 
     Attributes:
         config (Dict[str, Any]): Configuration dictionary for augmentations.
-        autoaug (TraceableGPUAutoAugment): Traceable AutoAugment implementation for GPU.
+        compiled_policies (nn.ModuleList): List of individually compiled augmentation policies.
         random_erasing (GPURandomErasing): RandomErasing implementation from torchvision-ish.
         pipeline (nn.Sequential): The compiled sequential pipeline of augmentations.
 
@@ -39,41 +40,114 @@ class GPUAugmentationPipeline(AugmentationPipeline):
         logger.info("Initializing GPUAugmentationPipeline")
         self.config = config
 
-        # Create instances of augmentation modules
-        self.autoaug = self._create_traceable_autoaug()
+        # Create individually compiled augmentation policies
+        self.compiled_policies = self._create_compiled_policies()
         self.random_erasing = self._create_random_erasing()
 
-        # Define the entire pipeline as a single nn.Module
-        self.pipeline = nn.Sequential(self.autoaug, self.random_erasing)
-
-        # Conditionally compile the *entire* sequential pipeline
-        if config.AUG.GPU_COMPILE.ENABLED:
-            logger.info(f"torch.compile for GPU augmentation pipeline is ENABLED (mode: {config.AUG.GPU_COMPILE.MODE}).")
-            try:
-                # Compile the sequential module
-                self.pipeline = torch.compile(self.pipeline, backend=config.AUG.GPU_COMPILE.BACKEND, mode=config.AUG.GPU_COMPILE.MODE)
-                logger.info("Successfully compiled the sequential GPU augmentation pipeline.")
-            except Exception as e:
-                logger.error(f"Failed to torch.compile augmentation pipeline: {e}. Falling back to eager mode.")
-        else:
-            logger.info("torch.compile for GPU augmentation pipeline is DISABLED.")
+        # Create wrapper that applies selected policy + random erasing
+        self.pipeline = self._create_compiled_pipeline()
 
     @property
     def is_batch_oriented_gpu_pipeline(self) -> bool:
         """Property to signal this pipeline's behavior to the dataloader system."""
         return True
 
-    def _create_traceable_autoaug(self) -> TraceableGPUAutoAugment:
-        """Create and return a TraceableGPUAutoAugment instance."""
-        logger.debug("Creating TraceableGPUAutoAugment")
-        policy = self.config.AUG.AUTOAUG.POLICY
+    def _create_compiled_policies(self) -> nn.ModuleList:
+        """Create a ModuleList of individually compiled augmentation policies."""
+        logger.debug("Creating compiled augmentation policies")
+
+        # Get the policy configuration
+        policy_name = self.config.AUG.AUTOAUG.POLICY
         color_jitter = self.config.AUG.AUTOAUG.COLOR_JITTER
-        return TraceableGPUAutoAugment(policy, color_jitter, config=self.config)
+        hparams = {"color_jitter": color_jitter}
+
+        # Get all sub-policies
+        policies = get_policy(policy_name, hparams)
+        logger.info(f"Creating {len(policies)} individually compiled policies")
+
+        # Create a list to hold compiled policies
+        compiled_policies = nn.ModuleList()
+
+        for i, policy_ops in enumerate(policies):
+            # Create individual policy module
+            policy_module = CompiledAugmentationPolicy(policy_ops, config=self.config)
+
+            # Conditionally compile each individual policy
+            if self.config.AUG.GPU_COMPILE.ENABLED:
+                logger.debug(f"Compiling policy {i + 1}/{len(policies)} with mode: {self.config.AUG.GPU_COMPILE.MODE}")
+                try:
+                    compiled_policy = torch.compile(
+                        policy_module, backend=self.config.AUG.GPU_COMPILE.BACKEND, mode=self.config.AUG.GPU_COMPILE.MODE
+                    )
+                    compiled_policies.append(compiled_policy)
+                    logger.debug(f"Successfully compiled policy {i + 1}")
+                except Exception as e:
+                    logger.warning(f"Failed to compile policy {i + 1}: {e}. Using eager mode.")
+                    compiled_policies.append(policy_module)
+            else:
+                compiled_policies.append(policy_module)
+
+        if self.config.AUG.GPU_COMPILE.ENABLED:
+            logger.info(f"Successfully created {len(compiled_policies)} compiled augmentation policies")
+        else:
+            logger.info(f"Created {len(compiled_policies)} augmentation policies (compilation disabled)")
+
+        return compiled_policies
 
     def _create_random_erasing(self) -> GPURandomErasing:
         """Create and return a GPURandomErasing instance."""
         logger.debug("Creating GPURandomErasing")
         return GPURandomErasing(self.config.AUG.RANDOM_ERASE, config=self.config)
+
+    def _create_compiled_pipeline(self) -> nn.Module:
+        """Create a wrapper module that selects and applies a policy plus random erasing."""
+
+        class CompiledPipelineWrapper(nn.Module):
+            def __init__(self, compiled_policies, random_erasing):
+                super().__init__()
+                self.compiled_policies = compiled_policies
+                self.random_erasing = random_erasing
+                self.num_policies = len(compiled_policies)
+
+            def forward(self, images: torch.Tensor) -> torch.Tensor:
+                # Select a policy index using torch.randint
+                policy_idx = torch.randint(self.num_policies, (1,), device=images.device)
+
+                # Apply all policies and use torch.where to select the right one
+                # This eliminates the graph break from .item() and Python indexing
+                policy_results = []
+                for policy in self.compiled_policies:
+                    policy_results.append(policy(images))
+
+                # Stack all policy results
+                stacked_results = torch.stack(policy_results, dim=0)  # Shape: [num_policies, B, C, H, W]
+
+                # Create one-hot selection mask and use it to select the result
+                policy_mask = torch.zeros(self.num_policies, device=images.device)
+                policy_mask = policy_mask.scatter(0, policy_idx, 1.0)  # One-hot at policy_idx
+
+                # Apply mask to select the chosen policy result
+                # Reshape mask for broadcasting: [num_policies, 1, 1, 1, 1]
+                policy_mask = policy_mask.view(-1, 1, 1, 1, 1)
+                selected_result = (stacked_results * policy_mask).sum(dim=0)
+
+                # Apply random erasing
+                return self.random_erasing(selected_result)
+
+        wrapper = CompiledPipelineWrapper(self.compiled_policies, self.random_erasing)
+
+        # Optionally compile the entire wrapper
+        if self.config.AUG.GPU_COMPILE.ENABLED:
+            logger.info("torch.compile for GPU augmentation pipeline wrapper is ENABLED")
+            try:
+                wrapper = torch.compile(wrapper, backend=self.config.AUG.GPU_COMPILE.BACKEND, mode=self.config.AUG.GPU_COMPILE.MODE)
+                logger.info("Successfully compiled pipeline wrapper")
+            except Exception as e:
+                logger.warning(f"Failed to compile pipeline wrapper: {e}. Using eager mode.")
+        else:
+            logger.info("torch.compile for GPU augmentation pipeline is DISABLED")
+
+        return wrapper
 
     def __call__(self, images_tensor: torch.Tensor) -> torch.Tensor:
         """
@@ -88,7 +162,7 @@ class GPUAugmentationPipeline(AugmentationPipeline):
         """
         # Add profiler region
         with torch.profiler.record_function("gpu_batch_augmentations"):
-            if self.config.DEBUG.PROFILER.ENABLED:
+            if self.config.DEBUG.PROFILER.ENABLED and getattr(self.config.DEBUG.PROFILER, "SYNC_PROFILING", False):
                 torch.cuda.synchronize()  # Sync at start of block
 
             # Ensure input is float32 in [0,1] range
@@ -105,7 +179,7 @@ class GPUAugmentationPipeline(AugmentationPipeline):
             if not augmented_images.dtype == torch.float32:
                 augmented_images = augmented_images.float()
 
-            if self.config.DEBUG.PROFILER.ENABLED:
+            if self.config.DEBUG.PROFILER.ENABLED and getattr(self.config.DEBUG.PROFILER, "SYNC_PROFILING", False):
                 torch.cuda.synchronize()  # Sync at end of block
 
             return augmented_images
