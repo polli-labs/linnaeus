@@ -16,27 +16,27 @@ logger = get_main_logger()
 
 # Mapping from our AutoAugment operations to Kornia equivalents
 _OP_MAP = {
-    "ShearX": lambda m: K.RandomAffine(degrees=0.0, shear=(m, 0)),
-    "ShearY": lambda m: K.RandomAffine(degrees=0.0, shear=(0, m)),
-    "TranslateX": lambda m: K.RandomAffine(degrees=0.0, translate=(m, 0)),
-    "TranslateY": lambda m: K.RandomAffine(degrees=0.0, translate=(0, m)),
-    "TranslateXRel": lambda m: K.RandomAffine(degrees=0.0, translate=(m, 0)),  # Relative translation
-    "TranslateYRel": lambda m: K.RandomAffine(degrees=0.0, translate=(0, m)),  # Relative translation
-    "Rotate": lambda m: K.RandomRotation(degrees=float(m)),
-    "Color": lambda m: K.RandomSaturation(saturation=(m, m)),
-    "Contrast": lambda m: K.RandomContrast(contrast=(m, m)),
-    "Brightness": lambda m: K.RandomBrightness(brightness=(m, m)),
-    "Sharpness": lambda m: K.RandomSharpness(sharpness=(m, m)),
+    "ShearX": lambda m: K.RandomAffine(degrees=0.0, shear=(-abs(m), abs(m), 0, 0)),
+    "ShearY": lambda m: K.RandomAffine(degrees=0.0, shear=(0, 0, -abs(m), abs(m))),
+    "TranslateX": lambda m: K.RandomAffine(degrees=0.0, translate=(abs(m), 0)),
+    "TranslateY": lambda m: K.RandomAffine(degrees=0.0, translate=(0, abs(m))),
+    "TranslateXRel": lambda m: K.RandomAffine(degrees=0.0, translate=(abs(m), 0)),  # Relative translation
+    "TranslateYRel": lambda m: K.RandomAffine(degrees=0.0, translate=(0, abs(m))),  # Relative translation
+    "Rotate": lambda m: K.RandomRotation(degrees=float(abs(m))),
+    "Color": lambda m: K.RandomSaturation(saturation=(max(0.0, m), max(2.0, m))),
+    "Contrast": lambda m: K.RandomContrast(contrast=(max(0.0, m), max(2.0, m))),
+    "Brightness": lambda m: K.RandomBrightness(brightness=(max(0.0, m), max(2.0, m))),
+    "Sharpness": lambda m: K.RandomSharpness(sharpness=(max(0.0, m), max(2.0, m))),
     "AutoContrast": lambda _: K.RandomAutocontrast(),
     "Equalize": lambda _: K.RandomEqualize(),
     "PosterizeOriginal": lambda b: K.RandomPosterize(bits=int(b)),
     "Posterize": lambda b: K.RandomPosterize(bits=int(8 - (b / 10.0) * 4)),  # Map magnitude to bits
     "PosterizeIncreasing": lambda b: K.RandomPosterize(bits=int(4 + (b / 10.0) * 4)),
-    "Solarize": lambda t: K.RandomSolarize(threshold=float((256 - (t / 10.0) * 256) / 255.0)),
+    "Solarize": lambda t: K.RandomSolarize(thresholds=float((256 - (t / 10.0) * 256) / 255.0)),
     "Invert": lambda _: K.RandomInvert(),
     "GaussianBlurRand": lambda f: K.RandomGaussianBlur(kernel_size=3, sigma=(f * 0.5, f * 0.5)),
     "Desaturate": lambda f: K.RandomSaturation(saturation=(1.0 - f / 10.0, 1.0 - f / 10.0)),
-    "SolarizeAdd": lambda add: K.RandomSolarize(threshold=0.5, addition=add * 0.1),  # Approximate mapping
+    "SolarizeAdd": lambda add: K.RandomSolarize(thresholds=0.5, additions=add * 0.1),
 }
 
 
@@ -94,10 +94,14 @@ def _make_subpolicy(policy_ops: list) -> nn.Sequential:
     ops = []
     for op_name, prob, magnitude in policy_ops:
         if op_name in _OP_MAP:
-            # Create the Kornia operation with the given magnitude
-            kornia_op = _OP_MAP[op_name](magnitude)
-            # Wrap with RandomApply to honor the probability
-            ops.append(K.RandomApply([kornia_op], p=prob))
+            try:
+                # Create the Kornia operation with the given magnitude and probability
+                kornia_op = _OP_MAP[op_name](magnitude)
+                # Set the probability directly on the Kornia operation
+                kornia_op.p = prob
+                ops.append(kornia_op)
+            except Exception as e:
+                logger.warning(f"Failed to create operation {op_name}: {e}. Skipping.")
         else:
             logger.warning(f"Unknown augmentation operation: {op_name}. Skipping.")
 
@@ -184,7 +188,7 @@ class GPUAugmentationPipeline(AugmentationPipeline):
             p=self.config.AUG.RANDOM_ERASE.PROB,
             scale=tuple(self.config.AUG.RANDOM_ERASE.AREA_RANGE),
             ratio=tuple(self.config.AUG.RANDOM_ERASE.ASPECT_RATIO),
-            value="random",
+            value=0.0,  # Use 0.0 instead of 'random'
         )
 
         # Create the complete traceable pipeline
