@@ -25,11 +25,6 @@ from linnaeus.utils.logging.logger import get_h5data_logger
 logger = get_h5data_logger()
 
 
-def ensure_debug_imports():
-    """Helper function to ensure debug-related imports are available in the current scope."""
-    return check_debug_flag, get_rank_safely
-
-
 class H5DataLoader(DataLoader):
     """
     H5DataLoader
@@ -123,14 +118,6 @@ class H5DataLoader(DataLoader):
             self.main_logger.warning("[H5DataLoader] No config provided, using empty meta chunk boundaries")
 
         # Add explicit check for DEBUG.LOSS.NULL_MASKING at initialization time
-        if config:
-            self.meta_chunk_bounds_list, self.meta_chunk_bounds_map = compute_meta_chunk_bounds(config)
-            if check_debug_flag(config, "DEBUG.DATALOADER"):
-                self.main_logger.debug(f"[H5DataLoader] Computed meta chunk boundaries: {self.meta_chunk_bounds_list}")
-                self.main_logger.debug(f"[H5DataLoader] Component boundary mapping: {self.meta_chunk_bounds_map}")
-        else:
-            self.meta_chunk_bounds_list, self.meta_chunk_bounds_map = [], {}
-            self.main_logger.warning("[H5DataLoader] No config provided, using empty meta chunk boundaries")
 
         # Try to initialize mixup/cutmix functions if ops_schedule is available
         # If not available now, it will be initialized later when set_ops_schedule is called
@@ -139,8 +126,6 @@ class H5DataLoader(DataLoader):
         # Add explicit check for DEBUG.LOSS.NULL_MASKING at initialization time
         if ops_schedule and hasattr(ops_schedule, "config"):
             try:
-                from linnaeus.utils.config import check_debug_flag  # Ensure correct import if not already
-
                 has_null_masking_debug = check_debug_flag(ops_schedule.config, "DEBUG.LOSS.NULL_MASKING")
                 has_dataloader_debug = check_debug_flag(ops_schedule.config, "DEBUG.DATALOADER")
                 has_augmentation_debug = check_debug_flag(ops_schedule.config, "DEBUG.AUGMENTATION")
@@ -169,7 +154,6 @@ class H5DataLoader(DataLoader):
         )
 
         # Add more detailed debug logs if config has debug flags or ops_schedule has a config
-        from linnaeus.utils.debug_utils import check_debug_flag
 
         using_debug = (self.config and check_debug_flag(self.config, "DEBUG.DATALOADER")) or (
             ops_schedule and hasattr(ops_schedule, "config") and check_debug_flag(ops_schedule.config, "DEBUG.DATALOADER")
@@ -596,8 +580,7 @@ class H5DataLoader(DataLoader):
           - calculate actual metadata validity percentages
           - final move to GPU if requested
         """
-        # Import utilities at the beginning to avoid scope issues
-        check_debug_flag, get_rank_safely = ensure_debug_imports()
+        # Use imported utilities directly
 
         # --- BEGIN UNCONDITIONAL DIAGNOSTIC PRINTS ---
         # if (
