@@ -40,6 +40,47 @@ _OP_MAP = {
 }
 
 
+class TraceableRandomPolicySelector(nn.Module):
+    """
+    A traceable module that randomly selects between multiple sub-policies.
+    
+    Since Kornia doesn't have RandomChoice, we implement our own traceable
+    version using torch.where to avoid graph breaks.
+    """
+    
+    def __init__(self, policies: list[nn.Module]):
+        super().__init__()
+        self.policies = nn.ModuleList(policies)
+        self.num_policies = len(policies)
+    
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        if self.num_policies == 1:
+            return self.policies[0](x)
+        
+        # Generate random selector in [0, 1)
+        selector = torch.rand(1, device=x.device)
+        
+        # Apply all policies and use torch.where to select
+        results = []
+        for policy in self.policies:
+            results.append(policy(x))
+        
+        # Stack results and use torch.where for selection
+        stacked_results = torch.stack(results, dim=0)  # Shape: [num_policies, B, C, H, W]
+        
+        # Create selection mask based on uniform distribution
+        step = 1.0 / self.num_policies
+        result = stacked_results[0]  # Start with first policy
+        
+        for i in range(1, self.num_policies):
+            # Select this policy if selector is in its range
+            mask = (selector >= i * step) & (selector < (i + 1) * step)
+            mask = mask.view(1, 1, 1, 1)  # Broadcast shape
+            result = torch.where(mask, stacked_results[i], result)
+        
+        return result
+
+
 def _make_subpolicy(policy_ops: list) -> nn.Sequential:
     """
     Convert a sub-policy (list of operations) to a Kornia Sequential module.
@@ -131,12 +172,9 @@ class GPUAugmentationPipeline(AugmentationPipeline):
                 logger.warning(f"Failed to create sub-policy {i + 1}: {e}. Using identity.")
                 kornia_policies.append(nn.Identity())
 
-        # Create RandomChoice to select among sub-policies (this is traceable)
+        # Create a traceable random policy selector
         if kornia_policies:
-            # Use uniform probabilities for all sub-policies
-            num_policies = len(kornia_policies)
-            probabilities = torch.ones(num_policies) / num_policies
-            auto_augment = K.RandomChoice(kornia_policies, p=probabilities, same_on_batch=False)
+            auto_augment = TraceableRandomPolicySelector(kornia_policies)
         else:
             logger.warning("No valid sub-policies created. Using identity for AutoAugment.")
             auto_augment = nn.Identity()
