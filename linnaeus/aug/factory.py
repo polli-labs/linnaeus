@@ -33,7 +33,7 @@ class AugmentationPipelineFactory:
         device_choice = config["AUG"]["PIPELINE_DEVICE"].lower()
 
         if device_choice == "gpu":
-            logger.info("Creating GPU AugmentationPipeline for single-image transforms")
+            logger.info("Creating GPU AugmentationPipeline for batch-wise transforms")
             return GPUAugmentationPipeline(config)
         elif device_choice == "cpu":
             logger.info("Creating CPU AugmentationPipeline for single-image transforms")

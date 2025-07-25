@@ -277,7 +277,7 @@ def build_datasets(
     # -------------------------------------------------------------------------
     # Step 4: Create single-sample augmentation pipeline (AugmentationPipelineFactory)
     # -------------------------------------------------------------------------
-    main_logger.info("Creating single-sample augmentation pipeline from config.")
+    main_logger.info("Creating augmentation pipeline from config.")
     if check_debug_flag(config, "DEBUG.DATALOADER"):
         main_logger.debug("[build_datasets] Augmentation setup:")
         main_logger.debug("  - Using AugmentationPipelineFactory.create(config)")

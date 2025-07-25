@@ -55,7 +55,8 @@ class GPUSelectiveMixup(SelectiveMixup):
         # Use the precomputed chunk boundaries if provided
         if "meta_chunk_bounds_list" in mix_config and isinstance(mix_config["meta_chunk_bounds_list"], list):
             self.chunk_bounds = mix_config["meta_chunk_bounds_list"]
-            logger.debug("GPUSelectiveMixup using precomputed chunk bounds")
+            if self.config and check_debug_flag(self.config, "DEBUG.AUGMENTATION"):
+                logger.debug("GPUSelectiveMixup using precomputed chunk bounds")
         else:
             logger.warning(
                 "GPUSelectiveMixup: 'meta_chunk_bounds_list' not found or invalid in config. "
@@ -63,7 +64,8 @@ class GPUSelectiveMixup(SelectiveMixup):
             )
             self.chunk_bounds = None
 
-        logger.debug("Initializing GPUSelectiveMixup")
+        if self.config and check_debug_flag(self.config, "DEBUG.AUGMENTATION"):
+            logger.debug("Initializing GPUSelectiveMixup")
 
     def __call__(
         self,

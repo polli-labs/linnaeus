@@ -25,11 +25,6 @@ from linnaeus.utils.logging.logger import get_h5data_logger
 logger = get_h5data_logger()
 
 
-def ensure_debug_imports():
-    """Helper function to ensure debug-related imports are available in the current scope."""
-    return check_debug_flag, get_rank_safely
-
-
 class H5DataLoader(DataLoader):
     """
     H5DataLoader
@@ -115,20 +110,14 @@ class H5DataLoader(DataLoader):
 
         if config:
             self.meta_chunk_bounds_list, self.meta_chunk_bounds_map = compute_meta_chunk_bounds(config)
-            self.main_logger.debug(f"[H5DataLoader] Computed meta chunk boundaries: {self.meta_chunk_bounds_list}")
-            self.main_logger.debug(f"[H5DataLoader] Component boundary mapping: {self.meta_chunk_bounds_map}")
+            if check_debug_flag(config, "DEBUG.DATALOADER"):
+                self.main_logger.debug(f"[H5DataLoader] Computed meta chunk boundaries: {self.meta_chunk_bounds_list}")
+                self.main_logger.debug(f"[H5DataLoader] Component boundary mapping: {self.meta_chunk_bounds_map}")
         else:
             self.meta_chunk_bounds_list, self.meta_chunk_bounds_map = [], {}
             self.main_logger.warning("[H5DataLoader] No config provided, using empty meta chunk boundaries")
 
         # Add explicit check for DEBUG.LOSS.NULL_MASKING at initialization time
-        if config:
-            self.meta_chunk_bounds_list, self.meta_chunk_bounds_map = compute_meta_chunk_bounds(config)
-            self.main_logger.debug(f"[H5DataLoader] Computed meta chunk boundaries: {self.meta_chunk_bounds_list}")
-            self.main_logger.debug(f"[H5DataLoader] Component boundary mapping: {self.meta_chunk_bounds_map}")
-        else:
-            self.meta_chunk_bounds_list, self.meta_chunk_bounds_map = [], {}
-            self.main_logger.warning("[H5DataLoader] No config provided, using empty meta chunk boundaries")
 
         # Try to initialize mixup/cutmix functions if ops_schedule is available
         # If not available now, it will be initialized later when set_ops_schedule is called
@@ -137,8 +126,6 @@ class H5DataLoader(DataLoader):
         # Add explicit check for DEBUG.LOSS.NULL_MASKING at initialization time
         if ops_schedule and hasattr(ops_schedule, "config"):
             try:
-                from linnaeus.utils.config import check_debug_flag  # Ensure correct import if not already
-
                 has_null_masking_debug = check_debug_flag(ops_schedule.config, "DEBUG.LOSS.NULL_MASKING")
                 has_dataloader_debug = check_debug_flag(ops_schedule.config, "DEBUG.DATALOADER")
                 has_augmentation_debug = check_debug_flag(ops_schedule.config, "DEBUG.AUGMENTATION")
@@ -167,7 +154,6 @@ class H5DataLoader(DataLoader):
         )
 
         # Add more detailed debug logs if config has debug flags or ops_schedule has a config
-        from linnaeus.utils.debug_utils import check_debug_flag
 
         using_debug = (self.config and check_debug_flag(self.config, "DEBUG.DATALOADER")) or (
             ops_schedule and hasattr(ops_schedule, "config") and check_debug_flag(ops_schedule.config, "DEBUG.DATALOADER")
@@ -304,15 +290,16 @@ class H5DataLoader(DataLoader):
                     self.cpu_cutmix_fn = CPUSelectiveCutMix(mix_config=cutmix_config, config=self.config)  # Using CPU specific class
                     self.main_logger.info("[H5DataLoader] Initialized CPUSelectiveCutMix function.")
         else:
-            self.main_logger.debug("[H5DataLoader] Mixup/CutMix initialization skipped - conditions not met")
-            if not self.is_training:
-                self.main_logger.debug("  - is_training is False")
-            if not self.ops_schedule:
-                self.main_logger.debug("  - ops_schedule is None")
-            if not hasattr(self.config, "SCHEDULE"):
-                self.main_logger.debug("  - config has no SCHEDULE section")
-            elif not hasattr(self.config.SCHEDULE, "MIX"):
-                self.main_logger.debug("  - config.SCHEDULE has no MIX section")
+            if check_debug_flag(self.config, "DEBUG.DATALOADER"):
+                self.main_logger.debug("[H5DataLoader] Mixup/CutMix initialization skipped - conditions not met")
+                if not self.is_training:
+                    self.main_logger.debug("  - is_training is False")
+                if not self.ops_schedule:
+                    self.main_logger.debug("  - ops_schedule is None")
+                if not hasattr(self.config, "SCHEDULE"):
+                    self.main_logger.debug("  - config has no SCHEDULE section")
+                elif not hasattr(self.config.SCHEDULE, "MIX"):
+                    self.main_logger.debug("  - config.SCHEDULE has no MIX section")
 
     def set_epoch(self, epoch: int):
         """
@@ -322,7 +309,8 @@ class H5DataLoader(DataLoader):
         if hasattr(self.batch_sampler, "set_epoch"):
             self.batch_sampler.set_epoch(epoch)
 
-        self.main_logger.debug(f"[H5DataLoader] set_epoch({epoch}) => updated current_epoch.")
+        if hasattr(self, "config") and check_debug_flag(self.config, "DEBUG.DATALOADER"):
+            self.main_logger.debug(f"[H5DataLoader] set_epoch({epoch}) => updated current_epoch.")
 
         # Add more detailed debug logs if we have debug flags
 
@@ -592,8 +580,7 @@ class H5DataLoader(DataLoader):
           - calculate actual metadata validity percentages
           - final move to GPU if requested
         """
-        # Import utilities at the beginning to avoid scope issues
-        check_debug_flag, get_rank_safely = ensure_debug_imports()
+        # Use imported utilities directly
 
         # --- BEGIN UNCONDITIONAL DIAGNOSTIC PRINTS ---
         # if (
@@ -1210,8 +1197,6 @@ class H5DataLoader(DataLoader):
                         mixup_prob = self.ops_schedule.get_mixup_prob(current_global_optimizer_step)
 
                     # Debug log the mixing probability
-                    from linnaeus.utils.debug_utils import check_debug_flag
-
                     if check_debug_flag(self.ops_schedule.config, "DEBUG.AUGMENTATION"):
                         self.main_logger.debug(
                             f"[MIXUP_DEBUG] Current global_optimizer_step {current_global_optimizer_step}, mixup_prob={mixup_prob:.4f}"
@@ -1226,8 +1211,6 @@ class H5DataLoader(DataLoader):
                         apply_mixing = True
                 else:
                     # Log that we're skipping mixing because standard sampler is used
-                    from linnaeus.utils.debug_utils import check_debug_flag
-
                     if check_debug_flag(self.ops_schedule.config, "DEBUG.AUGMENTATION"):
                         self.main_logger.debug("[MIXUP_DEBUG] Skipping mixing - using standard sampler")
             else:
@@ -1316,8 +1299,6 @@ class H5DataLoader(DataLoader):
 
                         # Add critical NULL_MASKING debug logging
                         try:
-                            from linnaeus.utils.debug_utils import check_debug_flag
-
                             if hasattr(self.ops_schedule, "config") and check_debug_flag(
                                 self.ops_schedule.config, "DEBUG.LOSS.NULL_MASKING"
                             ):
@@ -1470,9 +1451,17 @@ class H5DataLoader(DataLoader):
                                     )
 
                     if apply_mixing:
-                        images, merged_targets, aux_info, meta_validity_masks = mixing_fn(
-                            batch_tuple, exclude_null_samples=exclude_null_samples, null_task_keys=null_task_keys
-                        )
+                        # Add profiler region for mixing
+                        with torch.profiler.record_function("gpu_selective_mixing"):
+                            if self.config.DEBUG.PROFILER.ENABLED and getattr(self.config.DEBUG.PROFILER, "SYNC_PROFILING", False):
+                                torch.cuda.synchronize()  # Sync at start
+
+                            images, merged_targets, aux_info, meta_validity_masks = mixing_fn(
+                                batch_tuple, exclude_null_samples=exclude_null_samples, null_task_keys=null_task_keys
+                            )
+
+                            if self.config.DEBUG.PROFILER.ENABLED and getattr(self.config.DEBUG.PROFILER, "SYNC_PROFILING", False):
+                                torch.cuda.synchronize()  # Sync at end
 
                     # Debug the output from the GPU mixing function
                     if debug_enabled and self.batch_idx < 5:
@@ -1540,11 +1529,19 @@ class H5DataLoader(DataLoader):
                     if apply_mixing:  # Check if mixing_fn is valid before calling
                         # Call the mixing function directly
                         # The mixing functions expect (images, targets, aux_info, meta_masks, group_ids)
-                        images, merged_targets, aux_info, meta_validity_masks = mixing_fn(
-                            (images, merged_targets, aux_info, meta_validity_masks, group_ids),
-                            exclude_null_samples=True,  # Let the mixing function handle null exclusion
-                            null_task_keys=null_task_keys,
-                        )
+                        # Add profiler region for mixing
+                        with torch.profiler.record_function("gpu_selective_mixing"):
+                            if self.config.DEBUG.PROFILER.ENABLED and getattr(self.config.DEBUG.PROFILER, "SYNC_PROFILING", False):
+                                torch.cuda.synchronize()  # Sync at start
+
+                            images, merged_targets, aux_info, meta_validity_masks = mixing_fn(
+                                (images, merged_targets, aux_info, meta_validity_masks, group_ids),
+                                exclude_null_samples=True,  # Let the mixing function handle null exclusion
+                                null_task_keys=null_task_keys,
+                            )
+
+                            if self.config.DEBUG.PROFILER.ENABLED and getattr(self.config.DEBUG.PROFILER, "SYNC_PROFILING", False):
+                                torch.cuda.synchronize()  # Sync at end
                     # else: mixing was skipped, tensors remain as they were.
 
                     # Debug the output from the CPU mixing function
@@ -1642,8 +1639,6 @@ class H5DataLoader(DataLoader):
 
                         # Add critical NULL_MASKING debug logging
                         try:
-                            from linnaeus.utils.debug_utils import check_debug_flag
-
                             if hasattr(self.ops_schedule, "config") and check_debug_flag(
                                 self.ops_schedule.config, "DEBUG.LOSS.NULL_MASKING"
                             ):
@@ -1798,8 +1793,6 @@ class H5DataLoader(DataLoader):
         actual_meta_stats = {}
 
         # Debug logging before calculating stats
-        from linnaeus.utils.debug_utils import check_debug_flag
-
         debug_enabled = get_rank_safely() == 0 and hasattr(self, "config") and check_debug_flag(self.config, "DEBUG.DATALOADER")
 
         # Add final tensor id check before stats calculation
@@ -2094,8 +2087,6 @@ class H5DataLoader(DataLoader):
         self.batch_idx = 0
 
         # Add detailed debug logs if ops_schedule has a config
-        from linnaeus.utils.debug_utils import check_debug_flag
-
         if self.ops_schedule and hasattr(self.ops_schedule, "config") and check_debug_flag(self.ops_schedule.config, "DEBUG.DATALOADER"):
             self.main_logger.debug(f"[H5DataLoader] Starting iteration for epoch {self.current_epoch}:")
             self.main_logger.debug(f"  - Total batches from sampler: {total_batches}")
@@ -2115,8 +2106,6 @@ class H5DataLoader(DataLoader):
 
         # If the dataset has concurrency pipeline:
         if hasattr(self.dataset, "start_prefetching") and hasattr(self.dataset, "fetch_next_batch"):
-            from linnaeus.utils.debug_utils import check_debug_flag
-
             if (
                 self.ops_schedule
                 and hasattr(self.ops_schedule, "config")
@@ -2136,8 +2125,6 @@ class H5DataLoader(DataLoader):
 
                 # Normal handling for valid batch, None, or STOP_SENTINEL
                 if raw_batch is None:
-                    from linnaeus.utils.debug_utils import check_debug_flag
-
                     if (
                         self.ops_schedule
                         and hasattr(self.ops_schedule, "config")
@@ -2153,8 +2140,6 @@ class H5DataLoader(DataLoader):
                     break
 
                 # Debug raw batch info if enabled
-                from linnaeus.utils.debug_utils import check_debug_flag
-
                 if (
                     self.ops_schedule
                     and hasattr(self.ops_schedule, "config")
@@ -2180,8 +2165,6 @@ class H5DataLoader(DataLoader):
                 self.batch_idx += 1
 
                 # Additional debug log for collate_fn output on first batch
-                from linnaeus.utils.debug_utils import check_debug_flag
-
                 if (
                     self.ops_schedule
                     and hasattr(self.ops_schedule, "config")
@@ -2210,8 +2193,6 @@ class H5DataLoader(DataLoader):
                 yield out_batch
         else:
             # fallback if not concurrency-based
-            from linnaeus.utils.debug_utils import check_debug_flag
-
             if (
                 self.ops_schedule
                 and hasattr(self.ops_schedule, "config")
@@ -2225,8 +2206,6 @@ class H5DataLoader(DataLoader):
                 self.batch_idx += 1
 
                 # Log first batch details for debugging
-                from linnaeus.utils.debug_utils import check_debug_flag
-
                 if (
                     self.ops_schedule
                     and hasattr(self.ops_schedule, "config")

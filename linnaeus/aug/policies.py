@@ -19,6 +19,11 @@ def get_policy(name: str, hparams: dict[str, Any]) -> list[list[tuple[str, float
         List[List[Tuple[str, float, int]]]: The selected augmentation policy.
     """
     logger.info(f"Getting AutoAugment policy: {name}")
+    # Handle "imagenet" as an alias for "original" (the ImageNet policy)
+    if name == "imagenet":
+        name = "original"
+        logger.info("Using 'original' policy (ImageNet AutoAugment) for 'imagenet' alias")
+
     if name == "original":
         return auto_augment_policy_original(hparams)
     elif name == "originalr":

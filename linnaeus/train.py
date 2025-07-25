@@ -1,6 +1,8 @@
 import gc  # For garbage collection
+import os
 
 import torch
+from torch.profiler import ProfilerActivity, profile
 
 from linnaeus.h5data.base_prefetching_dataset import STOP_SENTINEL
 from linnaeus.loss.gradient_weighting import log_memory_usage
@@ -82,6 +84,24 @@ def train_one_epoch(
     # Get the underlying model if DDP is used, for setting use_checkpoint
     model_to_set_checkpoint_flag = model.module if isinstance(model, torch.nn.parallel.DistributedDataParallel) else model
     backup_use_ckpt_normal = getattr(model_to_set_checkpoint_flag, "use_checkpoint", False)
+
+    # PyTorch Profiler Setup
+    profiler = None
+    if config.DEBUG.PROFILER.ENABLED and rank == 0:
+        schedule_params = config.DEBUG.PROFILER.SCHEDULE
+        profiler_output_dir = config.DEBUG.PROFILER.OUTPUT_DIR.format(output_dir=config.ENV.OUTPUT.DIRS.EXP_BASE)
+        os.makedirs(profiler_output_dir, exist_ok=True)
+        profiler = profile(
+            activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
+            schedule=torch.profiler.schedule(
+                wait=schedule_params[0], warmup=schedule_params[1], active=schedule_params[2], repeat=schedule_params[3]
+            ),
+            on_trace_ready=torch.profiler.tensorboard_trace_handler(profiler_output_dir),
+            record_shapes=config.DEBUG.PROFILER.RECORD_SHAPES,
+            with_stack=config.DEBUG.PROFILER.WITH_STACK,
+        )
+        profiler.__enter__()
+        logger.info(f"PyTorch Profiler enabled. Traces will be saved to: {profiler_output_dir}")
 
     try:
         normal_ckpt_flag = bool(config.TRAIN.GRADIENT_CHECKPOINTING.ENABLED_NORMAL_STEPS)
@@ -284,6 +304,10 @@ def train_one_epoch(
             # Early exit logic has been moved to main.py's epoch loop
             # which checks training_progress.global_step against config.DEBUG.EARLY_EXIT_AFTER_N_OPTIMIZER_STEPS
 
+            # Profiler step
+            if profiler:
+                profiler.step()
+
         # Handle leftover gradients if epoch ended mid-accumulation cycle
         if inner_accum_count > 0:
             if rank == 0:
@@ -319,6 +343,11 @@ def train_one_epoch(
         return avg_loss_for_epoch, steps_run_in_this_epoch
 
     finally:  # Ensure checkpointing flag is reset
+        # Profiler Exit
+        if profiler:
+            profiler.__exit__(None, None, None)
+            logger.info("PyTorch Profiler stopped.")
+
         if hasattr(model_to_set_checkpoint_flag, "use_checkpoint"):
             model_to_set_checkpoint_flag.use_checkpoint = backup_use_ckpt_normal
             if rank == 0 and debug_training_loop:

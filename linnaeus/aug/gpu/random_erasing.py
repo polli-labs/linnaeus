@@ -3,6 +3,7 @@
 from typing import Any
 
 import torch
+import torch.nn as nn
 
 from linnaeus.aug.base import RandomErasing
 from linnaeus.utils.debug_utils import check_debug_flag
@@ -11,17 +12,19 @@ from linnaeus.utils.logging.logger import get_main_logger
 logger = get_main_logger()
 
 
-class GPURandomErasing(RandomErasing):
-    """GPU implementation of Random Erasing."""
+class GPURandomErasing(nn.Module, RandomErasing):
+    """GPU implementation of Random Erasing as a torch.nn.Module for compatibility with nn.Sequential."""
 
     def __init__(self, re_config: dict[str, Any], config=None):
-        super().__init__(config=config)
+        nn.Module.__init__(self)  # Initialize nn.Module
+        RandomErasing.__init__(self, config=config)  # Initialize RandomErasing
         logger.info("Initializing GPURandomErasing")
         if config and check_debug_flag(config, "DEBUG.AUGMENTATION"):
             logger.debug("[GPURandomErasing] Initializing GPURandomErasing")
         self.config = re_config
+        self._debug_config = config  # Store config for debug checks
 
-    def __call__(self, images: torch.Tensor) -> torch.Tensor:
+    def forward(self, images: torch.Tensor) -> torch.Tensor:
         """
         Apply random erasing to a batch of images.
 
@@ -32,7 +35,8 @@ class GPURandomErasing(RandomErasing):
         Returns:
             torch.Tensor: Images with random erasing applied, as float tensor in range [0, 1].
         """
-        logger.debug(f"Applying GPU RandomErasing to batch of {images.shape[0]} images")
+        if self._debug_config and check_debug_flag(self._debug_config, "DEBUG.AUGMENTATION"):
+            logger.debug(f"Applying GPU RandomErasing to batch of {images.shape[0]} images")
         if torch.rand(1, device=images.device).item() > self.config["PROB"]:
             return images
 

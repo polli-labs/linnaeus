@@ -1,6 +1,6 @@
 [project]
 name = "linnaeus"
-version = "0.1.3"
+version = "0.1.4"
 description = "Linnaeus: A deep learning framework for taxonomic recognition."
 ## Releasing
 # When releasing a new version:
@@ -26,6 +26,7 @@ dependencies = [
     "torch>=2.7.1,<2.8",
     "torchvision>=0.22.1",
     "torchaudio>=2.7.1",
+    "kornia>=0.8.1,<0.9",
 
     # Utilities
     "yacs>=0.1.8",
@@ -46,6 +47,9 @@ dependencies = [
     "python-dateutil",
 ]
 
+[project.scripts]
+linnaeus-prof = "linnaeus.profiling.cli:main"
+
 [project.optional-dependencies]
 dev = [
     "pytest",
@@ -59,6 +63,10 @@ inference = [
     "uvicorn[standard]",
     "pydantic",
 ]
+profiling = [
+    "tensorboard",
+    "torch-tb-profiler",
+]
 
 cuda-fa = [
     # Note: flash-attn is an optional dependency for GPU environments.
@@ -68,6 +76,14 @@ cuda-fa = [
 
 rl = [
     "gymnasium>=0.29.1",
+]
+
+all = [
+  # re-export everything so 'uv pip install .[all]' pulls it in one go. cuda-fa excluded (system-dependent, needs separate toolchain)
+  "linnaeus[dev]",
+  "linnaeus[inference]",
+  "linnaeus[profiling]",
+  "linnaeus[rl]",
 ]
 
 [project.urls]

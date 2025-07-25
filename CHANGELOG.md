@@ -1,5 +1,36 @@
 # Changelog
 
+## [0.1.4] - 2025-07-25
+
+### Added  
+- **Kornia-Based GPU Augmentation Pipeline**: Completely refactored GPU augmentation system using Kornia v0.8.1 for industry-standard, maintainable augmentations. New `GPUAugmentationPipeline` uses `K.AugmentationSequential` with version-adaptive API wrapper.
+- **linnaeus-prof CLI Tool**: Comprehensive performance analysis toolkit with `scan`, `summary`, `diff`, and `tensorboard` commands for experiment analysis and comparison.
+- **Enhanced Profiler Integration**: Added comprehensive profiling support controlled by `DEBUG.PROFILER` configuration. Captures CPU/CUDA activity traces for performance analysis via TensorBoard.
+- **torch.compile Capability Probing**: Intelligent detection of compilation compatibility with explicit user feedback when compilation fails or provides no benefit.
+- **Version-Adaptive Kornia Wrapper**: `kornia_wrappers.py` handles API changes gracefully across Kornia versions, with fallback to legacy implementations.
+- **Profiler Synchronization**: Added `DEBUG.PROFILER.SYNC_PROFILING` configuration flag to enable CUDA synchronization for accurate GPU timing measurements.
+
+### Changed
+- **GPU Pipeline Architecture**: Migrated from custom implementations to industry-standard Kornia-based `GPUAugmentationPipeline` with robust error handling and graceful fallbacks.
+- **Performance Logging**: Fixed high-frequency logging overhead by guarding all debug/info calls in data pipeline components (`h5dataloader.py`, `selective_mixup.py`, `selective_cutmix.py`, `base_prefetching_dataset.py`) with `check_debug_flag()`.
+- **Error Handling**: Enhanced user feedback and diagnostic capabilities throughout augmentation pipeline with clear error messages and fallback mechanisms.
+- **Tensor Conversions**: Optimized dtype and memory format conversions with early-exit checks to avoid redundant operations.
+- **Logging Infrastructure**: Fixed duplicate logging issues by properly guarding `logging.basicConfig()` calls with rank checks.
+
+### Removed
+- **Obsolete Components**: Deleted `compiled_policy.py` and `traceable_autoaug.py` modules after systematic exploration proved torch.compile ineffective for stochastic augmentation pipelines.
+
+### Performance
+- **Major Architectural Gains**: GPU pipeline refactoring (v0.1.4b) achieved ~39% step time reduction (1900ms → 1160ms baseline) through elimination of Python overhead.
+- **torch.compile Validation**: Definitively established that torch.compile cannot achieve kernel fusion for stochastic augmentation pipelines (kernel count: 38,677 → 38,679, no reduction).
+- **Clean Performance Baseline**: Eliminated high-frequency logging pollution that was obscuring true GPU optimization measurements, enabling accurate future performance analysis.
+- **Strategic Foundation**: Established robust, maintainable codebase and comprehensive profiling infrastructure for future optimization work.
+
+### Technical Insights
+- **Kernel Fusion Limitations**: Comprehensive exploration (v0.1.4a-e) proves torch.compile incompatible with stochastic operations like RandomErasing and policy selection.
+- **Next Bottleneck Identified**: Profiling reveals `gpu_selective_mixing` consumes ~11% of total step time, representing next optimization target.
+- **Industry Standards**: Kornia integration provides superior maintainability and correctness compared to custom torch.compile solutions.
+
 ## [Unreleased]
 
 ### Added
