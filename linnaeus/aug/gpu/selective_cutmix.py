@@ -4,7 +4,7 @@ from typing import Any
 import torch
 
 from linnaeus.aug.base import SelectiveCutMix
-from linnaeus.aug.utils import exclude_null_samples_from_mixup, rand_bbox
+from linnaeus.aug.utils import exclude_null_samples_from_mixup
 from linnaeus.utils.debug_utils import check_debug_flag
 from linnaeus.utils.logging.logger import get_main_logger
 
@@ -184,10 +184,10 @@ class GPUSelectiveCutMix(SelectiveCutMix):
         # 5) Apply CutMix - create copies of inputs for mixing
         B, C, H, W = images.shape
         mixed_images = images.clone()
-        mixed_targets = {k: v.clone() for k, v in targets.items()}
+        mixed_targets = {}  # We'll create new tensors when mixing
 
-        # Generate random bounding box coordinates
-        bbx1, bby1, bbx2, bby2 = rand_bbox((1, C, H, W), lam.item())
+        # Generate random bounding box coordinates using tensor-based implementation
+        bbx1, bby1, bbx2, bby2 = self._rand_bbox_tensor((B, C, H, W), lam, images.device)
 
         # Calculate adjusted lambda based on actual box area
         box_area = (bbx2 - bbx1) * (bby2 - bby1)
@@ -212,7 +212,7 @@ class GPUSelectiveCutMix(SelectiveCutMix):
             mixed_images[valid_indices, :, bbx1:bbx2, bby1:bby2] = images[valid_perm_indices, :, bbx1:bbx2, bby1:bby2]
 
             # Mix targets proportionally to adjusted lambda for valid samples
-            for k in mixed_targets.keys():
+            for k in targets.keys():
                 # Debug logging before mixing to understand the targets
                 if debug_flag:
                     sample_size = min(3, targets[k].size(0))
@@ -254,6 +254,8 @@ class GPUSelectiveCutMix(SelectiveCutMix):
                             logger.debug(f"  - First {sample_size} permuted samples: {targets[k][perm][:sample_size]}")
 
                 # Apply CutMix to targets based on adjusted lambda
+                # Initialize with a copy of original targets
+                mixed_targets[k] = targets[k].clone()
                 mixed_targets[k][valid_indices] = (
                     lam_adjusted * targets[k][valid_indices] + (1 - lam_adjusted) * targets[k][valid_perm_indices]
                 )
@@ -368,22 +370,28 @@ class GPUSelectiveCutMix(SelectiveCutMix):
     # ---------------------------------------------------------------------
     # Internal
     # ---------------------------------------------------------------------
+    @staticmethod
+    def _pairwise_flip_perm(B: int, device: torch.device) -> torch.Tensor:
+        """
+        O(1) pairwise permutation for mixed-pairs mode.
+        Assumes B is even (GroupedBatchSampler with drop_last=True ensures this).
+        """
+        # Assumes B is even; GroupedBatchSampler with drop_last=True ensures this
+        perm = torch.arange(B, device=device).view(-1, 2).flip(1).reshape(-1)
+        if B % 2 == 1:
+            # Handle odd tail batch by mapping the last element to itself
+            perm = torch.cat([perm, perm.new_tensor([B - 1])])
+        return perm
+
     def _get_ingroup_permutation(self, group_ids: torch.Tensor) -> torch.Tensor:
         """
-        For each distinct group >1 in size, shuffle only within that group.
+        For mixed-pairs mode, use O(1) pairwise flip.
+        Falls back to original implementation for other modes.
         """
-        device = group_ids.device
+        # Use the fast pairwise flip for mixed-pairs mode
+        # (GroupedBatchSampler guarantees adjacent pairs share the same group_id)
         B = group_ids.size(0)
-        perm = torch.arange(B, device=device)
-
-        unique_g = group_ids.unique()
-        for g in unique_g:
-            if g.item() == -1:
-                continue
-            idx = (group_ids == g).nonzero(as_tuple=True)[0]
-            if idx.numel() > 1:
-                perm[idx] = idx[torch.randperm(idx.numel(), device=device)]
-        return perm
+        return self._pairwise_flip_perm(B, group_ids.device)
 
     def _enforce_all_or_nothing(self, aux_info: torch.Tensor, meta_masks: torch.Tensor):
         """
@@ -411,7 +419,7 @@ class GPUSelectiveCutMix(SelectiveCutMix):
         self, info1: torch.Tensor, info2: torch.Tensor, mask1: torch.Tensor, mask2: torch.Tensor
     ) -> tuple[torch.Tensor, torch.Tensor]:
         """
-        Chunk-level "hard pick" logic:
+        Vectorized chunk-level "hard pick" logic:
           * If both non-zero => pick randomly
           * If only one non-zero => pick that
           * If both zero => zero
@@ -420,46 +428,73 @@ class GPUSelectiveCutMix(SelectiveCutMix):
         Returns: (mixed_info, mixed_mask)
         """
         B, D = info1.shape
-        out_info = torch.empty_like(info1)
-        out_mask = torch.empty_like(mask1)
+        device = info1.device
 
         # Use precomputed chunk bounds if available, otherwise default to a single chunk
-        if self.chunk_bounds is not None:
-            chunk_bounds = self.chunk_bounds
-        elif info1.ndim > 1 and info1.shape[1] > 0:  # info1 has a feature dimension
-            chunk_bounds = [(0, info1.shape[1])]  # Default to a single chunk
-        else:  # info1 is empty or 1D
-            chunk_bounds = []
+        chunks: list[tuple[int, int]]
+        if self.chunk_bounds is not None and len(self.chunk_bounds) > 0:
+            chunks = self.chunk_bounds
+        else:
+            chunks = [(0, D)] if D > 0 else []
 
-        # We'll do a random sample per row i for picking among "both non-zero" chunks
-        pick_rand = torch.rand(B, device=info1.device)
+        if not chunks:
+            return info1.clone(), mask1.clone()
 
-        for i in range(B):
-            rnd = pick_rand[i].item()
-            for start, end in chunk_bounds:
-                c1 = info1[i, start:end]
-                c2 = info2[i, start:end]
+        C = len(chunks)
+        out_info = info1.clone()
+        out_mask = mask1.clone()
 
-                all_zero_1 = bool(torch.all(c1 == 0.0))
-                all_zero_2 = bool(torch.all(c2 == 0.0))
+        # Build zero flags [B, C] - vectorized across all samples
+        z1 = torch.stack([torch.all(info1[:, s:e] == 0.0, dim=1) for s, e in chunks], dim=1)  # bool
+        z2 = torch.stack([torch.all(info2[:, s:e] == 0.0, dim=1) for s, e in chunks], dim=1)
 
-                if (not all_zero_1) and (not all_zero_2):
-                    # both non-zero => random pick
-                    if rnd < 0.5:
-                        out_info[i, start:end] = c1
-                        out_mask[i, start:end] = mask1[i, start:end]
-                    else:
-                        out_info[i, start:end] = c2
-                        out_mask[i, start:end] = mask2[i, start:end]
-                elif (not all_zero_1) and all_zero_2:
-                    out_info[i, start:end] = c1
-                    out_mask[i, start:end] = mask1[i, start:end]
-                elif all_zero_1 and (not all_zero_2):
-                    out_info[i, start:end] = c2
-                    out_mask[i, start:end] = mask2[i, start:end]
-                else:
-                    # both zero => zero out
-                    out_info[i, start:end] = 0.0
-                    out_mask[i, start:end] = False
+        both_non_zero = ~(z1 | z2)  # True where both chunks contain data
+        pick_rand = torch.rand((B, C), device=device) < 0.5  # random coin-flip
+
+        # choose_original = (only_orig_non_zero) OR (both_non_zero AND pick_rand)
+        choose_original = (~z1 & z2) | (both_non_zero & pick_rand)
+        choose_partner = (~z2 & z1) | (both_non_zero & ~pick_rand)
+
+        # Apply choices to each chunk - small loop over chunks, vectorized over batch
+        for idx, (s, e) in enumerate(chunks):
+            co = choose_original[:, idx].unsqueeze(-1)  # [B,1]
+            cp = choose_partner[:, idx].unsqueeze(-1)
+
+            out_info[:, s:e] = torch.where(co, info1[:, s:e], torch.where(cp, info2[:, s:e], torch.zeros_like(info1[:, s:e])))
+            out_mask[:, s:e] = torch.where(
+                co, mask1[:, s:e], torch.where(cp, mask2[:, s:e], torch.zeros_like(mask1[:, s:e], dtype=torch.bool))
+            )
 
         return out_info, out_mask
+
+    def _rand_bbox_tensor(
+        self, size: tuple[int, int, int, int], lam: torch.Tensor, device: torch.device
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        """
+        Generates random bounding box for CutMix using tensor operations.
+        Returns tensors instead of Python ints to avoid CPU synchronization.
+
+        Args:
+            size: The size of the image tensor (B, C, H, W)
+            lam: The lambda mixing parameter (tensor)
+            device: The device to create tensors on
+
+        Returns:
+            Tuple of (bbx1, bby1, bbx2, bby2) as scalar tensors
+        """
+        B, _, H, W = size
+        cut_rat = torch.sqrt(1.0 - lam)
+        cut_h = (H * cut_rat).to(dtype=torch.long)
+        cut_w = (W * cut_rat).to(dtype=torch.long)
+
+        # Single random center for all samples (original behavior)
+        cx = torch.randint(0, W, (1,), device=device)[0]
+        cy = torch.randint(0, H, (1,), device=device)[0]
+
+        bbx1 = (cx - cut_w // 2).clamp(0, W)
+        bby1 = (cy - cut_h // 2).clamp(0, H)
+        bbx2 = (cx + cut_w // 2).clamp(0, W)
+        bby2 = (cy + cut_h // 2).clamp(0, H)
+
+        # Convert to Python ints for indexing (necessary for now)
+        return bbx1.item(), bby1.item(), bbx2.item(), bby2.item()

@@ -197,7 +197,7 @@ class GPUSelectiveMixup(SelectiveMixup):
                     logger.debug(f"  - First {sample_size} samples: {v[:sample_size]}")
                     logger.debug(f"  - First {sample_size} permuted samples: {v[perm][:sample_size]}")
 
-            # Perform the actual mixing operation
+            # Perform the actual mixing operation (creates new tensor, no clone needed)
             mixed_targets[k] = lam * v + (1 - lam) * v[perm]
 
             # Debug logging after mixing to see the effect
@@ -290,45 +290,35 @@ class GPUSelectiveMixup(SelectiveMixup):
     # ---------------------------------------------------------------------
     # Internal
     # ---------------------------------------------------------------------
+    @staticmethod
+    def _pairwise_flip_perm(B: int, device: torch.device) -> torch.Tensor:
+        """
+        O(1) pairwise permutation for mixed-pairs mode.
+        Assumes B is even (GroupedBatchSampler with drop_last=True ensures this).
+        """
+        # Assumes B is even; GroupedBatchSampler with drop_last=True ensures this
+        perm = torch.arange(B, device=device).view(-1, 2).flip(1).reshape(-1)
+        if B % 2 == 1:
+            # Handle odd tail batch by mapping the last element to itself
+            perm = torch.cat([perm, perm.new_tensor([B - 1])])
+        return perm
+
     def _get_ingroup_permutation(self, group_ids: torch.Tensor, debug_flag: bool) -> torch.Tensor:
         """
-        For each distinct group >1 in size, shuffle only within that group.
+        For mixed-pairs mode, use O(1) pairwise flip.
+        Falls back to original implementation for other modes.
         """
-        device = group_ids.device
+        # Use the fast pairwise flip for mixed-pairs mode
+        # (GroupedBatchSampler guarantees adjacent pairs share the same group_id)
         B = group_ids.size(0)
-        perm = torch.arange(B, device=device)
+        perm = self._pairwise_flip_perm(B, group_ids.device)
 
         if debug_flag:
-            logger.debug(f"[MIXUP_PERM] Creating permutation for group_ids: {group_ids.tolist()}")
-
-        unique_g = group_ids.unique()
-        for g in unique_g:
-            if g.item() == -1:
-                continue
-            idx = (group_ids == g).nonzero(as_tuple=True)[0]
-            if debug_flag:
-                logger.debug(f"[MIXUP_PERM] Group {g.item()} has {idx.numel()} samples at indices {idx.tolist()}")
-
-            if idx.numel() > 1:
-                # Generate permutation for this group
-                rand_perm = torch.randperm(idx.numel(), device=device)
-                perm[idx] = idx[rand_perm]
-
-                if debug_flag:
-                    logger.debug(f"[MIXUP_PERM] Group {g.item()} random permutation: {rand_perm.tolist()}")
-                    logger.debug(f"[MIXUP_PERM] Group {g.item()} sample pairings:")
-                    for i, orig_idx in enumerate(idx.tolist()):
-                        paired_idx = idx[rand_perm[i]].item()
-                        logger.debug(f"[MIXUP_PERM]   Sample {orig_idx} paired with {paired_idx}")
-            elif debug_flag:
-                logger.debug(f"[MIXUP_PERM] Group {g.item()} has only 1 sample - no mixing will occur")
+            logger.debug(f"[MIXUP_PERM] Using O(1) pairwise flip permutation for {B} samples")
+            logger.debug(f"[MIXUP_PERM] Final permutation: {perm.tolist()}")
 
         # Store the permutation for later inspection
         self.last_permutation = perm
-
-        if debug_flag:
-            logger.debug(f"[MIXUP_PERM] Final permutation: {perm.tolist()}")
-
         return perm
 
     def _enforce_all_or_nothing(self, aux_info: torch.Tensor, meta_masks: torch.Tensor):
@@ -357,7 +347,7 @@ class GPUSelectiveMixup(SelectiveMixup):
         self, info1: torch.Tensor, info2: torch.Tensor, mask1: torch.Tensor, mask2: torch.Tensor, debug_flag: bool
     ) -> tuple[torch.Tensor, torch.Tensor]:
         """
-        Chunk-level "hard pick" logic:
+        Vectorized chunk-level "hard pick" logic:
           * If both non-zero => pick randomly
           * If only one non-zero => pick that
           * If both zero => zero
@@ -366,123 +356,62 @@ class GPUSelectiveMixup(SelectiveMixup):
         Returns: (mixed_info, mixed_mask)
         """
         B, D = info1.shape
-        out_info = torch.empty_like(info1)
-        out_mask = torch.empty_like(mask1)
-
-        if debug_flag:
-            logger.debug(f"[MIX_CHUNKS] Starting chunk-wise mixing for {B} samples")
-            # Track decisions for later analysis
-            component_decisions = {}
-
-            # Try to map chunks to component names for better logging
-            try:
-                # Access meta_chunk_bounds_map from config if available
-                if self.config is not None and hasattr(self.config, "DATA") and hasattr(self.config.DATA, "META"):
-                    for comp_name in self.config.DATA.META.COMPONENTS:
-                        comp_cfg = getattr(self.config.DATA.META.COMPONENTS, comp_name)
-                        if comp_cfg.get("ENABLED", False):
-                            pass  # This part of code was empty, just passing
-            except Exception as e:
-                if debug_flag:  # Ensure this logger.debug is also conditional
-                    logger.debug(f"[MIX_CHUNKS] Error getting component names: {e}")
+        device = info1.device
 
         # Use precomputed chunk bounds if available, otherwise default to a single chunk
-        if self.chunk_bounds is not None:
-            chunk_bounds = self.chunk_bounds
-        elif info1.ndim > 1 and info1.shape[1] > 0:  # info1 has a feature dimension
-            chunk_bounds = [(0, info1.shape[1])]  # Default to a single chunk
-        else:  # info1 is empty or 1D
-            chunk_bounds = []
+        chunks: list[tuple[int, int]]
+        if self.chunk_bounds is not None and len(self.chunk_bounds) > 0:
+            chunks = self.chunk_bounds
+        else:
+            chunks = [(0, D)] if D > 0 else []
 
+        if not chunks:
+            return info1.clone(), mask1.clone()
+
+        C = len(chunks)
+        out_info = info1.clone()
+        out_mask = mask1.clone()
+
+        # Build zero flags [B, C] - vectorized across all samples
+        z1 = torch.stack([torch.all(info1[:, s:e] == 0.0, dim=1) for s, e in chunks], dim=1)  # bool
+        z2 = torch.stack([torch.all(info2[:, s:e] == 0.0, dim=1) for s, e in chunks], dim=1)
+
+        both_non_zero = ~(z1 | z2)  # True where both chunks contain data
+        pick_rand = torch.rand((B, C), device=device) < 0.5  # random coin-flip
+
+        # choose_original = (only_orig_non_zero) OR (both_non_zero AND pick_rand)
+        choose_original = (~z1 & z2) | (both_non_zero & pick_rand)
+        choose_partner = (~z2 & z1) | (both_non_zero & ~pick_rand)
+
+        # Apply choices to each chunk - small loop over chunks, vectorized over batch
+        for idx, (s, e) in enumerate(chunks):
+            co = choose_original[:, idx].unsqueeze(-1)  # [B,1]
+            cp = choose_partner[:, idx].unsqueeze(-1)
+
+            out_info[:, s:e] = torch.where(co, info1[:, s:e], torch.where(cp, info2[:, s:e], torch.zeros_like(info1[:, s:e])))
+            out_mask[:, s:e] = torch.where(
+                co, mask1[:, s:e], torch.where(cp, mask2[:, s:e], torch.zeros_like(mask1[:, s:e], dtype=torch.bool))
+            )
+
+        # Debug logging if enabled
         if debug_flag:
-            logger.debug(f"[MIX_CHUNKS] Using chunk boundaries: {chunk_bounds}")
+            logger.debug(f"[MIX_CHUNKS] Completed vectorized chunk-wise mixing for {B} samples")
+            logger.debug(f"[MIX_CHUNKS] Using chunk boundaries: {chunks}")
 
-        # We'll do a random sample per row i for picking among "both non-zero" chunks
-        pick_rand = torch.rand(B, device=info1.device)
+            # Log statistics about decisions
+            for idx, (s, e) in enumerate(chunks):
+                co_count = choose_original[:, idx].sum().item()
+                cp_count = choose_partner[:, idx].sum().item()
+                both_zero_count = B - co_count - cp_count
+                logger.debug(f"[MIX_CHUNKS] Chunk {idx}({s}:{e}) decisions:")
+                logger.debug(f"[MIX_CHUNKS]   - Chose original: {co_count}/{B} ({100 * co_count / B:.1f}%)")
+                logger.debug(f"[MIX_CHUNKS]   - Chose partner: {cp_count}/{B} ({100 * cp_count / B:.1f}%)")
+                logger.debug(f"[MIX_CHUNKS]   - Both zero: {both_zero_count}/{B} ({100 * both_zero_count / B:.1f}%)")
 
-        if debug_flag:
-            logger.debug(f"[MIX_CHUNKS] Generated random values for chunk mixing: {pick_rand[: min(5, B)].tolist()}")
-
-        for i in range(B):
-            rnd = pick_rand[i].item()
-
-            # Initialize tracking for this sample if in debug mode
-            if debug_flag and i < 3:  # Only track first few samples to avoid excessive logging
-                component_decisions[i] = []
-
-            for chunk_idx, (start, end) in enumerate(chunk_bounds):
-                c1 = info1[i, start:end]
-                c2 = info2[i, start:end]
-
-                all_zero_1 = bool(torch.all(c1 == 0.0))
-                all_zero_2 = bool(torch.all(c2 == 0.0))
-
-                # For better logging, determine component name or use index
-                component_name = f"chunk_{chunk_idx}({start}:{end})"
-
-                # Log detailed debug info for the first few samples
-                if debug_flag and i < 3:
-                    c1_valid = bool(torch.all(mask1[i, start:end]))
-                    c2_valid = bool(torch.all(mask2[i, start:end]))
-
-                    logger.debug(f"[MIX_CHUNKS] Sample {i}, {component_name}:")
-                    logger.debug(f"[MIX_CHUNKS]   Original: zeros={all_zero_1}, valid_mask={c1_valid}")
-                    logger.debug(f"[MIX_CHUNKS]   Permuted: zeros={all_zero_2}, valid_mask={c2_valid}")
-
-                if (not all_zero_1) and (not all_zero_2):
-                    # both non-zero => random pick
-                    if rnd < 0.5:
-                        out_info[i, start:end] = c1
-                        out_mask[i, start:end] = mask1[i, start:end]
-                        if debug_flag and i < 3:
-                            logger.debug(f"[MIX_CHUNKS]   Decision: both non-zero, random < 0.5 ({rnd:.4f}), pick ORIGINAL")
-                            component_decisions[i].append((component_name, "random_original"))
-                    else:
-                        out_info[i, start:end] = c2
-                        out_mask[i, start:end] = mask2[i, start:end]
-                        if debug_flag and i < 3:
-                            logger.debug(f"[MIX_CHUNKS]   Decision: both non-zero, random >= 0.5 ({rnd:.4f}), pick PERMUTED")
-                            component_decisions[i].append((component_name, "random_permuted"))
-                elif (not all_zero_1) and all_zero_2:
-                    out_info[i, start:end] = c1
-                    out_mask[i, start:end] = mask1[i, start:end]
-                    if debug_flag and i < 3:
-                        logger.debug("[MIX_CHUNKS]   Decision: only original non-zero, pick ORIGINAL")
-                        component_decisions[i].append((component_name, "only_original_nonzero"))
-                elif all_zero_1 and (not all_zero_2):
-                    out_info[i, start:end] = c2
-                    out_mask[i, start:end] = mask2[i, start:end]
-                    if debug_flag and i < 3:
-                        logger.debug("[MIX_CHUNKS]   Decision: only permuted non-zero, pick PERMUTED")
-                        component_decisions[i].append((component_name, "only_permuted_nonzero"))
-                else:
-                    # both zero => zero out
-                    out_info[i, start:end] = 0.0
-                    out_mask[i, start:end] = False
-                    if debug_flag and i < 3:
-                        logger.debug("[MIX_CHUNKS]   Decision: both zero, set to ZERO")
-                        component_decisions[i].append((component_name, "both_zero"))
-
-                # Verify output state for this chunk
-                if debug_flag and i < 3:
-                    out_is_zero = torch.all(out_info[i, start:end] == 0.0).item()
-                    out_is_valid = torch.all(out_mask[i, start:end]).item()
-                    logger.debug(f"[MIX_CHUNKS]   Result: all_zeros={out_is_zero}, all_valid={out_is_valid}")
-
-        # Log summary of mixing decisions if in debug mode
-        if debug_flag:
-            logger.debug(f"[MIX_CHUNKS] Completed chunk-wise mixing for {B} samples")
-            logger.debug("[MIX_CHUNKS] Decision summary for first few samples:")
-            for i in range(min(3, B)):
-                if i in component_decisions:  # Check if key exists before accessing
-                    logger.debug(f"[MIX_CHUNKS]   Sample {i} decisions: {component_decisions[i]}")
-
-            # Check output consistency
-            for chunk_idx, (start, end) in enumerate(chunk_bounds):
-                zeros_count = torch.all(out_info[:, start:end] == 0.0, dim=1).sum().item()
-                valid_count = torch.all(out_mask[:, start:end], dim=1).sum().item()
-                logger.debug(f"[MIX_CHUNKS] Chunk {chunk_idx}({start}:{end}) stats after mixing:")
-                logger.debug(f"[MIX_CHUNKS]   - Samples with all zeros: {zeros_count}/{B} ({100 * zeros_count / B:.1f}%)")
-                logger.debug(f"[MIX_CHUNKS]   - Samples with all valid: {valid_count}/{B} ({100 * valid_count / B:.1f}%)")
+                # Output statistics
+                zeros_count = torch.all(out_info[:, s:e] == 0.0, dim=1).sum().item()
+                valid_count = torch.all(out_mask[:, s:e], dim=1).sum().item()
+                logger.debug(f"[MIX_CHUNKS]   - Output all zeros: {zeros_count}/{B} ({100 * zeros_count / B:.1f}%)")
+                logger.debug(f"[MIX_CHUNKS]   - Output all valid: {valid_count}/{B} ({100 * valid_count / B:.1f}%)")
 
         return out_info, out_mask
