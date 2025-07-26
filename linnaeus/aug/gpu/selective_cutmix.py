@@ -422,12 +422,9 @@ class GPUSelectiveCutMix(SelectiveCutMix):
         lens = torch.tensor([e - s for (s, e) in chunks], device=device)
 
         # 1) flag per-dim zeros and check each chunk for any zeros
-        per_dim_zero = (aux_info == 0)
-        per_chunk_zero = torch.zeros((B, len(chunks)), dtype=torch.bool, device=device)
-        
-        for i, (start, end) in enumerate(chunks):
-            chunk_has_zero = per_dim_zero[:, start:end].any(dim=1)
-            per_chunk_zero[:, i] = chunk_has_zero
+        per_dim_zero = aux_info == 0
+        # Vectorized check for any zeros within each chunk for each sample in the batch
+        per_chunk_zero = torch.stack([per_dim_zero[:, s:e].any(dim=1) for (s, e) in chunks], dim=1)
 
         # 2) broadcast back to [B, D] and apply
         full_zero_mask = torch.repeat_interleave(per_chunk_zero, lens, dim=1)
