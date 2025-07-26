@@ -31,7 +31,22 @@
 - **Next Bottleneck Identified**: Profiling reveals `gpu_selective_mixing` consumes ~11% of total step time, representing next optimization target.
 - **Industry Standards**: Kornia integration provides superior maintainability and correctness compared to custom torch.compile solutions.
 
-## [0.1.5b] - 2025-07-26
+## [0.1.5b2] - 2025-07-26
+
+### Performance  
+- **Truly Vectorized Selective Mixing**: Fixed critical missing optimizations in v0.1.5b that prevented expected performance gains. Replaced Python `for` loops in both `_mix_aux_info_chunkwise` and `_enforce_all_or_nothing` with `torch.repeat_interleave` vectorized operations.
+- **Kernel Count Reduction**: Eliminated ~2×C small kernels per batch (C ≈ 30-40 chunks) by vectorizing chunk mask expansion and enforcement logic. Expected reduction from ~1,800 to ~950 kernels per step.
+- **Single-Kernel Operations**: `_enforce_all_or_nothing` now uses single vectorized kernel instead of C separate slice assignments, eliminating host synchronizations.
+
+### Technical
+- **Vectorized Mask Expansion**: Replaced `for idx, (s, e) in enumerate(chunks): full_mask[:, s:e] = ...` with `torch.repeat_interleave(choose_orig, lens, dim=1)` in `_mix_aux_info_chunkwise`.
+- **Vectorized Enforcement**: Replaced per-chunk loop in `_enforce_all_or_nothing` with batch-wise zero detection and single `torch.repeat_interleave` broadcast operation.
+- **Cross-Platform Consistency**: Applied identical optimizations to both GPU and CPU variants (`selective_mixup.py`, `selective_cutmix.py`) for consistent behavior.
+
+### Bug Fixes
+- **Hotfix**: v0.1.5b contained incomplete vectorization that left main performance bottlenecks unaddressed, explaining why profiling showed no improvement (~120ms mixing time, ~1,800 kernels unchanged).
+
+## [0.1.5b] - 2025-07-26 [SUPERSEDED]
 
 ### Performance  
 - **Vectorized Selective Mixing**: Completely refactored GPU selective mixing metadata processing to eliminate per-sample Python loops. Pre-computes chunk zero flags once per batch and uses fused `torch.where` operations across the entire tensor, targeting ~70% reduction in selective mixing time.
@@ -41,6 +56,9 @@
 ### Technical
 - **Method Signature Changes**: Updated `_mix_aux_info_chunkwise` in all selective mixing classes to accept pre-computed zero flags (`z1`, `z2`) as parameters, eliminating redundant per-call computations.
 - **Fused Copy Operations**: Replaced per-chunk tensor assignment loops with single fused `torch.where` calls that operate on full `[B, D]` tensors.
+
+### Known Issues
+- **Incomplete Optimization**: Critical vectorization of chunk loops was not implemented, leaving ~90% of kernels unchanged. Fixed in v0.1.5b2.
 
 ## [Unreleased]
 

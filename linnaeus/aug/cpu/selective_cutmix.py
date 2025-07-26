@@ -310,10 +310,7 @@ class CPUSelectiveCutMix(SelectiveCutMix):
 
     def _enforce_all_or_nothing(self, aux_info: torch.Tensor, meta_masks: torch.Tensor):
         """
-        If a chunk is partially zero, cast the entire chunk to zero.
-
-        This is purely optional if you want to ensure that no chunk is "partially" valid.
-        For each chunk, if any dimension is zero, we set all dims to zero in that chunk.
+        Zero-out an entire chunk if *any* dimension is zero – vectorized, no Python loop.
         """
         # Use precomputed chunk bounds if available, otherwise default to a single chunk
         if self.chunk_bounds is not None:
@@ -323,23 +320,26 @@ class CPUSelectiveCutMix(SelectiveCutMix):
         else:
             chunk_bounds = []
 
-        B, D = aux_info.shape
+        if not chunk_bounds:
+            return
 
-        for start, end in chunk_bounds:
-            chunk = aux_info[:, start:end]
-            # For each row i, check if chunk i is fully non-zero
-            # -> if partial zero => set entire chunk to zero
-            # We'll do a mask that says "all dims are non-zero"
-            # but we want a simpler approach => "any dim == 0 => full zero"
-            # Or we can look at meta_masks => if the entire chunk is not valid we zero it
-            # We'll do a purely numeric approach here:
-            with torch.no_grad():
-                # chunk.nonzero() doesn't help if we want partial zero check
-                # We'll do "is_zero = (chunk == 0).any(dim=1)"
-                is_partial_zero = (chunk == 0.0).any(dim=1)
-                # For those rows, we set chunk to zero
-                aux_info[is_partial_zero, start:end] = 0.0
-                meta_masks[is_partial_zero, start:end] = False
+        device = aux_info.device
+        B, D = aux_info.shape
+        chunks = chunk_bounds
+        lens = torch.tensor([e - s for (s, e) in chunks], device=device)
+
+        # 1) flag per-dim zeros and check each chunk for any zeros
+        per_dim_zero = (aux_info == 0)
+        per_chunk_zero = torch.zeros((B, len(chunks)), dtype=torch.bool, device=device)
+        
+        for i, (start, end) in enumerate(chunks):
+            chunk_has_zero = per_dim_zero[:, start:end].any(dim=1)
+            per_chunk_zero[:, i] = chunk_has_zero
+
+        # 2) broadcast back to [B, D] and apply
+        full_zero_mask = torch.repeat_interleave(per_chunk_zero, lens, dim=1)
+        aux_info.masked_fill_(full_zero_mask, 0.0)
+        meta_masks.masked_fill_(full_zero_mask, False)
 
     def _mix_aux_info_chunkwise(
         self, info1: torch.Tensor, info2: torch.Tensor, mask1: torch.Tensor, mask2: torch.Tensor, z1: torch.Tensor, z2: torch.Tensor
@@ -366,13 +366,10 @@ class CPUSelectiveCutMix(SelectiveCutMix):
         choose_orig = (~z1 & z2) | (both_non_zero & pick_rand)
         choose_partner = (~z2 & z1) | (both_non_zero & ~pick_rand)
 
-        # expand masks once to [B, D] ------------------------------------------------------
-        full_orig_mask = info1.new_zeros((B, D), dtype=torch.bool)
-        full_partner_mask = info1.new_zeros((B, D), dtype=torch.bool)
-
-        for idx, (s, e) in enumerate(chunks):
-            full_orig_mask[:, s:e] = choose_orig[:, idx].unsqueeze(-1)
-            full_partner_mask[:, s:e] = choose_partner[:, idx].unsqueeze(-1)
+        # expand masks once to [B, D] - vectorized with torch.repeat_interleave --------------
+        lens = torch.tensor([e - s for (s, e) in chunks], device=device)
+        full_orig_mask = torch.repeat_interleave(choose_orig, lens, dim=1)
+        full_partner_mask = torch.repeat_interleave(choose_partner, lens, dim=1)
 
         # fused copy ----------------------------------------------------------------------
         out_info = torch.where(full_orig_mask, info1, torch.where(full_partner_mask, info2, info1.new_zeros(()).expand_as(info1)))
