@@ -276,8 +276,16 @@ class CPUSelectiveCutMix(SelectiveCutMix):
         #    so we have purely "all zero" or "completely non-zero"
         self._enforce_all_or_nothing(aux_info, meta_masks)
 
-        # 7) Hard pick chunk-wise
-        mixed_aux, mixed_masks = self._mix_aux_info_chunkwise(aux_info, aux_info[perm], meta_masks, meta_masks[perm])
+        # 7) Pre-compute chunk zero flags for vectorized mixing
+        chunks = self.chunk_bounds or [(0, aux_info.size(1))] if aux_info.size(1) > 0 else []
+        if chunks:
+            z1 = torch.stack([torch.all(aux_info[:, s:e] == 0, 1) for s, e in chunks], 1)  # [B, C]
+            z2 = torch.stack([torch.all(aux_info[perm][:, s:e] == 0, 1) for s, e in chunks], 1)
+        else:
+            z1 = z2 = None
+
+        # 8) Hard pick chunk-wise with pre-computed zero flags
+        mixed_aux, mixed_masks = self._mix_aux_info_chunkwise(aux_info, aux_info[perm], meta_masks, meta_masks[perm], z1, z2)
 
         return mixed_images, mixed_targets, mixed_aux, mixed_masks
 
@@ -334,62 +342,41 @@ class CPUSelectiveCutMix(SelectiveCutMix):
                 meta_masks[is_partial_zero, start:end] = False
 
     def _mix_aux_info_chunkwise(
-        self, info1: torch.Tensor, info2: torch.Tensor, mask1: torch.Tensor, mask2: torch.Tensor
+        self, info1: torch.Tensor, info2: torch.Tensor, mask1: torch.Tensor, mask2: torch.Tensor, z1: torch.Tensor, z2: torch.Tensor
     ) -> tuple[torch.Tensor, torch.Tensor]:
         """
-        For each chunk, do a "hard pick" approach:
-          - If both are non-zero => pick randomly from info1 or info2
-          - If only one is non-zero => pick that one
-          - If both zero => remain zero
-        Also updates meta_validity_masks accordingly.
-
-        Returns: (mixed_info, mixed_masks)
+        Vectorized metadata 'hard-pick':
+           • take original chunk, partner chunk, or zero - in one pass.
         """
-        mixed_info = torch.empty_like(info1)
-        mixed_masks = torch.empty_like(mask1)
+        if info1.numel() == 0:  # empty aux tensor – nothing to do
+            return info1, mask1
 
-        # Use precomputed chunk bounds if available, otherwise default to a single chunk
-        if self.chunk_bounds is not None:
-            chunk_bounds = self.chunk_bounds
-        elif info1.ndim > 1 and info1.shape[1] > 0:
-            chunk_bounds = [(0, info1.shape[1])]
-        else:
-            chunk_bounds = []
+        B, D = info1.shape
+        chunks = self.chunk_bounds or [(0, D)]
+        C = len(chunks)
+        device = info1.device
 
-        B = info1.size(0)
-        # We'll do it sample by sample
-        # but you can vectorize if desired
-        pick_rand = torch.rand(B, device=info1.device)
+        # Skip if no chunks or no zero flags provided
+        if not chunks or z1 is None or z2 is None:
+            return info1.clone(), mask1.clone()
 
-        for i in range(B):
-            rnd = pick_rand[i].item()
-            for start, end in chunk_bounds:
-                c1 = info1[i, start:end]
-                c2 = info2[i, start:end]
+        # decision matrix -----------------------------------------------------------------
+        both_non_zero = ~(z1 | z2)  # [B,C]
+        pick_rand = torch.rand((B, C), device=device) < 0.5
+        choose_orig = (~z1 & z2) | (both_non_zero & pick_rand)
+        choose_partner = (~z2 & z1) | (both_non_zero & ~pick_rand)
 
-                # Check if chunk c1 is all zero or chunk c2 is all zero
-                all_zero_1 = bool(torch.all(c1 == 0.0))
-                all_zero_2 = bool(torch.all(c2 == 0.0))
+        # expand masks once to [B, D] ------------------------------------------------------
+        full_orig_mask = info1.new_zeros((B, D), dtype=torch.bool)
+        full_partner_mask = info1.new_zeros((B, D), dtype=torch.bool)
 
-                if (not all_zero_1) and (not all_zero_2):
-                    # Both are non-zero => random pick
-                    if rnd < 0.5:
-                        mixed_info[i, start:end] = c1
-                        mixed_masks[i, start:end] = mask1[i, start:end]
-                    else:
-                        mixed_info[i, start:end] = c2
-                        mixed_masks[i, start:end] = mask2[i, start:end]
-                elif (not all_zero_1) and all_zero_2:
-                    # Only c1 is non-zero => pick c1
-                    mixed_info[i, start:end] = c1
-                    mixed_masks[i, start:end] = mask1[i, start:end]
-                elif all_zero_1 and (not all_zero_2):
-                    # Only c2 is non-zero => pick c2
-                    mixed_info[i, start:end] = c2
-                    mixed_masks[i, start:end] = mask2[i, start:end]
-                else:
-                    # Both zero => zero
-                    mixed_info[i, start:end] = 0.0
-                    mixed_masks[i, start:end] = False
+        for idx, (s, e) in enumerate(chunks):
+            full_orig_mask[:, s:e] = choose_orig[:, idx].unsqueeze(-1)
+            full_partner_mask[:, s:e] = choose_partner[:, idx].unsqueeze(-1)
 
-        return mixed_info, mixed_masks
+        # fused copy ----------------------------------------------------------------------
+        out_info = torch.where(full_orig_mask, info1, torch.where(full_partner_mask, info2, info1.new_zeros(()).expand_as(info1)))
+
+        out_mask = torch.where(full_orig_mask, mask1, torch.where(full_partner_mask, mask2, mask1.new_zeros(()).bool().expand_as(mask1)))
+
+        return out_info, out_mask

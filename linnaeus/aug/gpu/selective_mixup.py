@@ -282,8 +282,16 @@ class GPUSelectiveMixup(SelectiveMixup):
         self._enforce_all_or_nothing(aux_info, meta_masks)  # This method does not log, so no debug_flag needed
         self._enforce_all_or_nothing(aux_info[perm], meta_masks[perm])  # This method does not log
 
-        # 8) Hard pick chunk by chunk
-        mixed_aux, mixed_masks = self._mix_aux_info_chunkwise(aux_info, aux_info[perm], meta_masks, meta_masks[perm], debug_flag)
+        # 8) Pre-compute chunk zero flags for vectorized mixing
+        chunks = self.chunk_bounds or [(0, aux_info.size(1))] if aux_info.size(1) > 0 else []
+        if chunks:
+            z1 = torch.stack([torch.all(aux_info[:, s:e] == 0, 1) for s, e in chunks], 1)  # [B, C]
+            z2 = torch.stack([torch.all(aux_info[perm][:, s:e] == 0, 1) for s, e in chunks], 1)
+        else:
+            z1 = z2 = None
+
+        # 9) Hard pick chunk by chunk with pre-computed zero flags
+        mixed_aux, mixed_masks = self._mix_aux_info_chunkwise(aux_info, aux_info[perm], meta_masks, meta_masks[perm], z1, z2)
 
         return mixed_images, mixed_targets, mixed_aux, mixed_masks
 
@@ -344,74 +352,41 @@ class GPUSelectiveMixup(SelectiveMixup):
             meta_masks[is_partial, start:end] = False
 
     def _mix_aux_info_chunkwise(
-        self, info1: torch.Tensor, info2: torch.Tensor, mask1: torch.Tensor, mask2: torch.Tensor, debug_flag: bool
+        self, info1: torch.Tensor, info2: torch.Tensor, mask1: torch.Tensor, mask2: torch.Tensor, z1: torch.Tensor, z2: torch.Tensor
     ) -> tuple[torch.Tensor, torch.Tensor]:
         """
-        Vectorized chunk-level "hard pick" logic:
-          * If both non-zero => pick randomly
-          * If only one non-zero => pick that
-          * If both zero => zero
-        Also merges the meta_validity_mask similarly.
-
-        Returns: (mixed_info, mixed_mask)
+        Vectorized metadata 'hard-pick':
+           • take original chunk, partner chunk, or zero - in one pass.
         """
+        if info1.numel() == 0:  # empty aux tensor – nothing to do
+            return info1, mask1
+
         B, D = info1.shape
+        chunks = self.chunk_bounds or [(0, D)]
+        C = len(chunks)
         device = info1.device
 
-        # Use precomputed chunk bounds if available, otherwise default to a single chunk
-        chunks: list[tuple[int, int]]
-        if self.chunk_bounds is not None and len(self.chunk_bounds) > 0:
-            chunks = self.chunk_bounds
-        else:
-            chunks = [(0, D)] if D > 0 else []
-
-        if not chunks:
+        # Skip if no chunks or no zero flags provided
+        if not chunks or z1 is None or z2 is None:
             return info1.clone(), mask1.clone()
 
-        C = len(chunks)
-        out_info = info1.clone()
-        out_mask = mask1.clone()
-
-        # Build zero flags [B, C] - vectorized across all samples
-        z1 = torch.stack([torch.all(info1[:, s:e] == 0.0, dim=1) for s, e in chunks], dim=1)  # bool
-        z2 = torch.stack([torch.all(info2[:, s:e] == 0.0, dim=1) for s, e in chunks], dim=1)
-
-        both_non_zero = ~(z1 | z2)  # True where both chunks contain data
-        pick_rand = torch.rand((B, C), device=device) < 0.5  # random coin-flip
-
-        # choose_original = (only_orig_non_zero) OR (both_non_zero AND pick_rand)
-        choose_original = (~z1 & z2) | (both_non_zero & pick_rand)
+        # decision matrix -----------------------------------------------------------------
+        both_non_zero = ~(z1 | z2)  # [B,C]
+        pick_rand = torch.rand((B, C), device=device) < 0.5
+        choose_orig = (~z1 & z2) | (both_non_zero & pick_rand)
         choose_partner = (~z2 & z1) | (both_non_zero & ~pick_rand)
 
-        # Apply choices to each chunk - small loop over chunks, vectorized over batch
+        # expand masks once to [B, D] ------------------------------------------------------
+        full_orig_mask = info1.new_zeros((B, D), dtype=torch.bool)
+        full_partner_mask = info1.new_zeros((B, D), dtype=torch.bool)
+
         for idx, (s, e) in enumerate(chunks):
-            co = choose_original[:, idx].unsqueeze(-1)  # [B,1]
-            cp = choose_partner[:, idx].unsqueeze(-1)
+            full_orig_mask[:, s:e] = choose_orig[:, idx].unsqueeze(-1)
+            full_partner_mask[:, s:e] = choose_partner[:, idx].unsqueeze(-1)
 
-            out_info[:, s:e] = torch.where(co, info1[:, s:e], torch.where(cp, info2[:, s:e], torch.zeros_like(info1[:, s:e])))
-            out_mask[:, s:e] = torch.where(
-                co, mask1[:, s:e], torch.where(cp, mask2[:, s:e], torch.zeros_like(mask1[:, s:e], dtype=torch.bool))
-            )
+        # fused copy ----------------------------------------------------------------------
+        out_info = torch.where(full_orig_mask, info1, torch.where(full_partner_mask, info2, info1.new_zeros(()).expand_as(info1)))
 
-        # Debug logging if enabled
-        if debug_flag:
-            logger.debug(f"[MIX_CHUNKS] Completed vectorized chunk-wise mixing for {B} samples")
-            logger.debug(f"[MIX_CHUNKS] Using chunk boundaries: {chunks}")
-
-            # Log statistics about decisions
-            for idx, (s, e) in enumerate(chunks):
-                co_count = choose_original[:, idx].sum().item()
-                cp_count = choose_partner[:, idx].sum().item()
-                both_zero_count = B - co_count - cp_count
-                logger.debug(f"[MIX_CHUNKS] Chunk {idx}({s}:{e}) decisions:")
-                logger.debug(f"[MIX_CHUNKS]   - Chose original: {co_count}/{B} ({100 * co_count / B:.1f}%)")
-                logger.debug(f"[MIX_CHUNKS]   - Chose partner: {cp_count}/{B} ({100 * cp_count / B:.1f}%)")
-                logger.debug(f"[MIX_CHUNKS]   - Both zero: {both_zero_count}/{B} ({100 * both_zero_count / B:.1f}%)")
-
-                # Output statistics
-                zeros_count = torch.all(out_info[:, s:e] == 0.0, dim=1).sum().item()
-                valid_count = torch.all(out_mask[:, s:e], dim=1).sum().item()
-                logger.debug(f"[MIX_CHUNKS]   - Output all zeros: {zeros_count}/{B} ({100 * zeros_count / B:.1f}%)")
-                logger.debug(f"[MIX_CHUNKS]   - Output all valid: {valid_count}/{B} ({100 * valid_count / B:.1f}%)")
+        out_mask = torch.where(full_orig_mask, mask1, torch.where(full_partner_mask, mask2, mask1.new_zeros(()).bool().expand_as(mask1)))
 
         return out_info, out_mask

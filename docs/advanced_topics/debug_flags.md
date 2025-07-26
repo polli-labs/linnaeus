@@ -38,6 +38,8 @@ python linnaeus/main.py --cfg /path/to/config.yaml --opts DEBUG.LOSS.TAXONOMY_SM
 | `DEBUG.MODEL_BUILD` | Controls logs related to model factory operations, model construction, and component initialization. |
 | `DEBUG.TRAINING_LOOP` | Controls logs related to the high-level flow in `main.py` and `validation.py`. |
 
+**Note**: The `DEBUG.EARLY_EXIT_AFTER_N_OPTIMIZER_STEPS` parameter has been deprecated due to limitations with mid-epoch early exit. For profiling trials, use the wrapper timeout mechanism instead.
+
 ### Metrics and WandB Debugging
 
 | Flag | Description |

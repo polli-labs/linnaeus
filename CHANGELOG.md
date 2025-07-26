@@ -31,6 +31,17 @@
 - **Next Bottleneck Identified**: Profiling reveals `gpu_selective_mixing` consumes ~11% of total step time, representing next optimization target.
 - **Industry Standards**: Kornia integration provides superior maintainability and correctness compared to custom torch.compile solutions.
 
+## [0.1.5b] - 2025-07-26
+
+### Performance  
+- **Vectorized Selective Mixing**: Completely refactored GPU selective mixing metadata processing to eliminate per-sample Python loops. Pre-computes chunk zero flags once per batch and uses fused `torch.where` operations across the entire tensor, targeting ~70% reduction in selective mixing time.
+- **Kernel Count Optimization**: Replaced thousands of tiny CUDA kernels with large batched operations by building full boolean masks once and applying them via vectorized tensor operations.
+- **CPU/GPU Feature Parity**: Applied identical vectorization optimizations to both CPU and GPU selective mixing implementations to maintain consistent behavior across execution modes.
+
+### Technical
+- **Method Signature Changes**: Updated `_mix_aux_info_chunkwise` in all selective mixing classes to accept pre-computed zero flags (`z1`, `z2`) as parameters, eliminating redundant per-call computations.
+- **Fused Copy Operations**: Replaced per-chunk tensor assignment loops with single fused `torch.where` calls that operate on full `[B, D]` tensors.
+
 ## [Unreleased]
 
 ### Added

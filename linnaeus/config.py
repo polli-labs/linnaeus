@@ -873,7 +873,8 @@ _C.DEBUG.DATASET = CN()
 _C.DEBUG.DATASET.READ_ITEM_VERBOSE = False  # New flag for verbose _read_raw_item logging
 
 # Special debug flag for early termination of training
-_C.DEBUG.EARLY_EXIT_AFTER_N_OPTIMIZER_STEPS = 0  # Default to 0 (disabled)
+# NOTE: DEBUG.EARLY_EXIT_AFTER_N_OPTIMIZER_STEPS removed - only worked at epoch boundaries, not useful for profiling
+# Use wrapper timeout mechanism for short profiling trials instead
 
 # PyTorch Profiler configuration
 _C.DEBUG.PROFILER = CN()
