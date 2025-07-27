@@ -1,32 +1,24 @@
 # Changelog
 
-## [0.1.5d] - 2025-07-27
+## [0.1.5] - 2025-07-27
 
-### Performance
-- **Final Vectorization of Selective Mixing**: Eliminated the final Python-side list comprehension used for pre-computing zero-flags (`z1`, `z2`) in all selective mixing modules. This completes the end-to-end vectorization of the metadata mixing pipeline.
-- **Reduced Kernel Launches**: Replaced the `torch.stack([torch.all(...) for ...])` pattern with a broadcasted logical OR and `all()` reduction, removing `2 * C` small kernel launches per batch.
+### Code Quality & Architecture
+- **Complete Vectorization of Selective Mixing**: Comprehensively refactored GPU and CPU selective mixing implementations to eliminate all Python-side loops and list comprehensions. Replaced iterative chunk processing with fully vectorized tensor operations using broadcasting and `torch.repeat_interleave`.
+- **Improved Maintainability**: Consolidated metadata mixing logic into cleaner, more readable vectorized operations that scale better for future configurations with larger numbers of metadata chunks.
+- **Cross-Platform Consistency**: Applied identical vectorization patterns across all selective mixing variants (`GPU/CPU × Mixup/CutMix`) ensuring consistent behavior and code structure.
 
-### Technical
-- **Vectorized Zero-Flag Computation**: Replaced the list comprehension for `z1`/`z2` with a broadcasted operation: `(info_zero.unsqueeze(1) | ~chunk_mask.unsqueeze(0)).all(dim=2)`.
-- **CPU/GPU Parity**: Ensured all vectorization fixes are applied consistently across both CPU and GPU implementations of `selective_mixup` and `selective_cutmix`.
+### Technical Implementation
+- **Vectorized Mask Expansion**: Replaced per-chunk loops with `torch.repeat_interleave(choose_orig, lens, dim=1)` for efficient chunk mask broadcasting.
+- **Vectorized Enforcement**: Eliminated list comprehensions in `_enforce_all_or_nothing` using broadcasted logical operations: `(per_dim_zero.unsqueeze(1) & chunk_mask.unsqueeze(0)).any(dim=2)`.
+- **Vectorized Zero-Flag Computation**: Replaced `torch.stack([torch.all(...) for ...])` patterns with broadcasting: `(info_zero.unsqueeze(1) | ~chunk_mask.unsqueeze(0)).all(dim=2)`.
 
-### Bug Fixes
-- **Hotfix for `v0.1.5c`**: Stable profiling of `v0.1.5c` revealed that performance gains were negligible. The root cause was an incomplete vectorization, as the zero-flag computation still contained a hidden Python loop, nullifying the benefits of downstream fixes. `v0.1.5d` addresses this final bottleneck.
+### Performance Analysis
+- **No Significant Performance Impact**: Comprehensive profiling revealed that while the vectorization is technically superior and eliminates all Python loops, it produces no meaningful performance improvement for the current configuration (C=3 metadata chunks). The original Python loop overhead was negligible compared to CUDA kernel launch latency.
+- **Future-Proofing**: The vectorized implementation will provide performance benefits for configurations with significantly more metadata chunks, making this a valuable architectural improvement for scalability.
 
-## [0.1.5c] - 2025-07-26
-
-### Performance
-- **True Vectorization for Selective Mixing**: Definitive fix for performance regressions in `v0.1.5b` and `v0.1.5b2`. Eliminated all Python-side loops and list comprehensions from performance-critical mixing functions.
-- **Single-Kernel Enforcement**: Replaced the "fake" vectorized `torch.stack` list comprehension in `_enforce_all_or_nothing` with a truly vectorized approach using a pre-built chunk mask and broadcasting. This reduces ~C kernel launches to just 3 for the entire operation.
-- **Reduced Kernel Count**: Achieved the originally targeted ~45% reduction in CUDA kernels per step (from ~1,800 to <1,000) by finally vectorizing all sub-operations in the mixing pipeline.
-- **Reduced Host-GPU Syncs**: Eliminated all per-chunk operations, minimizing host-side overhead and synchronization stalls.
-
-### Technical
-- **Vectorized `_enforce_all_or_nothing`**: Replaced list comprehension `[per_dim_zero[:, s:e].any(dim=1) for ...]` with a broadcasted logical AND: `(per_dim_zero.unsqueeze(1) & chunk_mask.unsqueeze(0)).any(dim=2)`.
-- **Confirmed `_mix_aux_info_chunkwise` Fix**: Ensured the `torch.repeat_interleave` vectorization for mask expansion is correctly applied across all CPU/GPU variants.
-
-### Bug Fixes
-- **Hotfix for `v0.1.5b2`**: The previous hotfix was incomplete, as it did not address the list comprehension bottleneck in `_enforce_all_or_nothing`, explaining the continued lack of performance improvement. `v0.1.5c` contains the complete and correct vectorization.
+### Lessons Learned
+- **Micro-Optimization Constraints**: Demonstrated that optimization impact is proportional to problem scale - optimizing 3-iteration loops yields no measurable benefit when kernel launch overhead dominates.
+- **"Fake Vectorization" Anti-Pattern**: Identified and eliminated `torch.stack([... for ...])` patterns that appear vectorized but still contain hidden Python loops launching multiple small kernels.
 
 ## [0.1.4] - 2025-07-25
 
@@ -56,37 +48,9 @@
 
 ### Technical Insights
 - **Kernel Fusion Limitations**: Comprehensive exploration (v0.1.4a-e) proves torch.compile incompatible with stochastic operations like RandomErasing and policy selection.
-- **Next Bottleneck Identified**: Profiling reveals `gpu_selective_mixing` consumes ~11% of total step time, representing next optimization target.
+- **Optimization Target Identified**: Profiling revealed `gpu_selective_mixing` consumes ~11% of total step time, which led to the comprehensive vectorization work in v0.1.5.
 - **Industry Standards**: Kornia integration provides superior maintainability and correctness compared to custom torch.compile solutions.
 
-## [0.1.5b2] - 2025-07-26
-
-### Performance  
-- **Truly Vectorized Selective Mixing**: Fixed critical missing optimizations in v0.1.5b that prevented expected performance gains. Replaced Python `for` loops in both `_mix_aux_info_chunkwise` and `_enforce_all_or_nothing` with `torch.repeat_interleave` vectorized operations.
-- **Kernel Count Reduction**: Eliminated ~2×C small kernels per batch (C ≈ 30-40 chunks) by vectorizing chunk mask expansion and enforcement logic. Expected reduction from ~1,800 to ~950 kernels per step.
-- **Single-Kernel Operations**: `_enforce_all_or_nothing` now uses single vectorized kernel instead of C separate slice assignments, eliminating host synchronizations.
-
-### Technical
-- **Vectorized Mask Expansion**: Replaced `for idx, (s, e) in enumerate(chunks): full_mask[:, s:e] = ...` with `torch.repeat_interleave(choose_orig, lens, dim=1)` in `_mix_aux_info_chunkwise`.
-- **Vectorized Enforcement**: Replaced per-chunk loop in `_enforce_all_or_nothing` with batch-wise zero detection and single `torch.repeat_interleave` broadcast operation.
-- **Cross-Platform Consistency**: Applied identical optimizations to both GPU and CPU variants (`selective_mixup.py`, `selective_cutmix.py`) for consistent behavior.
-
-### Bug Fixes
-- **Hotfix**: v0.1.5b contained incomplete vectorization that left main performance bottlenecks unaddressed, explaining why profiling showed no improvement (~120ms mixing time, ~1,800 kernels unchanged).
-
-## [0.1.5b] - 2025-07-26 [SUPERSEDED]
-
-### Performance  
-- **Vectorized Selective Mixing**: Completely refactored GPU selective mixing metadata processing to eliminate per-sample Python loops. Pre-computes chunk zero flags once per batch and uses fused `torch.where` operations across the entire tensor, targeting ~70% reduction in selective mixing time.
-- **Kernel Count Optimization**: Replaced thousands of tiny CUDA kernels with large batched operations by building full boolean masks once and applying them via vectorized tensor operations.
-- **CPU/GPU Feature Parity**: Applied identical vectorization optimizations to both CPU and GPU selective mixing implementations to maintain consistent behavior across execution modes.
-
-### Technical
-- **Method Signature Changes**: Updated `_mix_aux_info_chunkwise` in all selective mixing classes to accept pre-computed zero flags (`z1`, `z2`) as parameters, eliminating redundant per-call computations.
-- **Fused Copy Operations**: Replaced per-chunk tensor assignment loops with single fused `torch.where` calls that operate on full `[B, D]` tensors.
-
-### Known Issues
-- **Incomplete Optimization**: Critical vectorization of chunk loops was not implemented, leaving ~90% of kernels unchanged. Fixed in v0.1.5b2.
 
 ## [Unreleased]
 
