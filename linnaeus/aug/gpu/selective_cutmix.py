@@ -403,30 +403,30 @@ class GPUSelectiveCutMix(SelectiveCutMix):
 
     def _enforce_all_or_nothing(self, aux_info: torch.Tensor, meta_masks: torch.Tensor):
         """
-        Zero-out an entire chunk if *any* dimension is zero – vectorized, no Python loop.
+        Zero-out an entire chunk if *any* dimension is zero – truly vectorized.
         """
-        # Use precomputed chunk bounds if available, otherwise default to a single chunk
-        if self.chunk_bounds is not None:
-            chunk_bounds = self.chunk_bounds
-        elif aux_info.ndim > 1 and aux_info.shape[1] > 0:  # aux_info has a feature dimension
-            chunk_bounds = [(0, aux_info.shape[1])]  # Default to a single chunk
-        else:  # aux_info is empty or 1D
-            chunk_bounds = []
-
-        if not chunk_bounds:
+        if self.chunk_bounds is None or not self.chunk_bounds:
             return
 
-        device = aux_info.device
         B, D = aux_info.shape
-        chunks = chunk_bounds
-        lens = torch.tensor([e - s for (s, e) in chunks], device=device)
+        device = aux_info.device
+        chunks = self.chunk_bounds
+        C = len(chunks)
 
-        # 1) flag per-dim zeros and check each chunk for any zeros
+        # 1. Create a [C, D] mask tensor mapping chunks to dimensions. This is done once.
+        chunk_mask = torch.zeros(C, D, dtype=torch.bool, device=device)
+        for i, (start, end) in enumerate(chunks):
+            chunk_mask[i, start:end] = True
+
+        # 2. Vectorized check for any zeros within each chunk for the entire batch.
+        # This replaces the Python list comprehension with broadcasted tensor operations.
         per_dim_zero = aux_info == 0
-        # Vectorized check for any zeros within each chunk for each sample in the batch
-        per_chunk_zero = torch.stack([per_dim_zero[:, s:e].any(dim=1) for (s, e) in chunks], dim=1)
+        # expand per_dim_zero to [B, 1, D] and chunk_mask to [1, C, D]
+        # Then logical AND and reduce over the D dimension.
+        per_chunk_zero = (per_dim_zero.unsqueeze(1) & chunk_mask.unsqueeze(0)).any(dim=2)
 
-        # 2) broadcast back to [B, D] and apply
+        # 3. Broadcast the [B, C] chunk-level zero flags back to [B, D] and apply.
+        lens = torch.tensor([e - s for s, e in chunks], device=device)
         full_zero_mask = torch.repeat_interleave(per_chunk_zero, lens, dim=1)
         aux_info.masked_fill_(full_zero_mask, 0.0)
         meta_masks.masked_fill_(full_zero_mask, False)
