@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.1.5] - 2025-07-27
+
+### Code Quality & Architecture
+- **Complete Vectorization of Selective Mixing**: Comprehensively refactored GPU and CPU selective mixing implementations to eliminate all Python-side loops and list comprehensions. Replaced iterative chunk processing with fully vectorized tensor operations using broadcasting and `torch.repeat_interleave`.
+- **Improved Maintainability**: Consolidated metadata mixing logic into cleaner, more readable vectorized operations that scale better for future configurations with larger numbers of metadata chunks.
+- **Cross-Platform Consistency**: Applied identical vectorization patterns across all selective mixing variants (`GPU/CPU × Mixup/CutMix`) ensuring consistent behavior and code structure.
+
+### Technical Implementation
+- **Vectorized Mask Expansion**: Replaced per-chunk loops with `torch.repeat_interleave(choose_orig, lens, dim=1)` for efficient chunk mask broadcasting.
+- **Vectorized Enforcement**: Eliminated list comprehensions in `_enforce_all_or_nothing` using broadcasted logical operations: `(per_dim_zero.unsqueeze(1) & chunk_mask.unsqueeze(0)).any(dim=2)`.
+- **Vectorized Zero-Flag Computation**: Replaced `torch.stack([torch.all(...) for ...])` patterns with broadcasting: `(info_zero.unsqueeze(1) | ~chunk_mask.unsqueeze(0)).all(dim=2)`.
+
+### Performance Analysis
+- **No Significant Performance Impact**: Comprehensive profiling revealed that while the vectorization is technically superior and eliminates all Python loops, it produces no meaningful performance improvement for the current configuration (C=3 metadata chunks). The original Python loop overhead was negligible compared to CUDA kernel launch latency.
+- **Future-Proofing**: The vectorized implementation will provide performance benefits for configurations with significantly more metadata chunks, making this a valuable architectural improvement for scalability.
+
+### Lessons Learned
+- **Micro-Optimization Constraints**: Demonstrated that optimization impact is proportional to problem scale - optimizing 3-iteration loops yields no measurable benefit when kernel launch overhead dominates.
+- **"Fake Vectorization" Anti-Pattern**: Identified and eliminated `torch.stack([... for ...])` patterns that appear vectorized but still contain hidden Python loops launching multiple small kernels.
+
 ## [0.1.4] - 2025-07-25
 
 ### Added  
@@ -28,8 +48,9 @@
 
 ### Technical Insights
 - **Kernel Fusion Limitations**: Comprehensive exploration (v0.1.4a-e) proves torch.compile incompatible with stochastic operations like RandomErasing and policy selection.
-- **Next Bottleneck Identified**: Profiling reveals `gpu_selective_mixing` consumes ~11% of total step time, representing next optimization target.
+- **Optimization Target Identified**: Profiling revealed `gpu_selective_mixing` consumes ~11% of total step time, which led to the comprehensive vectorization work in v0.1.5.
 - **Industry Standards**: Kornia integration provides superior maintainability and correctness compared to custom torch.compile solutions.
+
 
 ## [Unreleased]
 

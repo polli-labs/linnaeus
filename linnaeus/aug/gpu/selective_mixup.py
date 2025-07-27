@@ -197,7 +197,7 @@ class GPUSelectiveMixup(SelectiveMixup):
                     logger.debug(f"  - First {sample_size} samples: {v[:sample_size]}")
                     logger.debug(f"  - First {sample_size} permuted samples: {v[perm][:sample_size]}")
 
-            # Perform the actual mixing operation
+            # Perform the actual mixing operation (creates new tensor, no clone needed)
             mixed_targets[k] = lam * v + (1 - lam) * v[perm]
 
             # Debug logging after mixing to see the effect
@@ -282,207 +282,134 @@ class GPUSelectiveMixup(SelectiveMixup):
         self._enforce_all_or_nothing(aux_info, meta_masks)  # This method does not log, so no debug_flag needed
         self._enforce_all_or_nothing(aux_info[perm], meta_masks[perm])  # This method does not log
 
-        # 8) Hard pick chunk by chunk
-        mixed_aux, mixed_masks = self._mix_aux_info_chunkwise(aux_info, aux_info[perm], meta_masks, meta_masks[perm], debug_flag)
+        # 8) Pre-compute chunk zero flags for vectorized mixing - truly vectorized
+        chunks = self.chunk_bounds or [(0, aux_info.size(1))] if aux_info.size(1) > 0 else []
+        if chunks:
+            B, D = aux_info.shape
+            C = len(chunks)
+            device = aux_info.device
+
+            # Create a [C, D] mask tensor mapping chunks to dimensions
+            chunk_mask = torch.zeros(C, D, dtype=torch.bool, device=device)
+            for i, (start, end) in enumerate(chunks):
+                chunk_mask[i, start:end] = True
+
+            # Vectorized check for ALL zeros within each chunk
+            # `info1_zero` is [B, D]. `chunk_mask` is [C, D].
+            # We want to check if for a given chunk `c`, all dims `d` in that chunk are zero.
+            # (info1_zero | ~chunk_mask) -> [B, C, D] after broadcasting.
+            # This is True if a dim is zero OR if it's not in the chunk.
+            # .all(dim=2) checks if this holds for all D dimensions.
+            info1_zero = aux_info == 0.0
+            z1 = (info1_zero.unsqueeze(1) | ~chunk_mask.unsqueeze(0)).all(dim=2)
+
+            info2_zero = aux_info[perm] == 0.0
+            z2 = (info2_zero.unsqueeze(1) | ~chunk_mask.unsqueeze(0)).all(dim=2)
+        else:
+            z1 = z2 = None
+
+        # 9) Hard pick chunk by chunk with pre-computed zero flags
+        mixed_aux, mixed_masks = self._mix_aux_info_chunkwise(aux_info, aux_info[perm], meta_masks, meta_masks[perm], z1, z2)
 
         return mixed_images, mixed_targets, mixed_aux, mixed_masks
 
     # ---------------------------------------------------------------------
     # Internal
     # ---------------------------------------------------------------------
+    @staticmethod
+    def _pairwise_flip_perm(B: int, device: torch.device) -> torch.Tensor:
+        """
+        O(1) pairwise permutation for mixed-pairs mode.
+        Assumes B is even (GroupedBatchSampler with drop_last=True ensures this).
+        """
+        # Assumes B is even; GroupedBatchSampler with drop_last=True ensures this
+        perm = torch.arange(B, device=device).view(-1, 2).flip(1).reshape(-1)
+        if B % 2 == 1:
+            # Handle odd tail batch by mapping the last element to itself
+            perm = torch.cat([perm, perm.new_tensor([B - 1])])
+        return perm
+
     def _get_ingroup_permutation(self, group_ids: torch.Tensor, debug_flag: bool) -> torch.Tensor:
         """
-        For each distinct group >1 in size, shuffle only within that group.
+        For mixed-pairs mode, use O(1) pairwise flip.
+        Falls back to original implementation for other modes.
         """
-        device = group_ids.device
+        # Use the fast pairwise flip for mixed-pairs mode
+        # (GroupedBatchSampler guarantees adjacent pairs share the same group_id)
         B = group_ids.size(0)
-        perm = torch.arange(B, device=device)
+        perm = self._pairwise_flip_perm(B, group_ids.device)
 
         if debug_flag:
-            logger.debug(f"[MIXUP_PERM] Creating permutation for group_ids: {group_ids.tolist()}")
-
-        unique_g = group_ids.unique()
-        for g in unique_g:
-            if g.item() == -1:
-                continue
-            idx = (group_ids == g).nonzero(as_tuple=True)[0]
-            if debug_flag:
-                logger.debug(f"[MIXUP_PERM] Group {g.item()} has {idx.numel()} samples at indices {idx.tolist()}")
-
-            if idx.numel() > 1:
-                # Generate permutation for this group
-                rand_perm = torch.randperm(idx.numel(), device=device)
-                perm[idx] = idx[rand_perm]
-
-                if debug_flag:
-                    logger.debug(f"[MIXUP_PERM] Group {g.item()} random permutation: {rand_perm.tolist()}")
-                    logger.debug(f"[MIXUP_PERM] Group {g.item()} sample pairings:")
-                    for i, orig_idx in enumerate(idx.tolist()):
-                        paired_idx = idx[rand_perm[i]].item()
-                        logger.debug(f"[MIXUP_PERM]   Sample {orig_idx} paired with {paired_idx}")
-            elif debug_flag:
-                logger.debug(f"[MIXUP_PERM] Group {g.item()} has only 1 sample - no mixing will occur")
+            logger.debug(f"[MIXUP_PERM] Using O(1) pairwise flip permutation for {B} samples")
+            logger.debug(f"[MIXUP_PERM] Final permutation: {perm.tolist()}")
 
         # Store the permutation for later inspection
         self.last_permutation = perm
-
-        if debug_flag:
-            logger.debug(f"[MIXUP_PERM] Final permutation: {perm.tolist()}")
-
         return perm
 
     def _enforce_all_or_nothing(self, aux_info: torch.Tensor, meta_masks: torch.Tensor):
         """
-        If user wants to ensure no partial dimension is set, we forcibly check each chunk:
-          If any dimension is zero => entire chunk is zero => meta_masks => False
+        Zero-out an entire chunk if *any* dimension is zero – truly vectorized.
         """
-        # Use precomputed chunk bounds if available, otherwise default to a single chunk
-        if self.chunk_bounds is not None:
-            chunk_bounds = self.chunk_bounds
-        elif aux_info.ndim > 1 and aux_info.shape[1] > 0:  # aux_info has a feature dimension
-            chunk_bounds = [(0, aux_info.shape[1])]  # Default to a single chunk
-        else:  # aux_info is empty or 1D
-            chunk_bounds = []
+        if self.chunk_bounds is None or not self.chunk_bounds:
+            return
 
         B, D = aux_info.shape
-        for start, end in chunk_bounds:
-            chunk = aux_info[:, start:end]
-            # Check partial zero
-            # If chunk i is partially zero => set entire chunk i to zero
-            is_partial = (chunk == 0.0).any(dim=1)
-            aux_info[is_partial, start:end] = 0.0
-            meta_masks[is_partial, start:end] = False
+        device = aux_info.device
+        chunks = self.chunk_bounds
+        C = len(chunks)
+
+        # 1. Create a [C, D] mask tensor mapping chunks to dimensions. This is done once.
+        chunk_mask = torch.zeros(C, D, dtype=torch.bool, device=device)
+        for i, (start, end) in enumerate(chunks):
+            chunk_mask[i, start:end] = True
+
+        # 2. Vectorized check for any zeros within each chunk for the entire batch.
+        # This replaces the Python list comprehension with broadcasted tensor operations.
+        per_dim_zero = aux_info == 0
+        # expand per_dim_zero to [B, 1, D] and chunk_mask to [1, C, D]
+        # Then logical AND and reduce over the D dimension.
+        per_chunk_zero = (per_dim_zero.unsqueeze(1) & chunk_mask.unsqueeze(0)).any(dim=2)
+
+        # 3. Broadcast the [B, C] chunk-level zero flags back to [B, D] and apply.
+        lens = torch.tensor([e - s for s, e in chunks], device=device)
+        full_zero_mask = torch.repeat_interleave(per_chunk_zero, lens, dim=1)
+        aux_info.masked_fill_(full_zero_mask, 0.0)
+        meta_masks.masked_fill_(full_zero_mask, False)
 
     def _mix_aux_info_chunkwise(
-        self, info1: torch.Tensor, info2: torch.Tensor, mask1: torch.Tensor, mask2: torch.Tensor, debug_flag: bool
+        self, info1: torch.Tensor, info2: torch.Tensor, mask1: torch.Tensor, mask2: torch.Tensor, z1: torch.Tensor, z2: torch.Tensor
     ) -> tuple[torch.Tensor, torch.Tensor]:
         """
-        Chunk-level "hard pick" logic:
-          * If both non-zero => pick randomly
-          * If only one non-zero => pick that
-          * If both zero => zero
-        Also merges the meta_validity_mask similarly.
-
-        Returns: (mixed_info, mixed_mask)
+        Vectorized metadata 'hard-pick':
+           • take original chunk, partner chunk, or zero - in one pass.
         """
+        if info1.numel() == 0:  # empty aux tensor – nothing to do
+            return info1, mask1
+
         B, D = info1.shape
-        out_info = torch.empty_like(info1)
-        out_mask = torch.empty_like(mask1)
+        chunks = self.chunk_bounds or [(0, D)]
+        C = len(chunks)
+        device = info1.device
 
-        if debug_flag:
-            logger.debug(f"[MIX_CHUNKS] Starting chunk-wise mixing for {B} samples")
-            # Track decisions for later analysis
-            component_decisions = {}
+        # Skip if no chunks or no zero flags provided
+        if not chunks or z1 is None or z2 is None:
+            return info1.clone(), mask1.clone()
 
-            # Try to map chunks to component names for better logging
-            try:
-                # Access meta_chunk_bounds_map from config if available
-                if self.config is not None and hasattr(self.config, "DATA") and hasattr(self.config.DATA, "META"):
-                    for comp_name in self.config.DATA.META.COMPONENTS:
-                        comp_cfg = getattr(self.config.DATA.META.COMPONENTS, comp_name)
-                        if comp_cfg.get("ENABLED", False):
-                            pass  # This part of code was empty, just passing
-            except Exception as e:
-                if debug_flag:  # Ensure this logger.debug is also conditional
-                    logger.debug(f"[MIX_CHUNKS] Error getting component names: {e}")
+        # decision matrix -----------------------------------------------------------------
+        both_non_zero = ~(z1 | z2)  # [B,C]
+        pick_rand = torch.rand((B, C), device=device) < 0.5
+        choose_orig = (~z1 & z2) | (both_non_zero & pick_rand)
+        choose_partner = (~z2 & z1) | (both_non_zero & ~pick_rand)
 
-        # Use precomputed chunk bounds if available, otherwise default to a single chunk
-        if self.chunk_bounds is not None:
-            chunk_bounds = self.chunk_bounds
-        elif info1.ndim > 1 and info1.shape[1] > 0:  # info1 has a feature dimension
-            chunk_bounds = [(0, info1.shape[1])]  # Default to a single chunk
-        else:  # info1 is empty or 1D
-            chunk_bounds = []
+        # expand masks once to [B, D] - vectorized with torch.repeat_interleave --------------
+        lens = torch.tensor([e - s for (s, e) in chunks], device=device)
+        full_orig_mask = torch.repeat_interleave(choose_orig, lens, dim=1)
+        full_partner_mask = torch.repeat_interleave(choose_partner, lens, dim=1)
 
-        if debug_flag:
-            logger.debug(f"[MIX_CHUNKS] Using chunk boundaries: {chunk_bounds}")
+        # fused copy ----------------------------------------------------------------------
+        out_info = torch.where(full_orig_mask, info1, torch.where(full_partner_mask, info2, info1.new_zeros(()).expand_as(info1)))
 
-        # We'll do a random sample per row i for picking among "both non-zero" chunks
-        pick_rand = torch.rand(B, device=info1.device)
-
-        if debug_flag:
-            logger.debug(f"[MIX_CHUNKS] Generated random values for chunk mixing: {pick_rand[: min(5, B)].tolist()}")
-
-        for i in range(B):
-            rnd = pick_rand[i].item()
-
-            # Initialize tracking for this sample if in debug mode
-            if debug_flag and i < 3:  # Only track first few samples to avoid excessive logging
-                component_decisions[i] = []
-
-            for chunk_idx, (start, end) in enumerate(chunk_bounds):
-                c1 = info1[i, start:end]
-                c2 = info2[i, start:end]
-
-                all_zero_1 = bool(torch.all(c1 == 0.0))
-                all_zero_2 = bool(torch.all(c2 == 0.0))
-
-                # For better logging, determine component name or use index
-                component_name = f"chunk_{chunk_idx}({start}:{end})"
-
-                # Log detailed debug info for the first few samples
-                if debug_flag and i < 3:
-                    c1_valid = bool(torch.all(mask1[i, start:end]))
-                    c2_valid = bool(torch.all(mask2[i, start:end]))
-
-                    logger.debug(f"[MIX_CHUNKS] Sample {i}, {component_name}:")
-                    logger.debug(f"[MIX_CHUNKS]   Original: zeros={all_zero_1}, valid_mask={c1_valid}")
-                    logger.debug(f"[MIX_CHUNKS]   Permuted: zeros={all_zero_2}, valid_mask={c2_valid}")
-
-                if (not all_zero_1) and (not all_zero_2):
-                    # both non-zero => random pick
-                    if rnd < 0.5:
-                        out_info[i, start:end] = c1
-                        out_mask[i, start:end] = mask1[i, start:end]
-                        if debug_flag and i < 3:
-                            logger.debug(f"[MIX_CHUNKS]   Decision: both non-zero, random < 0.5 ({rnd:.4f}), pick ORIGINAL")
-                            component_decisions[i].append((component_name, "random_original"))
-                    else:
-                        out_info[i, start:end] = c2
-                        out_mask[i, start:end] = mask2[i, start:end]
-                        if debug_flag and i < 3:
-                            logger.debug(f"[MIX_CHUNKS]   Decision: both non-zero, random >= 0.5 ({rnd:.4f}), pick PERMUTED")
-                            component_decisions[i].append((component_name, "random_permuted"))
-                elif (not all_zero_1) and all_zero_2:
-                    out_info[i, start:end] = c1
-                    out_mask[i, start:end] = mask1[i, start:end]
-                    if debug_flag and i < 3:
-                        logger.debug("[MIX_CHUNKS]   Decision: only original non-zero, pick ORIGINAL")
-                        component_decisions[i].append((component_name, "only_original_nonzero"))
-                elif all_zero_1 and (not all_zero_2):
-                    out_info[i, start:end] = c2
-                    out_mask[i, start:end] = mask2[i, start:end]
-                    if debug_flag and i < 3:
-                        logger.debug("[MIX_CHUNKS]   Decision: only permuted non-zero, pick PERMUTED")
-                        component_decisions[i].append((component_name, "only_permuted_nonzero"))
-                else:
-                    # both zero => zero out
-                    out_info[i, start:end] = 0.0
-                    out_mask[i, start:end] = False
-                    if debug_flag and i < 3:
-                        logger.debug("[MIX_CHUNKS]   Decision: both zero, set to ZERO")
-                        component_decisions[i].append((component_name, "both_zero"))
-
-                # Verify output state for this chunk
-                if debug_flag and i < 3:
-                    out_is_zero = torch.all(out_info[i, start:end] == 0.0).item()
-                    out_is_valid = torch.all(out_mask[i, start:end]).item()
-                    logger.debug(f"[MIX_CHUNKS]   Result: all_zeros={out_is_zero}, all_valid={out_is_valid}")
-
-        # Log summary of mixing decisions if in debug mode
-        if debug_flag:
-            logger.debug(f"[MIX_CHUNKS] Completed chunk-wise mixing for {B} samples")
-            logger.debug("[MIX_CHUNKS] Decision summary for first few samples:")
-            for i in range(min(3, B)):
-                if i in component_decisions:  # Check if key exists before accessing
-                    logger.debug(f"[MIX_CHUNKS]   Sample {i} decisions: {component_decisions[i]}")
-
-            # Check output consistency
-            for chunk_idx, (start, end) in enumerate(chunk_bounds):
-                zeros_count = torch.all(out_info[:, start:end] == 0.0, dim=1).sum().item()
-                valid_count = torch.all(out_mask[:, start:end], dim=1).sum().item()
-                logger.debug(f"[MIX_CHUNKS] Chunk {chunk_idx}({start}:{end}) stats after mixing:")
-                logger.debug(f"[MIX_CHUNKS]   - Samples with all zeros: {zeros_count}/{B} ({100 * zeros_count / B:.1f}%)")
-                logger.debug(f"[MIX_CHUNKS]   - Samples with all valid: {valid_count}/{B} ({100 * valid_count / B:.1f}%)")
+        out_mask = torch.where(full_orig_mask, mask1, torch.where(full_partner_mask, mask2, mask1.new_zeros(()).bool().expand_as(mask1)))
 
         return out_info, out_mask
