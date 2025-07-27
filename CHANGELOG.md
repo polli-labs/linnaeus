@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.1.5d] - 2025-07-27
+
+### Performance
+- **Final Vectorization of Selective Mixing**: Eliminated the final Python-side list comprehension used for pre-computing zero-flags (`z1`, `z2`) in all selective mixing modules. This completes the end-to-end vectorization of the metadata mixing pipeline.
+- **Reduced Kernel Launches**: Replaced the `torch.stack([torch.all(...) for ...])` pattern with a broadcasted logical OR and `all()` reduction, removing `2 * C` small kernel launches per batch.
+
+### Technical
+- **Vectorized Zero-Flag Computation**: Replaced the list comprehension for `z1`/`z2` with a broadcasted operation: `(info_zero.unsqueeze(1) | ~chunk_mask.unsqueeze(0)).all(dim=2)`.
+- **CPU/GPU Parity**: Ensured all vectorization fixes are applied consistently across both CPU and GPU implementations of `selective_mixup` and `selective_cutmix`.
+
+### Bug Fixes
+- **Hotfix for `v0.1.5c`**: Stable profiling of `v0.1.5c` revealed that performance gains were negligible. The root cause was an incomplete vectorization, as the zero-flag computation still contained a hidden Python loop, nullifying the benefits of downstream fixes. `v0.1.5d` addresses this final bottleneck.
+
 ## [0.1.5c] - 2025-07-26
 
 ### Performance

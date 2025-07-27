@@ -274,11 +274,29 @@ class CPUSelectiveMixup(SelectiveMixup):
         #    so we have purely "all zero" or "completely non-zero"
         self._enforce_all_or_nothing(aux_info, meta_masks)
 
-        # 8) Pre-compute chunk zero flags for vectorized mixing
+        # 8) Pre-compute chunk zero flags for vectorized mixing - truly vectorized
         chunks = self.chunk_bounds or [(0, aux_info.size(1))] if aux_info.size(1) > 0 else []
         if chunks:
-            z1 = torch.stack([torch.all(aux_info[:, s:e] == 0, 1) for s, e in chunks], 1)  # [B, C]
-            z2 = torch.stack([torch.all(aux_info[perm][:, s:e] == 0, 1) for s, e in chunks], 1)
+            B, D = aux_info.shape
+            C = len(chunks)
+            device = aux_info.device
+
+            # Create a [C, D] mask tensor mapping chunks to dimensions
+            chunk_mask = torch.zeros(C, D, dtype=torch.bool, device=device)
+            for i, (start, end) in enumerate(chunks):
+                chunk_mask[i, start:end] = True
+
+            # Vectorized check for ALL zeros within each chunk
+            # `info1_zero` is [B, D]. `chunk_mask` is [C, D].
+            # We want to check if for a given chunk `c`, all dims `d` in that chunk are zero.
+            # (info1_zero | ~chunk_mask) -> [B, C, D] after broadcasting.
+            # This is True if a dim is zero OR if it's not in the chunk.
+            # .all(dim=2) checks if this holds for all D dimensions.
+            info1_zero = aux_info == 0.0
+            z1 = (info1_zero.unsqueeze(1) | ~chunk_mask.unsqueeze(0)).all(dim=2)
+
+            info2_zero = aux_info[perm] == 0.0
+            z2 = (info2_zero.unsqueeze(1) | ~chunk_mask.unsqueeze(0)).all(dim=2)
         else:
             z1 = z2 = None
 
