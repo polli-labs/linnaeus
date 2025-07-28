@@ -8,6 +8,10 @@ import h5py
 import numpy as np
 import torch
 
+# CRITICAL: Disable OpenCV's internal threading to prevent thread explosion.
+# Our own ThreadPoolExecutor handles parallelism for I/O.
+cv2.setNumThreads(0)
+
 from linnaeus.aug.base import AugmentationPipeline
 
 from .base_prefetching_dataset import BasePrefetchingDataset
