@@ -1940,6 +1940,10 @@ if __name__ == "__main__":
     _shutdown_in_progress = False
     _shutdown_lock = threading.RLock()
 
+    # CRITICAL: Limit PyTorch intra-op parallelism to prevent thread explosion
+    # on multi-core CPUs. A small number like 4 is recommended.
+    torch.set_num_threads(4)
+
     # Set up a simple console logger until we create the real logger in main()
     console_handler = logging.StreamHandler()
     console_handler.setFormatter(logging.Formatter("[%(levelname)s] %(message)s"))
