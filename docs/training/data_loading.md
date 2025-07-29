@@ -127,10 +127,63 @@ While Polli Linnaeus might not strictly enforce the presence of all `metadata` s
 ## Image Data (Hybrid Mode)
 
 In the preferred hybrid mode:
-*   Images are stored as individual files (e.g., JPEG, PNG) in a flat directory structure.
+*   Images are stored as individual files (e.g., JPEG, PNG) in a directory structure.
 *   The `labels.h5` file's `img_identifiers` dataset provides the filenames (or relative paths) to these images.
 *   The experiment configuration `DATA.HYBRID.IMAGES_DIR` points to the root directory of these image files.
 *   `DATA.HYBRID.FILE_EXTENSION` can specify the image file extension if not included in `img_identifiers`.
+
+### Image Directory Sharding (v0.1.6+)
+
+For datasets with millions of images, flat directory structures can experience severe filesystem performance degradation due to inode lock contention on ext4 filesystems. Linnaeus supports **deterministic directory sharding** to mitigate this issue.
+
+#### Configuration
+
+Sharding is configured under `DATA.HYBRID.SHARDING` in your experiment config:
+
+```yaml
+DATA:
+  HYBRID:
+    SHARDING:
+      ENABLED: True               # Enable sharding (default: False)
+      METHOD: "first_k_chars"     # Sharding method (currently only first_k_chars supported)
+      K: 2                        # Number of characters to use for sharding (default: 2)
+```
+
+#### How It Works
+
+When sharding is enabled with `METHOD: "first_k_chars"` and `K: 2`:
+- Image `123456_0.jpg` is stored in subdirectory `12/123456_0.jpg`
+- Image `ab9876_0.jpg` is stored in subdirectory `ab/ab9876_0.jpg`
+- This creates up to 676 subdirectories (26² for alphabetic, 100 for numeric prefixes)
+
+#### Backwards Compatibility
+
+The implementation includes **graceful fallback** to flat directories:
+1. First attempts to find the image in the sharded location
+2. If not found, falls back to the flat directory location
+3. Logs a warning (once per worker) about the fallback
+
+This ensures existing datasets continue to work without modification.
+
+#### Migration Tool
+
+To migrate an existing flat directory to sharded structure:
+
+```bash
+python tools/dataset/shard_flat_dir.py \
+  --input-dir /path/to/flat/images \
+  --output-dir /path/to/sharded/images \
+  --k 2 \
+  --num-workers 32
+```
+
+The tool uses hardlinks by default for efficient space usage (no data duplication).
+
+#### Performance Considerations
+
+- **Benefits appear at scale**: Sharding overhead may slightly increase I/O time for small datasets (<1M files)
+- **Significant improvements**: For datasets with 10M+ files where inode contention becomes severe
+- **Production environments**: Most beneficial under high concurrency with multiple workers/processes
 
 ## Image Verification (For Hybrid Mode)
 
