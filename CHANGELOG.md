@@ -54,6 +54,8 @@
 
 ## [Unreleased]
 
+## [0.1.6] - 2025-07-29
+
 ### Added
 - **Hybrid Image Directory Sharding**: Implemented deterministic sharding for hybrid datasets to mitigate ext4 filesystem inode lock contention with millions of files. Configurable via `DATA.HYBRID.SHARDING` with first-K-chars method (default K=2). Includes graceful fallback for backwards compatibility with existing flat directories.
 - **Migration Tool**: Added `tools/dataset/shard_flat_dir.py` for migrating existing flat image directories to sharded structure using hardlinks for efficient space usage.
