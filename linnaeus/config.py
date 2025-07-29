@@ -329,6 +329,17 @@ _C.DATA.HYBRID.FILE_EXTENSION = ".jpg"
 # mechanism if verification was skipped or if files disappeared after verification.
 _C.DATA.HYBRID.ALLOW_MISSING_IMAGES = False
 
+# --- NEW: Sharding configuration ---
+_C.DATA.HYBRID.SHARDING = CN()
+_C.DATA.HYBRID.SHARDING.ENABLED = False
+_C.DATA.HYBRID.SHARDING.METHOD = "first_k_chars"  # Options: "first_k_chars", "hash_mod"
+_C.DATA.HYBRID.SHARDING.K = 2  # Parameter for 'first_k_chars'
+
+# --- NEW: Lookup Table (LUT) Cache configuration ---
+_C.DATA.HYBRID.LUT_CACHE = CN()
+_C.DATA.HYBRID.LUT_CACHE.ENABLED = False  # Use LUT as a fallback or primary method
+_C.DATA.HYBRID.LUT_CACHE.PATH = "_id_path_map.msgpack"  # Relative to IMAGES_DIR
+
 # Verify images subsection for verifying existence of image files
 _C.DATA.HYBRID.VERIFY_IMAGES = CN()
 # If True, runs a check at the start of dataset processing to find missing image files.
