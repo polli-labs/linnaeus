@@ -8,13 +8,14 @@ import h5py
 import numpy as np
 import torch
 
+from linnaeus.aug.base import AugmentationPipeline
+from linnaeus.utils.sharding import get_shard_subdir
+
+from .base_prefetching_dataset import BasePrefetchingDataset
+
 # CRITICAL: Disable OpenCV's internal threading to prevent thread explosion.
 # Our own ThreadPoolExecutor handles parallelism for I/O.
 cv2.setNumThreads(0)
-
-from linnaeus.aug.base import AugmentationPipeline
-
-from .base_prefetching_dataset import BasePrefetchingDataset
 
 
 class PrefetchingHybridDataset(BasePrefetchingDataset):
@@ -154,6 +155,9 @@ class PrefetchingHybridDataset(BasePrefetchingDataset):
         self.file_extension = file_extension  # May be empty string.
         self.config = config  # Store the config
 
+        # --- NEW: Get sharding config ---
+        self.shard_config = self.config.DATA.HYBRID.get("SHARDING", None) if self.config else None
+
         # Active group array to be set at runtime.
         self._active_group_array: list[int] | None = None
 
@@ -229,7 +233,24 @@ class PrefetchingHybridDataset(BasePrefetchingDataset):
         else:
             img_id_with_ext = raw_id
 
-        img_path = os.path.join(self.images_dir, img_id_with_ext)
+        # --- MODIFIED: Path construction ---
+        # Calculate shard subdirectory based on the raw ID (without extension)
+        shard_subdir = get_shard_subdir(raw_id, self.shard_config)
+        if shard_subdir:
+            # Try sharded path first
+            img_path = os.path.join(self.images_dir, shard_subdir, img_id_with_ext)
+            # Fallback to flat directory if sharded path doesn't exist
+            if not os.path.exists(img_path):
+                flat_path = os.path.join(self.images_dir, img_id_with_ext)
+                if os.path.exists(flat_path):
+                    if log_this_specific_item:
+                        h5data_logger.warning(
+                            f"[READ_ITEM_DEBUG] Sharding enabled but file found in flat directory: {flat_path}"
+                        )
+                    img_path = flat_path
+        else:
+            img_path = os.path.join(self.images_dir, img_id_with_ext)
+        # --- END MODIFICATION ---
 
         # --- Runtime Check ---
         allow_missing_runtime = (

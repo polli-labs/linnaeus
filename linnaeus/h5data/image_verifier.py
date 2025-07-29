@@ -9,6 +9,7 @@ from tqdm import tqdm  # Import tqdm
 
 # Get h5data logger specifically
 from linnaeus.utils.logging.logger import get_h5data_logger
+from linnaeus.utils.sharding import get_shard_subdir
 
 logger = get_h5data_logger()
 
@@ -23,6 +24,7 @@ class ImageVerifier:
         num_workers: int = -1,
         chunk_size: int = 1000,
         logger_override=None,  # Allow passing a logger
+        shard_config=None,  # NEW ARG
     ):
         """Initialize the image verifier."""
         self.images_dir = Path(images_dir)
@@ -35,6 +37,9 @@ class ImageVerifier:
         self.num_workers = os.cpu_count() if num_workers <= 0 else num_workers
         self.chunk_size = max(1, chunk_size)  # Ensure chunk size is positive
         self.logger = logger_override or logger  # Use passed or default logger
+
+        # --- NEW: Store sharding config ---
+        self.shard_config = shard_config
 
         if not self.images_dir.is_dir():
             self.logger.warning(f"Images directory specified for verification does not exist: {self.images_dir}")
@@ -127,13 +132,31 @@ class ImageVerifier:
         else:
             img_id_str = str(img_id).strip()
 
+        # --- MODIFIED: Path construction ---
+        # Calculate shard subdirectory based on the identifier string
+        shard_subdir_str = get_shard_subdir(img_id_str, self.shard_config)
+
         # Append extension only if necessary
         if self.file_extension and not img_id_str.lower().endswith(self.file_extension.lower()):
             filename = f"{img_id_str}{self.file_extension}"
         else:
             filename = img_id_str
 
-        return self.images_dir / filename
+        if shard_subdir_str:
+            # Try sharded path first
+            sharded_path = self.images_dir / shard_subdir_str / filename
+            # Fallback to flat directory if sharded path doesn't exist
+            if not sharded_path.exists():
+                flat_path = self.images_dir / filename
+                if flat_path.exists():
+                    self.logger.debug(
+                        f"Sharding enabled but file found in flat directory: {flat_path}"
+                    )
+                    return flat_path
+            return sharded_path
+        else:
+            return self.images_dir / filename
+        # --- END MODIFICATION ---
 
     def generate_report(
         self,

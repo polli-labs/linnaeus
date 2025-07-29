@@ -285,6 +285,7 @@ class VectorizedDatasetProcessorOnePass:
                         num_workers=self.verify_num_workers,
                         chunk_size=self.verify_chunk_size,
                         logger_override=self.h5data_logger,  # Use the specific logger
+                        shard_config=self.config.DATA.HYBRID.get("SHARDING", None) if self.config else None,
                     )
                     self.missing_image_indices, missing_ids = verifier.verify_images(img_identifiers)
 

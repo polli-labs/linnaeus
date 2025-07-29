@@ -54,11 +54,18 @@
 
 ## [Unreleased]
 
+## [0.1.6] - 2025-07-29
+
 ### Added
+- **Hybrid Image Directory Sharding**: Implemented deterministic sharding for hybrid datasets to mitigate ext4 filesystem inode lock contention with millions of files. Configurable via `DATA.HYBRID.SHARDING` with first-K-chars method (default K=2). Includes graceful fallback for backwards compatibility with existing flat directories.
+- **Migration Tool**: Added `tools/dataset/shard_flat_dir.py` for migrating existing flat image directories to sharded structure using hardlinks for efficient space usage.
 - **Advanced Pipeline Monitoring**: Added detailed wait-time metrics (`Wait(Main/Pre/IO)`) to the data pipeline monitor to precisely identify bottlenecks in I/O, data processing, or GPU consumption.
 - **Interval-Based Metrics**: Monitor thread now reports throughput and cache statistics for the last interval, providing a more real-time view of pipeline performance.
 
 ### Changed
+- **PrefetchingHybridDataset**: Updated to support sharded directory lookups with automatic fallback to flat directories for backwards compatibility.
+- **ImageVerifier**: Enhanced to verify images in both sharded and flat directory structures.
+- **dataset_lib.sh**: Modified download_and_untar_shard() to create sharded subdirectories during dataset unpacking based on dataset-specific sharding configuration.
 - **Monitor Log Format**: Redesigned the monitor log for improved readability and information density, including queue depths, cache stats, interval throughput, and wait times in a single line.
 
 ### Fixed

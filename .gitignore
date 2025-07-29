@@ -71,6 +71,8 @@ venv.bak/
 .aiderignore
 .cursorignore
 CLAUDE.md
+CLAUDE.md.bak
+*.ig
 
 # Local artifacts
 *.local
