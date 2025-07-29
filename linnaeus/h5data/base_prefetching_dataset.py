@@ -486,9 +486,13 @@ class BasePrefetchingDataset(ABC):
                     self._io_thread_wait_time = 0.0
                     self.prefetch_cache.clear_stats()
 
+                # --- Get rank for logging ---
+                from linnaeus.utils.distributed import get_rank_safely
+                rank = get_rank_safely()
+
                 # --- Format and Log ---
                 log_msg = (
-                    f"Monitor | Q(B/P/R): {b_q}/{p_q}/{r_q} | "
+                    f"Monitor [Rank {rank}] | Q(B/P/R): {b_q}/{p_q}/{r_q} | "
                     f"Cache(H/M/E): {hit_rate_pct:.0f}%/{miss_rate_pct:.0f}%/{interval_evictions} | "
                     f"Size: {mem_used_gb:.1f}/{mem_cap_gb:.1f}GB | "
                     f"Tput(IO/H): {io_throughput:.1f}/{handoff_throughput:.1f} it/s | "
