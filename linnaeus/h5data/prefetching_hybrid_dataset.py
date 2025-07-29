@@ -236,7 +236,20 @@ class PrefetchingHybridDataset(BasePrefetchingDataset):
         # --- MODIFIED: Path construction ---
         # Calculate shard subdirectory based on the raw ID (without extension)
         shard_subdir = get_shard_subdir(raw_id, self.shard_config)
-        img_path = os.path.join(self.images_dir, shard_subdir, img_id_with_ext)
+        if shard_subdir:
+            # Try sharded path first
+            img_path = os.path.join(self.images_dir, shard_subdir, img_id_with_ext)
+            # Fallback to flat directory if sharded path doesn't exist
+            if not os.path.exists(img_path):
+                flat_path = os.path.join(self.images_dir, img_id_with_ext)
+                if os.path.exists(flat_path):
+                    if log_this_specific_item:
+                        h5data_logger.warning(
+                            f"[READ_ITEM_DEBUG] Sharding enabled but file found in flat directory: {flat_path}"
+                        )
+                    img_path = flat_path
+        else:
+            img_path = os.path.join(self.images_dir, img_id_with_ext)
         # --- END MODIFICATION ---
 
         # --- Runtime Check ---

@@ -142,7 +142,20 @@ class ImageVerifier:
         else:
             filename = img_id_str
 
-        return self.images_dir / shard_subdir_str / filename
+        if shard_subdir_str:
+            # Try sharded path first
+            sharded_path = self.images_dir / shard_subdir_str / filename
+            # Fallback to flat directory if sharded path doesn't exist
+            if not sharded_path.exists():
+                flat_path = self.images_dir / filename
+                if flat_path.exists():
+                    self.logger.debug(
+                        f"Sharding enabled but file found in flat directory: {flat_path}"
+                    )
+                    return flat_path
+            return sharded_path
+        else:
+            return self.images_dir / filename
         # --- END MODIFICATION ---
 
     def generate_report(
