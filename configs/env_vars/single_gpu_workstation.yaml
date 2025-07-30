@@ -1,5 +1,19 @@
 # Single GPU Workstation Environment Variables
 # Optimized for single-GPU training on consumer hardware (e.g., RTX 3090)
+#
+# USAGE:
+#   This file provides environment variable defaults via ENV.SCENARIO=single_gpu_workstation
+#   or via env_yaml parameter in profiling trials.
+#
+# MERGE ORDER:
+#   1. Base scenario defaults (loaded by env_ctrl.py)
+#   2. This YAML file (if specified via env_yaml)
+#   3. Runtime environment variables (highest precedence)
+#
+# INTENDED USE:
+#   - Single GPU systems with moderate CPU cores (8-16 cores)
+#   - Consumer GPUs (RTX 3090, RTX 4090, etc.)
+#   - Development and small-scale experiments
 
 BLAS:
   OMP_NUM_THREADS: 1

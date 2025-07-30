@@ -212,12 +212,66 @@ def pretty_print_env(env: Dict[str, str], title: str = "Resolved Environment Var
         env: Dictionary of environment variables
         title: Table title
     """
-    console = Console()
-    table = Table(title=title, show_header=True, header_style="bold cyan")
-    table.add_column("Variable", style="yellow", no_wrap=True)
-    table.add_column("Value", style="green")
+    try:
+        console = Console()
+        table = Table(title=title, show_header=True, header_style="bold cyan")
+        table.add_column("Variable", style="yellow", no_wrap=True)
+        table.add_column("Value", style="green")
+        
+        # Group by category
+        categories = {
+            "BLAS/Threading": ["OMP_", "MKL_", "OPENBLAS_", "TBB_", "OPENCV_", "HDF5_"],
+            "PyTorch": ["TORCH_", "PYTORCH_"],
+            "NCCL": ["NCCL_"],
+            "CUDA": ["CUDA_"],
+            "Other": []
+        }
+        
+        categorized = {cat: [] for cat in categories}
+        
+        for k, v in sorted(env.items()):
+            found = False
+            for cat, prefixes in categories.items():
+                if cat == "Other":
+                    continue
+                if any(k.startswith(p) for p in prefixes):
+                    categorized[cat].append((k, v))
+                    found = True
+                    break
+            if not found:
+                categorized["Other"].append((k, v))
+        
+        # Print by category
+        for cat, vars in categorized.items():
+            if vars:
+                table.add_row(f"[bold]{cat}[/bold]", "", style="bold blue")
+                for k, v in vars:
+                    table.add_row(f"  {k}", v)
+                    
+        console.print(table)
+        
+        # Also write plain text fallback to ENV_VARS.txt for CI environments
+        write_env_dump(env, "ENV_VARS.txt")
+        
+    except Exception as e:
+        # Fallback for environments without rich or ANSI support
+        logger.warning(f"Rich table rendering failed ({e}), using plain text fallback")
+        _print_env_plain(env, title)
+        # Always write the plain text dump as fallback
+        write_env_dump(env, "ENV_VARS.txt")
+
+
+def _print_env_plain(env: Dict[str, str], title: str) -> None:
+    """Plain text fallback for environment variable printing.
     
-    # Group by category
+    Args:
+        env: Dictionary of environment variables
+        title: Table title
+    """
+    print(f"\n{title}")
+    print("=" * len(title))
+    
+    # Group by category (same logic as pretty print)
     categories = {
         "BLAS/Threading": ["OMP_", "MKL_", "OPENBLAS_", "TBB_", "OPENCV_", "HDF5_"],
         "PyTorch": ["TORCH_", "PYTORCH_"],
@@ -243,12 +297,12 @@ def pretty_print_env(env: Dict[str, str], title: str = "Resolved Environment Var
     # Print by category
     for cat, vars in categorized.items():
         if vars:
-            table.add_row(f"[bold]{cat}[/bold]", "", style="bold blue")
+            print(f"\n{cat}:")
             for k, v in vars:
-                table.add_row(f"  {k}", v)
-                
-    console.print(table)
+                print(f"  {k}: {v}")
     
+    print()  # Final newline
+
 
 def write_env_dump(env: Dict[str, str], output_path: Union[str, Path]) -> None:
     """Write environment variables to a file for reproducibility.

@@ -461,7 +461,7 @@ _C.MODEL.EXTRA_TOKEN_NUM = 3
 _C.MODEL.META_DIMS = [4, 3]  # Legacy metadata dimensions (deprecated)
 _C.MODEL.IMG_SIZE = 384
 _C.MODEL.IN_CHANS = 3
-_C.MODEL.FIND_UNUSED_PARAMETERS = False
+# _C.MODEL.FIND_UNUSED_PARAMETERS removed - use DISTRIBUTED.DDP.find_unused_parameters instead
 
 # Feature Resolver Subconfig (e.g. LearnedProjection)
 _C.MODEL.FEATURE_RESOLVER = CN()
@@ -955,11 +955,9 @@ def check_deprecated_configs(config):
     """Check for deprecated config options and raise informative errors."""
     # Check for deprecated MODEL.FIND_UNUSED_PARAMETERS
     if hasattr(config.MODEL, 'FIND_UNUSED_PARAMETERS'):
-        # Check if it's actually being used (not the default False)
-        if config.MODEL.FIND_UNUSED_PARAMETERS != _C.MODEL.FIND_UNUSED_PARAMETERS:
-            raise KeyError(
-                "MODEL.FIND_UNUSED_PARAMETERS is deprecated. "
-                "Please migrate to DISTRIBUTED.DDP.find_unused_parameters. "
-                "Example: Change 'MODEL.FIND_UNUSED_PARAMETERS: true' to "
-                "'DISTRIBUTED.DDP.find_unused_parameters: true' in your config."
-            )
+        raise KeyError(
+            "MODEL.FIND_UNUSED_PARAMETERS is deprecated and removed. "
+            "Please migrate to DISTRIBUTED.DDP.find_unused_parameters. "
+            "Example: Change 'MODEL.FIND_UNUSED_PARAMETERS: true' to "
+            "'DISTRIBUTED.DDP.find_unused_parameters: true' in your config."
+        )

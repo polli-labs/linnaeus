@@ -195,7 +195,7 @@ The standard and recommended solution provided by PyTorch for this scenario is t
 ```python
 # Inside main.py
 
-find_unused = config.MODEL.FIND_UNUSED_PARAMETERS # Default from config
+find_unused = config.DISTRIBUTED.DDP.find_unused_parameters # Default from config
 # FORCE True if using GradNorm with hierarchical heads
 if config.LOSS.GRAD_WEIGHTING.TASK.TYPE == 'gradnorm' and \
    any(h.get("TYPE", "").startswith(("Hierarchical", "Conditional"))
@@ -227,7 +227,7 @@ As noted in section 5.2, using GradNorm with DDP requires setting `find_unused_p
 
 ```python
 # In main.py
-find_unused = config.MODEL.FIND_UNUSED_PARAMETERS  # Default from config
+find_unused = config.DISTRIBUTED.DDP.find_unused_parameters  # Default from config
 
 # Force find_unused_parameters=True for all GradNorm usage
 if config.LOSS.GRAD_WEIGHTING.TASK.GRADNORM_ENABLED:

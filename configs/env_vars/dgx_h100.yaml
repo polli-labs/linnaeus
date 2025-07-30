@@ -1,5 +1,19 @@
 # DGX H100 Environment Variables
 # Optimized for high-performance multi-GPU training with NVLink-Switch
+#
+# USAGE:
+#   This file provides environment variable defaults via ENV.SCENARIO=dgx_h100
+#   or via env_yaml parameter in profiling trials.
+#
+# MERGE ORDER:
+#   1. Base scenario defaults (loaded by env_ctrl.py)
+#   2. This YAML file (if specified via env_yaml)
+#   3. Runtime environment variables (highest precedence)
+#
+# INTENDED USE:
+#   - DGX H100 systems with 8 GPUs
+#   - High-speed NVLink/NVSwitch interconnect
+#   - Large-scale distributed training and production workloads
 
 BLAS:
   OMP_NUM_THREADS: 4

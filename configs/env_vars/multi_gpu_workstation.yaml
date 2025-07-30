@@ -1,5 +1,19 @@
 # Multi-GPU Workstation Environment Variables
 # Optimized for multi-GPU training on workstation hardware (PCIe P2P)
+#
+# USAGE:
+#   This file provides environment variable defaults via ENV.SCENARIO=multi_gpu_workstation
+#   or via env_yaml parameter in profiling trials.
+#
+# MERGE ORDER:
+#   1. Base scenario defaults (loaded by env_ctrl.py)
+#   2. This YAML file (if specified via env_yaml)
+#   3. Runtime environment variables (highest precedence)
+#
+# INTENDED USE:
+#   - Multi-GPU workstations (2-4 GPUs via PCIe P2P)
+#   - Higher-end consumer/prosumer hardware
+#   - Small to medium-scale distributed training
 
 BLAS:
   OMP_NUM_THREADS: 1
