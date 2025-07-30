@@ -1,5 +1,22 @@
 # Changelog
 
+## [Unreleased]
+
+## [0.2.0] - 2025-07-30
+
+### Added
+- **Centralized Thread Control**: New `linnaeus.utils.thread_ctrl` module provides centralized control over CPU thread counts for PyTorch and common libraries (OpenMP, MKL, OpenBLAS, OpenCV, HDF5). Prevents thread explosion and GPU starvation on high-core-count systems.
+- **Environment Variable Control**: Thread settings are controlled via environment variables with safe defaults (e.g., TORCH_INTRAOP_NUM_THREADS=4, OMP_NUM_THREADS=1), maintaining clean separation from YACS configuration.
+- **Automatic Thread Pool Initialization**: Thread settings are applied automatically on import, with per-rank logging of applied values.
+- **Thread Control Tests**: Comprehensive test suite validates thread control behavior across different configurations.
+
+### Changed
+- **Removed Ad-hoc Thread Calls**: Eliminated scattered `torch.set_num_threads()` and `cv2.setNumThreads()` calls in favor of centralized control.
+- **Documentation**: Added thread control notes to config.py explaining the environment-based approach.
+
+### Fixed
+- **DDP Monitor Logging**: Added rank-specific logging to h5data monitor (hotfix from cf1c87c) to diagnose asymmetric performance issues in multi-GPU training.
+
 ## [0.1.5] - 2025-07-27
 
 ### Code Quality & Architecture

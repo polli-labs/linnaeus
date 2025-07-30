@@ -44,6 +44,19 @@ Usage Notes
 - Prefetching usage: We optionally use multi-threaded or multi-process pipelines
   that read, decode, and augment data in parallel.
 
+Thread Control Notes
+-------------------
+CPU thread counts for PyTorch and common libraries (OpenMP, MKL, OpenBLAS, OpenCV, HDF5)
+are controlled via environment variables, NOT through YACS configuration. This maintains
+clean separation of concerns and allows deployment-time tuning without config changes.
+
+See linnaeus/utils/thread_ctrl.py for the complete list of environment variables and
+their defaults. Common overrides:
+  - TORCH_INTRAOP_NUM_THREADS=8  # PyTorch computation threads
+  - OMP_NUM_THREADS=2            # OpenMP threads
+
+Thread settings are applied automatically on import and logged once per rank.
+
 Implementation Details
 ----------------------
 We keep major configuration sections:

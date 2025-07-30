@@ -13,9 +13,8 @@ from linnaeus.utils.sharding import get_shard_subdir
 
 from .base_prefetching_dataset import BasePrefetchingDataset
 
-# CRITICAL: Disable OpenCV's internal threading to prevent thread explosion.
-# Our own ThreadPoolExecutor handles parallelism for I/O.
-cv2.setNumThreads(0)
+# Thread control now handled centrally in linnaeus/__init__.py via thread_ctrl module
+# OpenCV threads are set via OPENCV_NUM_THREADS environment variable
 
 
 class PrefetchingHybridDataset(BasePrefetchingDataset):
