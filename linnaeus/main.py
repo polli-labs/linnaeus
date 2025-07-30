@@ -1943,6 +1943,7 @@ if __name__ == "__main__":
     # CRITICAL: Limit PyTorch intra-op parallelism to prevent thread explosion
     # on multi-core CPUs. A small number like 4 is recommended.
     torch.set_num_threads(4)
+    torch.set_num_interop_threads(1)  # TODO make parametizable with rest of config system
 
     # Set up a simple console logger until we create the real logger in main()
     console_handler = logging.StreamHandler()

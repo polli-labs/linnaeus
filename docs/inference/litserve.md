@@ -15,7 +15,7 @@ from linnaeus.inference.handler import LinnaeusInferenceHandler
 # Option 2: Load from Hugging Face Hub (conceptual - adapt to actual API)
 # This assumes the handler can be loaded directly or you have a helper function.
 # See 'running_inference_with_pretrained_models.md' for more detailed loading.
-# For example, if LinnaeusInferenceHandler has a method like 'load_from_hf_hub':
+# For example, if Linnaeu[sInferenceHandler has a method like 'load_from_hf_hub':
 # handler = LinnaeusInferenceHandler.load_from_hf_hub(
 #     hf_model_id="polli-caleb/linnaeus-aves-mformerV1_sm-v1"
 # )

@@ -457,19 +457,19 @@ If missing images are found, the report includes their identifiers and indices:
 +
 +## High-Performance GPU Augmentation Pipeline
 +
-+As of v0.1.3, Linnaeus supports a revolutionary **batch-oriented GPU augmentation** mode that dramatically reduces Python overhead and maximizes throughput on high-end training systems.
++As of v0.1.3, Linnaeus supports a **batch-oriented GPU augmentation** mode that dramatically reduces Python overhead and maximizes throughput on high-end training systems.
 +
 +### GPU vs CPU Augmentation Modes
 +
 +The augmentation execution is controlled by the `AUG.PIPELINE_DEVICE` configuration parameter:
 +
 +**CPU Mode (`AUG.PIPELINE_DEVICE: "cpu"`):**
-+- Traditional approach: augmentations applied per-sample by worker threads before batch collation
++- augmentations applied per-sample by worker threads before batch collation
 +- Heavy use of `NUM_PREPROCESS_THREADS` for parallel single-sample transforms
 +- Suitable for most training scenarios and provides backward compatibility
 +
 +**GPU Mode (`AUG.PIPELINE_DEVICE: "gpu"`):**
-+- Revolutionary approach: augmentations applied to entire batches on GPU within `collate_fn`
++- augmentations applied to entire batches on GPU within `collate_fn`
 +- Prefetching loop becomes a high-speed pass-through for raw data
 +- Dramatically reduced Python overhead and improved throughput
 +- Ideal for high-end GPU systems with fast storage
