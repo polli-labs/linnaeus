@@ -1,0 +1,60 @@
+# DGX H100 Docker Compose Configuration
+# Optimized for high-performance training with NVLink-Switch
+
+version: '3.8'
+
+services:
+  linnaeus-dgx-h100:
+    image: linnaeus:latest
+    build:
+      context: ../..
+      dockerfile: tools/docker/Dockerfile.runtime
+    runtime: nvidia
+    shm_size: 64G
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - CONFIG_DIR=/app/configs
+      # DGX H100 typically has 8 GPUs
+      - WORLD_SIZE=8
+      # Enable NCCL optimizations for H100
+      - NCCL_NVLS_ENABLE=1
+      - NCCL_COLLNET_ENABLE=1
+    env_file:
+      - ../../configs/env_vars/dgx_h100.yaml
+    volumes:
+      # High-performance storage paths - adjust for your DGX setup
+      - ${DATA_DIR:-/raid/datasets}:/data:ro
+      - ${OUTPUT_DIR:-/raid/outputs}:/outputs
+      - ${MODEL_DIR:-/raid/models}:/models
+      # Mount configs
+      - ../../configs:/app/configs:ro
+      # Optional: mount local code for development
+      # - ../..:/app/linnaeus:ro
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    # DGX systems often use InfiniBand - ensure proper network setup
+    networks:
+      - dgx_network
+    working_dir: /app
+    command: >
+      python -m torch.distributed.run
+      --nproc_per_node=${NPROC_PER_NODE:-8}
+      --master_addr=localhost
+      --master_port=29500
+      -m linnaeus.main
+      --cfg /app/configs/experiments/your_experiment.yaml
+      --opts 
+        ENV.SCENARIO dgx_h100
+        DISTRIBUTED.DDP.bucket_cap_mb 256
+        DISTRIBUTED.DDP.static_graph true
+    tty: true
+    stdin_open: true
+
+networks:
+  dgx_network:
+    driver: bridge

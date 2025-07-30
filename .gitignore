@@ -73,6 +73,7 @@ venv.bak/
 CLAUDE.md
 CLAUDE.md.bak
 *.ig
+*.comment
 
 # Local artifacts
 *.local

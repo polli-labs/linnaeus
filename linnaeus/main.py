@@ -73,6 +73,7 @@ from linnaeus.utils.meta_utils import compute_meta_chunk_bounds
 from linnaeus.utils.metrics.step_metrics_logger import StepMetricsLogger
 from linnaeus.utils.metrics.tracker import MetricsTracker
 from linnaeus.validation import validate_one_pass, validate_with_partial_mask
+from pathlib import Path
 
 
 # Import the debug_metrics functionality directly to make it available
@@ -330,12 +331,15 @@ def parse_option(args_list=None):
     return config, eval_config, args
 
 
-def main(config, args=None):
+def main(config, args=None, resolved_env=None):
     """
     Main training entry point, purely step-based for LR scheduling & training budget,
     while preserving an epoch-based outer loop for user-facing logs & data_loader resets.
     """
     global _main_logger  # Use the global logger reference for emergency cleanup
+    
+    # Import env_ctrl at function level to avoid circular imports
+    from linnaeus.utils import env_ctrl
 
     # Setup distributed
     rank = dist.get_rank() if dist.is_initialized() else 0
@@ -354,6 +358,11 @@ def main(config, args=None):
 
     # Add version marker for debugging
     logger.critical("==================================================")
+    
+    # Pretty print and dump environment variables if provided
+    if resolved_env:
+        env_ctrl.pretty_print_env(resolved_env, title="Resolved Environment Variables")
+        env_ctrl.write_env_dump(resolved_env, Path(config.ENV.OUTPUT.DIRS.LOGS) / "env_vars.txt")
     if config.EXPERIMENT.CODE_VERSION:
         logger.critical(f"CODE VERSION: {config.EXPERIMENT.CODE_VERSION}")
     else:
@@ -717,7 +726,7 @@ def main(config, args=None):
     # ---> START REVISED DDP WRAPPING SECTION (Force True for GradNorm) <---
     if dist.is_available() and dist.is_initialized():
         # Determine the final value for find_unused_parameters
-        find_unused = config.MODEL.FIND_UNUSED_PARAMETERS  # Start with config value
+        find_unused = config.DISTRIBUTED.DDP.find_unused_parameters  # Start with config value
 
         # Check if GradNorm is enabled
         is_gradnorm_enabled = (
@@ -1958,6 +1967,17 @@ if __name__ == "__main__":
     try:
         _main_logger.info("[INIT] Starting linnaeus training")
         config, eval_config, args = parse_option()
+        
+        # Initialize environment variables from config
+        from linnaeus.utils import env_ctrl
+        from linnaeus.config import check_deprecated_configs
+        
+        # Check for deprecated configs
+        check_deprecated_configs(config)
+        
+        # Apply environment variable scenario defaults
+        resolved_env = env_ctrl.init_from_config(config)
+        _main_logger.info("[ENV] Initialized environment variables from scenario: %s", config.ENV.SCENARIO)
 
         # HPC environment defaults
         os.environ.setdefault("CUDA_VISIBLE_DEVICES", "0")
@@ -2017,7 +2037,7 @@ if __name__ == "__main__":
         if getattr(config, "THROUGHPUT", False):
             run_throughput_test(config, eval_config)
         else:
-            main(config, args)
+            main(config, args, resolved_env)
 
     except KeyboardInterrupt:
         _main_logger.warning("[MAIN] Training interrupted by user (KeyboardInterrupt)")

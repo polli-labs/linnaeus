@@ -184,6 +184,10 @@ _C.ENV.OUTPUT.DIRS.LOGS = ""
 _C.ENV.OUTPUT.DIRS.ASSETS = ""
 _C.ENV.OUTPUT.DIRS.CONFIGS = ""
 
+# Environment variable scenario selection
+_C.ENV.SCENARIO = "safe_defaults"  # Options: safe_defaults, single_gpu_workstation, multi_gpu_workstation, dgx_h100
+_C.ENV.YAML_OVERRIDES = ""  # Optional path to YAML file with env var overrides
+
 # ----------------------------------------------------------------------------
 # DATASET Settings
 # ----------------------------------------------------------------------------
@@ -857,6 +861,20 @@ _C.MISC.PRINT_FREQ = 50
 _C.MISC.PIPELINE_METRICS_FREQ = 30.0  # seconds (DEPRECATED: use SCHEDULE.METRICS.PIPELINE_INTERVAL instead)
 
 # ----------------------------------------------------------------------------
+# Distributed Training Settings
+# ----------------------------------------------------------------------------
+_C.DISTRIBUTED = CN()
+_C.DISTRIBUTED.BACKEND = "nccl"  # Options: nccl, gloo
+
+# DDP (DistributedDataParallel) settings
+_C.DISTRIBUTED.DDP = CN()
+_C.DISTRIBUTED.DDP.bucket_cap_mb = 25  # Gradient bucket size in MB
+_C.DISTRIBUTED.DDP.static_graph = False  # Enable static graph optimization
+_C.DISTRIBUTED.DDP.find_unused_parameters = False  # Find unused parameters (migrated from MODEL.FIND_UNUSED_PARAMETERS)
+_C.DISTRIBUTED.DDP.gradient_as_bucket_view = True  # Use gradient as bucket view for efficiency
+_C.DISTRIBUTED.DDP.check_reduction_size = False  # Check reduction size for debugging
+
+# ----------------------------------------------------------------------------
 # Debug Settings
 # ----------------------------------------------------------------------------
 _C.DEBUG = CN()
@@ -931,3 +949,17 @@ def get_default_config() -> CN:
     Alias of get_config, for convenience.
     """
     return get_config()
+
+
+def check_deprecated_configs(config):
+    """Check for deprecated config options and raise informative errors."""
+    # Check for deprecated MODEL.FIND_UNUSED_PARAMETERS
+    if hasattr(config.MODEL, 'FIND_UNUSED_PARAMETERS'):
+        # Check if it's actually being used (not the default False)
+        if config.MODEL.FIND_UNUSED_PARAMETERS != _C.MODEL.FIND_UNUSED_PARAMETERS:
+            raise KeyError(
+                "MODEL.FIND_UNUSED_PARAMETERS is deprecated. "
+                "Please migrate to DISTRIBUTED.DDP.find_unused_parameters. "
+                "Example: Change 'MODEL.FIND_UNUSED_PARAMETERS: true' to "
+                "'DISTRIBUTED.DDP.find_unused_parameters: true' in your config."
+            )

@@ -1,0 +1,41 @@
+# Single GPU Docker Compose Configuration
+# Optimized for single-GPU workstation training
+
+version: '3.8'
+
+services:
+  linnaeus-single-gpu:
+    image: linnaeus:latest
+    build:
+      context: ../..
+      dockerfile: tools/docker/Dockerfile.runtime
+    runtime: nvidia
+    shm_size: 16G
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=0
+      - CONFIG_DIR=/app/configs
+    env_file:
+      - ../../configs/env_vars/single_gpu_workstation.yaml
+    volumes:
+      # Data directories - adjust paths as needed
+      - ${DATA_DIR:-/data}:/data:ro
+      - ${OUTPUT_DIR:-./outputs}:/outputs
+      - ${MODEL_DIR:-./models}:/models
+      # Mount configs
+      - ../../configs:/app/configs:ro
+      # Optional: mount local code for development
+      # - ../..:/app/linnaeus:ro
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    working_dir: /app
+    command: >
+      python -m linnaeus.main
+      --cfg /app/configs/experiments/your_experiment.yaml
+      --opts ENV.SCENARIO single_gpu_workstation
+    tty: true
+    stdin_open: true
