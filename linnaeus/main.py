@@ -1937,9 +1937,23 @@ def main(config, args=None, resolved_env=None):
 
 def run_throughput_test(config, eval_config):
     """
-    Optional placeholder for throughput testing.
+    DEPRECATED: Optional placeholder for throughput testing.
+    
+    This function is deprecated. For systematic performance testing and profiling,
+    use the new profiling runner:
+        linnaeus-prof-run --help
+    
+    See docs/profiling_runner.md for detailed usage information.
     """
-    print("[run_throughput_test] Not implemented.")
+    import warnings
+    warnings.warn(
+        "run_throughput_test is deprecated. "
+        "Use the profiling runner (linnaeus-prof-run) for systematic performance testing. "
+        "See docs/profiling_runner.md for details.",
+        DeprecationWarning,
+        stacklevel=2
+    )
+    print("[run_throughput_test] DEPRECATED: Use linnaeus-prof-run instead. Not implemented.")
 
 
 if __name__ == "__main__":

@@ -49,6 +49,7 @@ dependencies = [
 
 [project.scripts]
 linnaeus-prof = "linnaeus.profiling.cli:main"
+linnaeus-prof-run = "linnaeus.tools.profiling.run_profiling_trials:main"
 
 [project.optional-dependencies]
 dev = [
@@ -65,7 +66,9 @@ inference = [
 ]
 profiling = [
     "tensorboard",
-    "torch-tb-profiler",
+    "torch-tb-profiler", 
+    "pyyaml>=6.0",  # For trial configuration files
+    "rich>=13.0",   # For pretty console output in profiling runner
 ]
 
 cuda-fa = [
