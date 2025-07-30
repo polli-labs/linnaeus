@@ -747,7 +747,7 @@ def main(config, args=None):
             logger.info(f"Wrapping model with DDP (find_unused_parameters={find_unused})")
 
         # Wrap the model
-        model = DDP(model, device_ids=[local_rank], find_unused_parameters=find_unused)
+        model = DDP(model, device_ids=[local_rank], find_unused_parameters=find_unused, bucket_cap_mb=25, static_graph=True)
     # ---> END REVISED DDP WRAPPING SECTION <---
 
     # Add step_update shim if necessary (existing logic)
