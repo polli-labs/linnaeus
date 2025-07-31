@@ -90,23 +90,7 @@ def train_one_epoch(
     model_to_set_checkpoint_flag = model.module if isinstance(model, torch.nn.parallel.DistributedDataParallel) else model
     backup_use_ckpt_normal = getattr(model_to_set_checkpoint_flag, "use_checkpoint", False)
 
-    # PyTorch Profiler Setup
-    profiler = None
-    if config.DEBUG.PROFILER.ENABLED and rank == 0:
-        schedule_params = config.DEBUG.PROFILER.SCHEDULE
-        profiler_output_dir = config.DEBUG.PROFILER.OUTPUT_DIR.format(output_dir=config.ENV.OUTPUT.DIRS.EXP_BASE)
-        os.makedirs(profiler_output_dir, exist_ok=True)
-        profiler = profile(
-            activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
-            schedule=torch.profiler.schedule(
-                wait=schedule_params[0], warmup=schedule_params[1], active=schedule_params[2], repeat=schedule_params[3]
-            ),
-            on_trace_ready=torch.profiler.tensorboard_trace_handler(profiler_output_dir),
-            record_shapes=config.DEBUG.PROFILER.RECORD_SHAPES,
-            with_stack=config.DEBUG.PROFILER.WITH_STACK,
-        )
-        profiler.__enter__()
-        logger.info(f"PyTorch Profiler enabled. Traces will be saved to: {profiler_output_dir}")
+    # PyTorch Profiler - managed by main.py and passed as parameter
 
     try:
         normal_ckpt_flag = bool(config.TRAIN.GRADIENT_CHECKPOINTING.ENABLED_NORMAL_STEPS)
