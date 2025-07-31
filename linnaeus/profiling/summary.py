@@ -60,6 +60,14 @@ class ProfilerMetrics:
     # Level 2 Profiling - Augmentation Components (enhanced from Level 1)
     augmentation_selective_mixing_ms: float = 0.0
     augmentation_gpu_batch_augmentations_ms: float = 0.0
+    
+    # Level 3 Profiling - Host-side Dataloader Metrics
+    median_batch_index_q_depth: float = 0.0
+    median_preprocess_q_depth: float = 0.0
+    median_processed_batch_q_depth: float = 0.0
+    median_io_throughput_it_s: float = 0.0
+    median_handoff_throughput_it_s: float = 0.0
+    median_cache_hit_rate_pct: float = 0.0
 
 
 @dataclass
@@ -369,6 +377,33 @@ def analyze_profiler_traces(trace_files: list[Path]) -> ProfilerMetrics:
     gpu_time_pct = (total_gpu_time / total_active_time * 100) if total_active_time > 0 else 0
     memory_bandwidth_pct = (total_memory_time / total_gpu_time * 100) if total_gpu_time > 0 else 0
 
+    # --- Level 3 Profiling: Analyze queue_stats.jsonl if present ---
+    run_dir = trace_files[0].parent.parent.parent if trace_files else None  # Heuristic to get run dir
+    queue_stats_files = list(run_dir.glob("**/queue_stats_rank*.jsonl")) if run_dir else []
+    
+    median_batch_q = 0.0
+    median_preproc_q = 0.0
+    median_ready_q = 0.0
+    median_io_tput = 0.0
+    median_handoff_tput = 0.0
+    median_hit_rate = 0.0
+
+    if queue_stats_files:
+        try:
+            import pandas as pd
+            # For simplicity, we'll just analyze the first file found (usually rank 0)
+            df = pd.read_json(queue_stats_files[0], lines=True)
+            if not df.empty:
+                median_batch_q = df['batch_index_q'].median()
+                median_preproc_q = df['preprocess_q'].median()
+                median_ready_q = df['processed_batch_q'].median()
+                median_io_tput = df['io_throughput_it_s'].median()
+                median_handoff_tput = df['handoff_throughput_it_s'].median()
+                median_hit_rate = df['cache_hit_rate_pct'].median()
+        except Exception as e:
+            # Silently continue if pandas is not available or parsing fails
+            pass
+
     return ProfilerMetrics(
         avg_step_time_ms=avg_step_time,
         gpu_utilization_pct=gpu_utilization,
@@ -398,6 +433,13 @@ def analyze_profiler_traces(trace_files: list[Path]) -> ProfilerMetrics:
         loss_aggregation_ms=total_loss_aggregation,
         augmentation_selective_mixing_ms=total_augmentation_selective_mixing,
         augmentation_gpu_batch_augmentations_ms=total_augmentation_gpu_batch_augmentations,
+        # Level 3 profiling metrics
+        median_batch_index_q_depth=median_batch_q,
+        median_preprocess_q_depth=median_preproc_q,
+        median_processed_batch_q_depth=median_ready_q,
+        median_io_throughput_it_s=median_io_tput,
+        median_handoff_throughput_it_s=median_handoff_tput,
+        median_cache_hit_rate_pct=median_hit_rate,
     )
 
 
@@ -491,6 +533,37 @@ def format_pretty(summary: RunSummary) -> Panel:
         # Only add the table if it has content
         if component_table.row_count > 0:
             content.append(component_table)
+            
+        # Add Level 3 Host-side Dataloader Metrics Table if any values are non-zero
+        l3_metrics_exist = any([
+            m.median_batch_index_q_depth > 0,
+            m.median_preprocess_q_depth > 0, 
+            m.median_processed_batch_q_depth > 0,
+            m.median_io_throughput_it_s > 0,
+            m.median_handoff_throughput_it_s > 0,
+            m.median_cache_hit_rate_pct > 0
+        ])
+        
+        if l3_metrics_exist:
+            l3_table = Table(title="Host-side Dataloader Metrics (Level 3)", show_header=True)
+            l3_table.add_column("Metric", style="cyan")
+            l3_table.add_column("Value", style="yellow")
+            
+            if m.median_batch_index_q_depth > 0:
+                l3_table.add_row("Median Batch Index Q Depth", f"{m.median_batch_index_q_depth:.1f}")
+            if m.median_preprocess_q_depth > 0:
+                l3_table.add_row("Median Preprocess Q Depth", f"{m.median_preprocess_q_depth:.1f}")
+            if m.median_processed_batch_q_depth > 0:
+                l3_table.add_row("Median Processed Batch Q Depth", f"{m.median_processed_batch_q_depth:.1f}")
+            if m.median_io_throughput_it_s > 0:
+                l3_table.add_row("Median I/O Throughput", f"{m.median_io_throughput_it_s:.1f} it/s")
+            if m.median_handoff_throughput_it_s > 0:
+                l3_table.add_row("Median Handoff Throughput", f"{m.median_handoff_throughput_it_s:.1f} it/s")
+            if m.median_cache_hit_rate_pct > 0:
+                l3_table.add_row("Median Cache Hit Rate", f"{m.median_cache_hit_rate_pct:.1f}%")
+                
+            content.append(l3_table)
+            
     elif summary.has_profiler_traces:
         content.append(f"[red]Error analyzing {summary.trace_files_count} trace files[/red]")
     else:
@@ -598,6 +671,34 @@ def format_markdown(summary: RunSummary) -> str:
             lines.append("|-----------|-----------|-----------|")
             for name, time_ms, pct_of_step in component_data:
                 lines.append(f"| {name} | {time_ms:.1f} | {pct_of_step:.1f}% |")
+
+        # Add Level 3 Host-side Dataloader Metrics if any values are non-zero
+        l3_metrics_exist = any([
+            m.median_batch_index_q_depth > 0,
+            m.median_preprocess_q_depth > 0, 
+            m.median_processed_batch_q_depth > 0,
+            m.median_io_throughput_it_s > 0,
+            m.median_handoff_throughput_it_s > 0,
+            m.median_cache_hit_rate_pct > 0
+        ])
+        
+        if l3_metrics_exist:
+            lines.extend(["", "### Host-side Dataloader Metrics (Level 3)", ""])
+            lines.append("| Metric | Value |")
+            lines.append("|--------|-------|")
+            
+            if m.median_batch_index_q_depth > 0:
+                lines.append(f"| Median Batch Index Q Depth | {m.median_batch_index_q_depth:.1f} |")
+            if m.median_preprocess_q_depth > 0:
+                lines.append(f"| Median Preprocess Q Depth | {m.median_preprocess_q_depth:.1f} |")
+            if m.median_processed_batch_q_depth > 0:
+                lines.append(f"| Median Processed Batch Q Depth | {m.median_processed_batch_q_depth:.1f} |")
+            if m.median_io_throughput_it_s > 0:
+                lines.append(f"| Median I/O Throughput | {m.median_io_throughput_it_s:.1f} it/s |")
+            if m.median_handoff_throughput_it_s > 0:
+                lines.append(f"| Median Handoff Throughput | {m.median_handoff_throughput_it_s:.1f} it/s |")
+            if m.median_cache_hit_rate_pct > 0:
+                lines.append(f"| Median Cache Hit Rate | {m.median_cache_hit_rate_pct:.1f}% |")
 
         lines.append("")
     elif summary.has_profiler_traces:

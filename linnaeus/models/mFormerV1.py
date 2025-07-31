@@ -291,6 +291,10 @@ class mFormerV1(BaseModel):
         self.apply(self._init_weights)
         logger.info(f"[mFormerV1] Model built. Total Params: {sum(p.numel() for p in self.parameters()):,}")
 
+        # --- Level 3 Profiling Hooks ---
+        if (config.DEBUG.PROFILER.ENABLED and config.DEBUG.PROFILER.LEVEL >= 3):
+            self._register_profiling_hooks()
+
     def _init_weights(self, m):
         """Initialize weights like ConvNeXt and ViT."""
         if isinstance(m, nn.Conv2d | nn.Linear):
@@ -300,6 +304,40 @@ class mFormerV1(BaseModel):
         elif isinstance(m, nn.LayerNorm):
             nn.init.constant_(m.bias, 0)
             nn.init.constant_(m.weight, 1.0)
+
+    def _register_profiling_hooks(self):
+        """Dynamically registers profiling hooks on all submodules for L3 profiling."""
+        from linnaeus.utils.profiling_helpers import prof
+        
+        logger.info("[L3 Profile] Registering per-module forward profiling hooks...")
+        
+        for name, module in self.named_modules():
+            if name:  # Skip root module
+                # Attach a list to each module to act as a context stack
+                module._profiler_contexts = []
+                
+                def make_pre_hook(module_name):
+                    def pre_hook(m, inputs):
+                        # When entering a module's forward, start a profiler context
+                        # and push it onto the module's stack.
+                        context = prof(f"module/{module_name}", level=3)
+                        context.__enter__()
+                        m._profiler_contexts.append(context)
+                    return pre_hook
+
+                def make_post_hook(module_name):
+                    def post_hook(m, inputs, outputs):
+                        # When exiting a module's forward, pop the context from the
+                        # stack and exit it. This correctly handles nested modules.
+                        if hasattr(m, '_profiler_contexts') and m._profiler_contexts:
+                            try:
+                                m._profiler_contexts.pop().__exit__(None, None, None)
+                            except Exception as e:
+                                logger.warning(f"[L3 Profile] Error exiting profiler context for {module_name}: {e}")
+                    return post_hook
+
+                module.register_forward_pre_hook(make_pre_hook(name))
+                module.register_forward_hook(make_post_hook(name))
 
     @property
     def parameter_groups_metadata(self) -> dict[str, Any]:

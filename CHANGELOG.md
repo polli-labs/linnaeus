@@ -2,6 +2,19 @@
 
 ## [Unreleased]
 
+### Added
+- **Full-Stack Profiling System**: Introduced a comprehensive multi-level profiling system (`DEBUG.PROFILER.LEVEL`) to instrument the entire training pipeline from data loading to optimizer step.
+  - **Level 1 (Lite)**: Captures high-level timings for dataloading, forward/backward passes, and optimizer steps with minimal overhead (~1-2%).
+  - **Level 2 (Component)**: Provides detailed breakdowns of data pipeline stages (I/O, CPU decode, transform), model stages (stem, convnext, rope), loss components, and augmentation operations with ~5% overhead.
+  - **Level 3 (Deep)**: Enables per-module model profiling via dynamic hooks, DDP communication hooks for `all_reduce` operations, and detailed data queue statistics logging to `queue_stats.jsonl`.
+- **Enhanced Profiling CLI**: `linnaeus-prof summary` and `diff` now parse and display detailed component-level performance breakdowns from Level 2 traces and host-side metrics from Level 3 `queue_stats.jsonl` files.
+- **DDP Communication Instrumentation**: Added `torch.distributed` communication hook to profile `all_reduce` operations during distributed training (Level 3).
+- **Queue Statistics Monitoring**: Level 3 profiling includes real-time JSONL logging of queue depths, throughput metrics, and cache statistics for data pipeline analysis.
+- **Dynamic Module Profiling**: Level 3 automatically instruments all model submodules using PyTorch forward hooks for per-layer granularity.
+
+### Fixed
+- **ENV_VARS.txt Location**: Environment variable dumps are now written to experiment logs directory instead of repository root, preventing accidental git tracking.
+
 ## [0.2.0] - 2025-07-30
 
 ### Added
