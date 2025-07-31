@@ -17,6 +17,7 @@ from linnaeus.aug.cpu.selective_cutmix import CPUSelectiveCutMix
 from linnaeus.aug.cpu.selective_mixup import CPUSelectiveMixup
 from linnaeus.aug.gpu.selective_cutmix import GPUSelectiveCutMix
 from linnaeus.aug.gpu.selective_mixup import GPUSelectiveMixup
+from linnaeus.utils.profiling_helpers import prof
 from linnaeus.h5data.base_prefetching_dataset import STOP_SENTINEL, BasePrefetchingDataset
 from linnaeus.utils.debug_utils import check_debug_flag
 from linnaeus.utils.distributed import get_rank_safely
@@ -1452,9 +1453,7 @@ class H5DataLoader(DataLoader):
 
                     if apply_mixing:
                         # Add profiler region for mixing
-                        with torch.profiler.record_function("gpu_selective_mixing"):
-                            if self.config.DEBUG.PROFILER.ENABLED and getattr(self.config.DEBUG.PROFILER, "SYNC_PROFILING", False):
-                                torch.cuda.synchronize()  # Sync at start
+                        with prof("augmentation/selective_mixing", level=2):
 
                             images, merged_targets, aux_info, meta_validity_masks = mixing_fn(
                                 batch_tuple, exclude_null_samples=exclude_null_samples, null_task_keys=null_task_keys
@@ -1530,9 +1529,7 @@ class H5DataLoader(DataLoader):
                         # Call the mixing function directly
                         # The mixing functions expect (images, targets, aux_info, meta_masks, group_ids)
                         # Add profiler region for mixing
-                        with torch.profiler.record_function("gpu_selective_mixing"):
-                            if self.config.DEBUG.PROFILER.ENABLED and getattr(self.config.DEBUG.PROFILER, "SYNC_PROFILING", False):
-                                torch.cuda.synchronize()  # Sync at start
+                        with prof("augmentation/selective_mixing", level=2):
 
                             images, merged_targets, aux_info, meta_validity_masks = mixing_fn(
                                 (images, merged_targets, aux_info, meta_validity_masks, group_ids),
@@ -1782,7 +1779,8 @@ class H5DataLoader(DataLoader):
                 if debug_dataloader_enabled and self.batch_idx < 5:
                     self.main_logger.debug(f"[GPU_AUG] Applying GPU augmentation pipeline to batch of {images.shape[0]} images")
 
-                images = self.augmentation_pipeline(images)  # Apply augmentations to the batch
+                with prof("augmentation/gpu_batch_augmentations", level=2):
+                    images = self.augmentation_pipeline(images)  # Apply augmentations to the batch
 
                 if debug_dataloader_enabled and self.batch_idx < 5:
                     self.main_logger.debug(f"[GPU_AUG] GPU augmentation completed. Images shape: {images.shape}")

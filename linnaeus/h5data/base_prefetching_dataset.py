@@ -12,6 +12,7 @@ import torch
 from linnaeus.aug.base import AugmentationPipeline
 from linnaeus.utils.debug_utils import check_debug_flag
 from linnaeus.utils.logging.logger import get_h5data_logger
+from linnaeus.utils.profiling_helpers import prof
 
 from .memcache import MemoryCache
 
@@ -521,7 +522,8 @@ class BasePrefetchingDataset(ABC):
         try:
             while not self._shutdown_event.is_set():  # Check shutdown event
                 try:
-                    batch_indices = self._batch_index_queue.get(timeout=0.5)  # Use timeout to check shutdown_event regularly
+                    with prof("dataloader/io_wait", level=2):
+                        batch_indices = self._batch_index_queue.get(timeout=0.5)  # Use timeout to check shutdown_event regularly
                 except queue.Empty:
                     continue  # Loop back to check shutdown_event
 
@@ -555,14 +557,15 @@ class BasePrefetchingDataset(ABC):
 
                     # Process futures as they complete
                     completed_count = 0
-                    for future in concurrent.futures.as_completed(futures):
-                        try:
-                            future.result(timeout=10.0)
-                            completed_count += 1
-                        except concurrent.futures.TimeoutError:
-                            self.main_logger.warning(f"[{class_name}] IO task timed out.")
-                        except Exception as e:
-                            self.main_logger.error(f"[{class_name}] Error in IO task: {e}", exc_info=True)
+                    with prof("dataloader/cpu_decode", level=2):
+                        for future in concurrent.futures.as_completed(futures):
+                            try:
+                                future.result(timeout=10.0)
+                                completed_count += 1
+                            except concurrent.futures.TimeoutError:
+                                self.main_logger.warning(f"[{class_name}] IO task timed out.")
+                            except Exception as e:
+                                self.main_logger.error(f"[{class_name}] Error in IO task: {e}", exc_info=True)
 
                     if completed_count != len(batch_indices):
                         self.main_logger.warning(
@@ -631,7 +634,8 @@ class BasePrefetchingDataset(ABC):
             while not self._shutdown_event.is_set():  # Check shutdown event
                 try:
                     get_start_time = time.monotonic()
-                    b_indices = self._preprocess_queue.get(timeout=0.5)  # Use timeout to check shutdown_event regularly
+                    with prof("dataloader/preprocess_wait", level=2):
+                        b_indices = self._preprocess_queue.get(timeout=0.5)  # Use timeout to check shutdown_event regularly
                     wait_time = time.monotonic() - get_start_time
                     with self._metric_lock:
                         self._preprocess_thread_wait_time += wait_time
@@ -686,13 +690,14 @@ class BasePrefetchingDataset(ABC):
                     ]
                     processed_batch_items = []
 
-                    for fut in concurrent.futures.as_completed(futures):
-                        try:
-                            processed_batch_items.append(fut.result(timeout=10.0))  # Add timeout
-                        except concurrent.futures.TimeoutError:
-                            self.main_logger.warning(f"[{class_name}] Transform task timed out.")
-                        except Exception as e:
-                            self.main_logger.error(f"[{class_name}] Transform task error: {e}", exc_info=True)
+                    with prof("dataloader/cpu_xform", level=2):
+                        for fut in concurrent.futures.as_completed(futures):
+                            try:
+                                processed_batch_items.append(fut.result(timeout=10.0))  # Add timeout
+                            except concurrent.futures.TimeoutError:
+                                self.main_logger.warning(f"[{class_name}] Transform task timed out.")
+                            except Exception as e:
+                                self.main_logger.error(f"[{class_name}] Transform task error: {e}", exc_info=True)
 
                 if not processed_batch_items:  # If all transform tasks failed
                     if self.config and check_debug_flag(self.config, "DEBUG.DATALOADER"):

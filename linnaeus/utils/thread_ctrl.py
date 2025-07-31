@@ -13,8 +13,8 @@ import warnings
 
 from linnaeus.utils.env_ctrl import (
     LINNAEUS_SAFE_DEFAULT_ENV,
-    apply_env_vars,
-    get_resolved_env,
+    load_env_defaults,
+    pretty_print_env,
 )
 
 warnings.warn(
@@ -32,19 +32,23 @@ THREAD_ENV_DEFAULTS = {
 def get_current_settings() -> dict[str, str]:
     """Get current thread control settings from environment.
 
-    DEPRECATED: Use env_ctrl.get_resolved_env() instead.
+    DEPRECATED: Use env_ctrl functions instead.
     """
-    warnings.warn("Use env_ctrl.get_resolved_env() instead", DeprecationWarning, stacklevel=2)
-    return get_resolved_env(LINNAEUS_SAFE_DEFAULT_ENV)
+    warnings.warn("Use env_ctrl functions instead", DeprecationWarning, stacklevel=2)
+    import os
+    return {k: os.environ.get(k, v) for k, v in LINNAEUS_SAFE_DEFAULT_ENV.items()}
 
 
 def apply_thread_settings() -> None:
     """Apply thread control settings from environment variables.
 
-    DEPRECATED: Use env_ctrl.apply_env_vars() instead.
+    DEPRECATED: Use env_ctrl functions instead.
     """
-    warnings.warn("Use env_ctrl.apply_env_vars() instead", DeprecationWarning, stacklevel=2)
-    apply_env_vars(LINNAEUS_SAFE_DEFAULT_ENV)
+    warnings.warn("Use env_ctrl functions instead", DeprecationWarning, stacklevel=2)
+    import os
+    env_defaults = load_env_defaults("safe_defaults")
+    for key, value in env_defaults.items():
+        os.environ.setdefault(key, str(value))
 
 
 def validate_thread_settings() -> bool:
