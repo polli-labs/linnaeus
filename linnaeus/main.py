@@ -363,7 +363,7 @@ def main(config, args=None, resolved_env=None):
     
     # Pretty print and dump environment variables if provided
     if resolved_env:
-        env_ctrl.pretty_print_env(resolved_env, title="Resolved Environment Variables")
+        env_ctrl.pretty_print_env(resolved_env, title="Resolved Environment Variables", output_dir=config.ENV.OUTPUT.DIRS.LOGS)
         env_ctrl.write_env_dump(resolved_env, Path(config.ENV.OUTPUT.DIRS.LOGS) / "env_vars.txt")
     if config.EXPERIMENT.CODE_VERSION:
         logger.critical(f"CODE VERSION: {config.EXPERIMENT.CODE_VERSION}")

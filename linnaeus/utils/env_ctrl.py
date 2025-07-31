@@ -205,12 +205,13 @@ def init_from_config(cfg) -> Dict[str, str]:
     return resolved
 
 
-def pretty_print_env(env: Dict[str, str], title: str = "Resolved Environment Variables") -> None:
+def pretty_print_env(env: Dict[str, str], title: str = "Resolved Environment Variables", output_dir: Optional[Union[str, Path]] = None) -> None:
     """Pretty print environment variables as a table.
     
     Args:
         env: Dictionary of environment variables
         title: Table title
+        output_dir: Optional directory for fallback ENV_VARS.txt file
     """
     try:
         console = Console()
@@ -251,14 +252,16 @@ def pretty_print_env(env: Dict[str, str], title: str = "Resolved Environment Var
         console.print(table)
         
         # Also write plain text fallback to ENV_VARS.txt for CI environments
-        write_env_dump(env, "ENV_VARS.txt")
+        fallback_path = Path(output_dir) / "ENV_VARS.txt" if output_dir else "ENV_VARS.txt"
+        write_env_dump(env, fallback_path)
         
     except Exception as e:
         # Fallback for environments without rich or ANSI support
         logger.warning(f"Rich table rendering failed ({e}), using plain text fallback")
         _print_env_plain(env, title)
         # Always write the plain text dump as fallback
-        write_env_dump(env, "ENV_VARS.txt")
+        fallback_path = Path(output_dir) / "ENV_VARS.txt" if output_dir else "ENV_VARS.txt"
+        write_env_dump(env, fallback_path)
 
 
 def _print_env_plain(env: Dict[str, str], title: str) -> None:
