@@ -37,6 +37,7 @@ import torch.backends.cudnn as cudnn
 import torch.distributed as dist
 import torch.multiprocessing as mp
 from torch.nn.parallel import DistributedDataParallel as DDP
+from torch.profiler import ProfilerActivity, profile, schedule
 
 import linnaeus.h5data.base_prefetching_dataset as bpd
 
@@ -72,6 +73,7 @@ from linnaeus.utils.logging.wandb import initialize_wandb, log_epoch_results, lo
 from linnaeus.utils.meta_utils import compute_meta_chunk_bounds
 from linnaeus.utils.metrics.step_metrics_logger import StepMetricsLogger
 from linnaeus.utils.metrics.tracker import MetricsTracker
+from linnaeus.utils.profiling_helpers import update_profiler_config
 from linnaeus.validation import validate_one_pass, validate_with_partial_mask
 from pathlib import Path
 
@@ -1361,6 +1363,33 @@ def main(config, args=None, resolved_env=None):
     if check_debug_flag(config, "DEBUG.DATALOADER"):
         debug_meta_masking_state(data_loader_train, "train_loader")
 
+    # Initialize profiler configuration
+    update_profiler_config(config)
+
+    # Setup PyTorch profiler if enabled
+    profiler = None
+    if config.DEBUG.PROFILER.ENABLED and rank == 0:
+        schedule_params = config.DEBUG.PROFILER.SCHEDULE
+        profiler_output_dir = config.DEBUG.PROFILER.OUTPUT_DIR.format(output_dir=config.ENV.OUTPUT.DIRS.EXP_BASE)
+        os.makedirs(profiler_output_dir, exist_ok=True)
+        
+        profiler_schedule = schedule(
+            wait=schedule_params[0], 
+            warmup=schedule_params[1], 
+            active=schedule_params[2], 
+            repeat=schedule_params[3]
+        )
+        
+        profiler = profile(
+            activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
+            schedule=profiler_schedule,
+            on_trace_ready=torch.profiler.tensorboard_trace_handler(profiler_output_dir),
+            record_shapes=config.DEBUG.PROFILER.RECORD_SHAPES,
+            with_stack=config.DEBUG.PROFILER.WITH_STACK,
+        )
+        profiler.__enter__()  # Start profiler
+        logger.info(f"PyTorch Profiler enabled at level {config.DEBUG.PROFILER.LEVEL}. Traces will be saved to: {profiler_output_dir}")
+
     try:
         # Use current_epoch from training_progress for the loop start
         for epoch in range(training_progress.current_epoch, estimated_max_epochs):
@@ -1426,6 +1455,7 @@ def main(config, args=None, resolved_env=None):
                 start_step=training_progress.global_step,  # Pass current global step
                 total_steps=total_steps,
                 training_progress=training_progress,  # Pass training_progress object
+                profiler=profiler,  # Pass profiler object for step tracking
             )
 
             # Calculate training epoch stats
@@ -1862,6 +1892,14 @@ def main(config, args=None, resolved_env=None):
                 logger.debug("[main] CUDA synchronized.")
             except Exception as sync_e:
                 logger.error(f"[main] Error during CUDA sync before finally: {sync_e}")
+
+        # Stop profiler if active
+        if 'profiler' in locals() and profiler is not None:
+            try:
+                profiler.__exit__(None, None, None)
+                logger.info("PyTorch Profiler stopped.")
+            except Exception as profiler_e:
+                logger.error(f"[main] Error stopping profiler: {profiler_e}")
 
         global _shutdown_in_progress
 

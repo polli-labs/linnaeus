@@ -921,8 +921,9 @@ _C.DEBUG.DATASET.READ_ITEM_VERBOSE = False  # New flag for verbose _read_raw_ite
 # PyTorch Profiler configuration
 _C.DEBUG.PROFILER = CN()
 _C.DEBUG.PROFILER.ENABLED = False
+_C.DEBUG.PROFILER.LEVEL = 1  # Profiling granularity: 0=OFF, 1=Lite, 2=Component, 3=Deep
 _C.DEBUG.PROFILER.OUTPUT_DIR = "{output_dir}/assets/profiler"
-_C.DEBUG.PROFILER.SCHEDULE = [1, 1, 3, 2]  # [wait, warmup, active, repeat]
+_C.DEBUG.PROFILER.SCHEDULE = [2, 1, 5, 2]  # [wait, warmup, active, repeat]
 _C.DEBUG.PROFILER.RECORD_SHAPES = False
 _C.DEBUG.PROFILER.WITH_STACK = False
 _C.DEBUG.PROFILER.SYNC_PROFILING = False  # Enable CUDA synchronization for accurate timing
