@@ -30,6 +30,7 @@ import threading
 import time
 import traceback
 import weakref
+from pathlib import Path
 
 import numpy as np
 import torch
@@ -75,7 +76,6 @@ from linnaeus.utils.metrics.step_metrics_logger import StepMetricsLogger
 from linnaeus.utils.metrics.tracker import MetricsTracker
 from linnaeus.utils.profiling_helpers import update_profiler_config
 from linnaeus.validation import validate_one_pass, validate_with_partial_mask
-from pathlib import Path
 
 
 # Import the debug_metrics functionality directly to make it available
@@ -339,7 +339,7 @@ def main(config, args=None, resolved_env=None):
     while preserving an epoch-based outer loop for user-facing logs & data_loader resets.
     """
     global _main_logger  # Use the global logger reference for emergency cleanup
-    
+
     # Import env_ctrl at function level to avoid circular imports
     from linnaeus.utils import env_ctrl
 
@@ -360,7 +360,7 @@ def main(config, args=None, resolved_env=None):
 
     # Add version marker for debugging
     logger.critical("==================================================")
-    
+
     # Pretty print and dump environment variables if provided
     if resolved_env:
         env_ctrl.pretty_print_env(resolved_env, title="Resolved Environment Variables")
@@ -1372,14 +1372,11 @@ def main(config, args=None, resolved_env=None):
         schedule_params = config.DEBUG.PROFILER.SCHEDULE
         profiler_output_dir = config.DEBUG.PROFILER.OUTPUT_DIR.format(output_dir=config.ENV.OUTPUT.DIRS.EXP_BASE)
         os.makedirs(profiler_output_dir, exist_ok=True)
-        
+
         profiler_schedule = schedule(
-            wait=schedule_params[0], 
-            warmup=schedule_params[1], 
-            active=schedule_params[2], 
-            repeat=schedule_params[3]
+            wait=schedule_params[0], warmup=schedule_params[1], active=schedule_params[2], repeat=schedule_params[3]
         )
-        
+
         profiler = profile(
             activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
             schedule=profiler_schedule,
@@ -1894,7 +1891,7 @@ def main(config, args=None, resolved_env=None):
                 logger.error(f"[main] Error during CUDA sync before finally: {sync_e}")
 
         # Stop profiler if active
-        if 'profiler' in locals() and profiler is not None:
+        if "profiler" in locals() and profiler is not None:
             try:
                 profiler.__exit__(None, None, None)
                 logger.info("PyTorch Profiler stopped.")
@@ -1976,20 +1973,21 @@ def main(config, args=None, resolved_env=None):
 def run_throughput_test(config, eval_config):
     """
     DEPRECATED: Optional placeholder for throughput testing.
-    
+
     This function is deprecated. For systematic performance testing and profiling,
     use the new profiling runner:
         linnaeus-prof-run --help
-    
+
     See docs/profiling_runner.md for detailed usage information.
     """
     import warnings
+
     warnings.warn(
         "run_throughput_test is deprecated. "
         "Use the profiling runner (linnaeus-prof-run) for systematic performance testing. "
         "See docs/profiling_runner.md for details.",
         DeprecationWarning,
-        stacklevel=2
+        stacklevel=2,
     )
     print("[run_throughput_test] DEPRECATED: Use linnaeus-prof-run instead. Not implemented.")
 
@@ -2012,6 +2010,11 @@ if __name__ == "__main__":
     initial_logger = logging.getLogger("linnaeus")
     initial_logger.addHandler(console_handler)
     initial_logger.setLevel(logging.INFO)
+    # Prevent messages from bubbling up to the root logger (which may have
+    # handlers configured via logging.basicConfig when modules import
+    # get_main_logger() early). Without this, startup messages such as the
+    # final merged configuration are emitted twice.
+    initial_logger.propagate = False
 
     # Point the global variable to this logger
     _main_logger = initial_logger
@@ -2019,14 +2022,14 @@ if __name__ == "__main__":
     try:
         _main_logger.info("[INIT] Starting linnaeus training")
         config, eval_config, args = parse_option()
-        
+
         # Initialize environment variables from config
-        from linnaeus.utils import env_ctrl
         from linnaeus.config import check_deprecated_configs
-        
+        from linnaeus.utils import env_ctrl
+
         # Check for deprecated configs
         check_deprecated_configs(config)
-        
+
         # Apply environment variable scenario defaults
         resolved_env = env_ctrl.init_from_config(config)
         _main_logger.info("[ENV] Initialized environment variables from scenario: %s", config.ENV.SCENARIO)
