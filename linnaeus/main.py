@@ -759,6 +759,10 @@ def main(config, args=None, resolved_env=None):
 
         # Wrap the model
         model = DDP(model, device_ids=[local_rank], find_unused_parameters=find_unused)
+        
+        # Register Level 3 profiling hook for DDP communication
+        from linnaeus.utils.distributed import register_ddp_profiling_hook
+        register_ddp_profiling_hook(model, config)
     # ---> END REVISED DDP WRAPPING SECTION <---
 
     # Add step_update shim if necessary (existing logic)

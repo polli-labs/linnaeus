@@ -1,10 +1,13 @@
 import concurrent.futures
+import json
 import logging
+import os
 import queue
 import threading
 import time
 from abc import ABC, abstractmethod
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 from typing import Any
 
 import torch
@@ -197,6 +200,39 @@ class BasePrefetchingDataset(ABC):
             "batch_concurrency": batch_concurrency,
             "max_processed_batches": max_processed_batches,
         }
+
+        # Level 3 Profiling: queue_stats.jsonl emitter
+        self._jsonl_profiler_handle = None
+        if (self.config and 
+            getattr(self.config, 'DEBUG', None) and 
+            getattr(self.config.DEBUG, 'PROFILER', None) and
+            getattr(self.config.DEBUG.PROFILER, 'ENABLED', False) and
+            getattr(self.config.DEBUG.PROFILER, 'LEVEL', 0) >= 3):
+            
+            try:
+                from linnaeus.utils.distributed import get_rank_safely
+                class_name = self.__class__.__name__
+                prof_dir = getattr(self.config.DEBUG.PROFILER, 'OUTPUT_DIR', 'profiler_output')
+                
+                # Handle output directory formatting
+                if hasattr(self.config, 'ENV') and hasattr(self.config.ENV, 'OUTPUT') and hasattr(self.config.ENV.OUTPUT, 'DIRS'):
+                    prof_dir = prof_dir.format(output_dir=self.config.ENV.OUTPUT.DIRS.EXP_BASE)
+                
+                # Ensure directory exists
+                Path(prof_dir).mkdir(parents=True, exist_ok=True)
+                
+                # Create rank-specific filename
+                rank = get_rank_safely()
+                jsonl_path = Path(prof_dir) / f"queue_stats_rank{rank}.jsonl"
+                
+                # Open file for writing
+                self._jsonl_profiler_handle = open(jsonl_path, 'w')
+                self.main_logger.info(f"[{class_name}] Level 3 profiling enabled. Queue stats will be logged to: {jsonl_path}")
+                
+            except Exception as e:
+                class_name = self.__class__.__name__
+                self.main_logger.warning(f"[{class_name}] Failed to setup Level 3 queue profiling: {e}")
+                self._jsonl_profiler_handle = None
 
         # Launch manager threads
         self._start_pipeline_threads()
@@ -403,6 +439,15 @@ class BasePrefetchingDataset(ABC):
         self._drain_queue(self._preprocess_queue)
         self._drain_queue(self._processed_batch_queue)
 
+        # Close Level 3 profiling JSONL handle
+        if self._jsonl_profiler_handle:
+            try:
+                self._jsonl_profiler_handle.close()
+                self.main_logger.debug(f"[{class_name}] Closed queue stats JSONL profiler handle.")
+            except Exception as e:
+                self.main_logger.warning(f"[{class_name}] Error closing queue stats profiler: {e}")
+            self._jsonl_profiler_handle = None
+
         self.main_logger.info(f"[{class_name}] Closed successfully. Prefetched={self.prefetch_count}, Preprocessed={self.preprocess_count}")
 
     # ------------------------------------------------------------------------
@@ -500,6 +545,32 @@ class BasePrefetchingDataset(ABC):
                     f"Wait(Main/Pre/IO): {main_wait_ms_s:.0f}/{preproc_wait_ms_s:.0f}/{io_wait_ms_s:.0f} ms/s"
                 )
                 self.h5data_logger.info(log_msg)
+
+                # --- Level 3 Profiling: JSONL Queue Stats ---
+                if self._jsonl_profiler_handle:
+                    try:
+                        stats = {
+                            "timestamp_ns": time.time_ns(),
+                            "batch_index_q": b_q,
+                            "preprocess_q": p_q,
+                            "processed_batch_q": r_q,
+                            "io_throughput_it_s": io_throughput,
+                            "handoff_throughput_it_s": handoff_throughput,
+                            "cache_hit_rate_pct": hit_rate_pct,
+                            "cache_miss_rate_pct": miss_rate_pct,
+                            "cache_evictions": interval_evictions,
+                            "cache_mem_used_gb": mem_used_gb,
+                            "cache_mem_cap_gb": mem_cap_gb,
+                            "main_wait_ms_s": main_wait_ms_s,
+                            "preproc_wait_ms_s": preproc_wait_ms_s,
+                            "io_wait_ms_s": io_wait_ms_s,
+                            "interval_duration_s": interval_duration,
+                            "rank": rank
+                        }
+                        self._jsonl_profiler_handle.write(json.dumps(stats) + "\n")
+                        # Note: Not flushing every write for performance
+                    except Exception as e:
+                        self.main_logger.warning(f"[{class_name}] Failed to write queue stats: {e}")
 
         except Exception as e:
             self.main_logger.error(f"[{class_name}] Error in monitor loop: {e}", exc_info=True)
