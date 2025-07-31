@@ -43,6 +43,9 @@ source .venv/bin/activate
 
 # Install in development mode
 uv pip install -e .
+
+### TODO illustrate optional dependency sets: [profiling, inference, etc.]
+uv pip install -e ".[profiling, inference]"
 ```
 
 ## Manual Dependency Management

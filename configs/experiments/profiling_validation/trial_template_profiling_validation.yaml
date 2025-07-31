@@ -1,0 +1,302 @@
+# =============================================================================
+# PROFILING VALIDATION TEMPLATE - For Testing Level 2 Component Instrumentation
+# =============================================================================
+#
+# PURPOSE: Validate the Level 2 profiling implementation with comprehensive
+#          component-level instrumentation across dataloader, model, loss, and
+#          augmentation pipelines.
+#
+# CREATED FROM: trial_template_MASTER.yaml
+# OPTIMIZED FOR: Quick profiling validation runs with meaningful component data
+#
+# =============================================================================
+
+EXPERIMENT: # LEAVE EMPTY - Set via --opts in trials.jsonl
+  PROJECT: 'linnaeus-dev'  # Use -dev for profiling/testing
+  GROUP: 'profiling_validation'
+  NAME: # SET VIA --OPTS: e.g., 'prof_val_l2_component_baseline'
+  TAGS: ['profiling', 'validation', 'component_l2']  # Base tags - extend via --opts
+  CODE_VERSION: # SET VIA --OPTS: e.g., 'full_stack_profiling' or 'main_baseline'
+  WANDB:
+    ENABLED: False  # ALWAYS OFF for profiling trials
+  LOG_LEVEL_MAIN: INFO
+  LOG_LEVEL_H5DATA: INFO  
+  LOG_LEVEL_VALIDATION: INFO
+
+METRICS:
+  TRACK_NULL_VS_NON_NULL: False
+
+# =============================================================================
+# DEBUG SECTION - PROFILING VALIDATION BASELINE (PROFILER READY)
+# Different profiling levels will be set via --opts for clear comparison
+# =============================================================================
+DEBUG:
+  PROFILER:
+    ENABLED: False        # Will be enabled via --opts for profiling trials
+    LEVEL: 1              # Will be overridden via --opts (0=OFF, 1=Lite, 2=Component, 3=Deep)
+    SYNC_PROFILING: True  # Good default when profiler is enabled
+    OUTPUT_DIR: "{output_dir}/assets/profiler"
+    SCHEDULE: [2, 1, 8, 1]  # Skip 2, warmup 1, profile 8, repeat 1x (short for validation)
+    RECORD_SHAPES: True   # Record tensor shapes when profiling
+    WITH_STACK: False     # Skip stack traces to reduce overhead
+  LOSS:
+    NULL_MASKING: False           # PRODUCTION: OFF
+    GRADNORM_METRICS: False       # PRODUCTION: OFF  
+    GRADNORM_MEMORY: False        # PRODUCTION: OFF
+    TAXONOMY_SMOOTHING: False     # PRODUCTION: OFF
+    CLASS_WEIGHTING: False        # PRODUCTION: OFF
+    VERBOSE_GRADNORM_LOGGING: False  # PRODUCTION: OFF
+  DATASET:
+    READ_ITEM_VERBOSE: False      # PRODUCTION: OFF
+  METRICS:
+    AVG_METER_VERBOSE_ACTUAL_META_STATS: False  # PRODUCTION: OFF
+  WANDB_METRICS: False            # PRODUCTION: OFF
+  VALIDATION_METRICS: False       # PRODUCTION: OFF
+  CHECKPOINT: False               # PRODUCTION: OFF
+  OPTIMIZER: False                # PRODUCTION: OFF
+  MODEL_BUILD: False              # PRODUCTION: OFF
+  TRAINING_LOOP: False            # PRODUCTION: OFF
+  SCHEDULING: False               # PRODUCTION: OFF
+  DUMP_METRICS: False             # PRODUCTION: OFF
+  DATALOADER: False               # PRODUCTION: OFF
+  AUGMENTATION: False             # PRODUCTION: OFF
+  DISTRIBUTED: False              # PRODUCTION: OFF
+  TRAIN_METRICS: False            # PRODUCTION: OFF
+  VERBOSE_DEBUG: False            # PRODUCTION: OFF
+
+# =============================================================================
+# MODEL CONFIGURATION - MINIMAL STABLE SETTINGS FOR PROFILING
+# =============================================================================
+MODEL:
+  TYPE: 'mFormerV1'
+  NAME: 'mFormerV1_md'
+  BASE: ['model/archs/mFormerV1/mFormerV1_md.yaml']
+  PRETRAINED_SOURCE: 'stitched_convnext_ropevit'
+  PRETRAINED_CONVNEXT: "convnext_small_22k_1k_384.pth"
+  PRETRAINED_ROPEVIT: "rope_mixed_deit_small_patch16_LS.pth"
+  IMG_SIZE: 384
+  DROP_PATH_RATE: 0.01
+  EXTRA_TOKEN_NUM: 4
+  CLASSIFICATION:
+    HEADS:
+      taxa_L10:
+        TYPE: 'ConditionalClassifier'
+        ROUTING_STRATEGY: 'soft'
+        TEMPERATURE: 1.0
+        USE_BIAS: True
+      taxa_L20:
+        TYPE: 'ConditionalClassifier'
+        ROUTING_STRATEGY: 'soft'
+        TEMPERATURE: 1.0
+        USE_BIAS: True
+      taxa_L30:
+        TYPE: 'ConditionalClassifier'
+        ROUTING_STRATEGY: 'soft'
+        TEMPERATURE: 1.0
+        USE_BIAS: True
+
+# =============================================================================
+# DATA CONFIGURATION - OPTIMIZED FOR SHORT PROFILING TRIALS
+# =============================================================================
+DATA:
+  USE_VECTORIZED_PROCESSOR: True
+  PIN_MEMORY: True
+  NUM_WORKERS: 0  # Use 0 for profiling to avoid multiprocessing complexity
+  IMG_SIZE: 384
+  BATCH_SIZE: 64       # Moderate size for quick profiling
+  BATCH_SIZE_VAL: 512
+  SAMPLER:
+    TYPE: 'grouped'
+    GROUPED_MODE: 'mixed-pairs'  # Important for mixing trials
+  DATASET:
+    CLADE: 'aves'
+    VERSION: 'v0r1'
+    NAME: 'aves_all_exc_nonrg_sp_inc_oor_fas_elev'
+  TASK_KEYS_H5: ['taxa_L10', 'taxa_L20', 'taxa_L30']  # Reduced for faster profiling
+  PARTIAL:
+    LEVELS: True
+  META:
+    ACTIVE: True
+    COMPONENTS:
+      TEMPORAL: {ENABLED: True, SOURCE: "temporal", COLUMNS: ["month_sin", "month_cos"], DIM: 2, IDX: 0, ALLOW_MISSING: True, OOR_MASK: True}
+      SPATIAL: {ENABLED: True, SOURCE: "spatial", COLUMNS: [], DIM: 3, IDX: 1, ALLOW_MISSING: True, OOR_MASK: True}
+      ELEVATION: {ENABLED: True, SOURCE: "elevation_broadrange_2", COLUMNS: [], DIM: 10, IDX: 2, ALLOW_MISSING: True, OOR_MASK: True}
+  H5:
+    LABELS_PATH: '/data_hot/v0/r1/aves_all_exc_nonrg_sp_inc_oor_fas_elev/labels_2.h5'
+    TRAIN_VAL_SPLIT_RATIO: 0.92
+    TRAIN_VAL_SPLIT_SEED: 42
+  PREFETCH: # Optimized for profiling with component visibility
+    BATCH_CONCURRENCY: 8      # Moderate pipeline depth
+    MAX_PROCESSED_BATCHES: 16 # Moderate buffer
+    MEM_CACHE_SIZE: 16106127360 # 15 GB cache
+    NUM_IO_THREADS: 8         # Moderate I/O throughput
+    NUM_PREPROCESS_THREADS: 2 # Minimal for profiling visibility
+    SLEEP_TIME: 0.0
+    MONITOR_INTERVAL: 5.0     # Frequent monitoring for profiling
+    MONITOR_ENABLED: True     # Always enable for profiling trials
+  HYBRID:
+    USE_HYBRID: True
+    IMAGES_DIR: '/data_cold/v0/r1/aves/images/384p_60q'
+    FILE_EXTENSION: ''
+    ALLOW_MISSING_IMAGES: True
+
+# =============================================================================
+# TRAINING CONFIGURATION - SHORT RUNS FOR PROFILING VALIDATION
+# =============================================================================
+TRAIN:
+  EPOCHS: 1  # Single epoch for quick profiling validation
+  AMP_OPT_LEVEL: 'O1'
+  ACCUMULATION_STEPS: 2  # Reduced for faster profiling
+  CLIP_GRAD: 10000.0
+  GRADIENT_CHECKPOINTING:
+    ENABLED_NORMAL_STEPS: False
+    ENABLED_GRADNORM_STEPS: False  # Disable for cleaner profiling
+  AUTO_RESUME: False  # No resume needed for validation runs
+  PHASE1_MASK_NULL_LOSS: True
+  EARLY_STOP:
+    ACTIVE: False
+
+# =============================================================================
+# LOSS AND OPTIMIZATION - MINIMAL SETTINGS FOR PROFILING
+# =============================================================================
+LOSS:
+  TASK_SPECIFIC:
+    TRAIN:
+      FUNCS: ['TaxonomyAwareLabelSmoothing', 'TaxonomyAwareLabelSmoothing', 'TaxonomyAwareLabelSmoothing']
+    VAL:
+      FUNCS: ['CrossEntropyLoss', 'CrossEntropyLoss', 'CrossEntropyLoss']
+  TAXONOMY_SMOOTHING:
+    ENABLED: [True, True, True]
+    ALPHA: 0.1
+    BETA: 1.0
+    UNIFORM_ROOTS: True
+    FALLBACK_TO_UNIFORM: True
+  GRAD_WEIGHTING:
+    TASK: {TYPE: 'static', INIT_STRATEGY: 'class_complexity', INIT_WEIGHTS: [0.5, 1.0, 1.5], GRADNORM_ENABLED: False}
+    CLASS: {TRAIN: True, VAL: False, METHOD: ['capping', 'capping', 'capping'], CAP: [10.0, 10.0, 10.0]}
+
+OPTIMIZER:
+  NAME: 'adamw'
+  EPS: 1.0e-08
+  BETAS: [0.9, 0.999]
+  WEIGHT_DECAY: 0.05
+  PARAMETER_GROUPS:
+    ENABLED: True
+    NO_DECAY:
+      LR_MULTIPLIER: 1.0
+      WEIGHT_DECAY: 0.0
+      FILTER:
+        TYPE: "or"
+        FILTERS:
+          - {TYPE: "name", MATCH_TYPE: "endswith", PATTERNS: [".bias"]}
+          - {TYPE: "name", MATCH_TYPE: "contains", PATTERNS: [".norm.", ".bn.", "LayerNorm"]}
+          - {TYPE: "name", MATCH_TYPE: "startswith", PATTERNS: ["cls_token"]}
+          - {TYPE: "name", MATCH_TYPE: "contains", PATTERNS: ["attn.freqs"]}
+    DEFAULT:
+      LR_MULTIPLIER: 1.0
+      WEIGHT_DECAY: 0.05
+
+LR_SCHEDULER:
+  NAME: 'cosine'
+  REFERENCE_BS: 512
+  REFERENCE_LR: 5e-5
+  BASE_LR: 5e-5
+  WARMUP_LR: 3e-7
+  MIN_LR: 1e-6
+  WARMUP_EPOCHS: 0.1  # Very short warmup for profiling
+  WARMUP_STEPS: 0
+  WARMUP_FRACTION: None
+  PARAMETER_GROUPS:
+    ENABLED: True
+
+# =============================================================================
+# AUGMENTATION CONFIGURATION - GPU PIPELINE FOR COMPONENT PROFILING
+# =============================================================================
+AUG:
+  PIPELINE_DEVICE: "gpu"  # GPU pipeline for L2 profiling visibility
+  USE_OPENCV: False       # Ensure GPU pipeline is selected
+  GPU_COMPILE:
+    ENABLED: False        # Keep disabled for cleaner profiling
+
+# =============================================================================
+# SCHEDULING - MINIMAL SETTINGS FOR PROFILING VALIDATION
+# =============================================================================
+SCHEDULE:
+  META_MASKING:
+    ENABLED: True
+    START_PROB: 1.0
+    END_PROB: 0.5
+    END_FRACTION: 0.9
+    END_STEPS: 0
+    PARTIAL:
+      ENABLED: True
+      START_FRACTION: 0.0
+      END_FRACTION: 1.0
+      START_PROB: 0.7
+      END_PROB: 0.7
+      PROB_END_FRACTION: 0.01
+      PROB_END_STEPS: 0
+      WHITELIST: [["TEMPORAL"], ["SPATIAL"], ["ELEVATION"]]
+      WEIGHTS: [1.0, 1.0, 1.0]
+
+  MIX:  # Enable mixing for L2 augmentation profiling
+    GROUP_LEVELS: ['taxa_L10']
+    LEVEL_SWITCH_STEPS: []
+    LEVEL_SWITCH_EPOCHS: []
+    PROB:
+      ENABLED: True
+      START_PROB: 0.7
+      END_PROB: 0.5
+      END_FRACTION: 0.85
+      END_STEPS: 0
+    MIXUP:
+      ENABLED: True
+      ALPHA: 1.0
+    CUTMIX:
+      ENABLED: True
+      ALPHA: 1.0
+      MINMAX: [0.2, 0.8]
+    SWITCH_PROB: 0.5  # Balanced mix of cutmix/mixup
+    USE_GPU: True     # Enable GPU mixing for L2 profiling
+    MIN_GROUP_SIZE: 2
+    EXCLUDE_NULL_SAMPLES: True
+    NULL_TASK_KEYS: ['taxa_L10']
+
+  VALIDATION:
+    INTERVAL_EPOCHS: 1
+    MASK_META_INTERVAL_EPOCHS: 1
+
+  CHECKPOINT:
+    INTERVAL_EPOCHS: 1
+    KEEP_TOP_N: 2
+    KEEP_LAST_N: 2
+
+  METRICS:
+    WANDB_INTERVAL: 50
+    CONSOLE_INTERVAL: 10  # Frequent for profiling
+    LR_INTERVAL: 50
+    PIPELINE_INTERVAL: 5  # Very frequent for profiling
+
+# =============================================================================
+# ENVIRONMENT CONFIGURATION
+# =============================================================================
+ENV:
+  TACC: False
+  INPUT:
+    BASE_DIR: '/data_hot/v0/r1/aves/'
+    CACHE_DIR: '/modelZoo/mFormerV1'
+  OUTPUT:
+    BASE_DIR: '/modelWorkshop/mFormerV1'
+    BUCKET:
+      ENABLED: False
+
+# =============================================================================
+# DISTRIBUTED CONFIGURATION - NEW FROM TICKET 1
+# =============================================================================
+DISTRIBUTED:
+  BACKEND: 'nccl'
+  DDP:
+    bucket_cap_mb: 25
+    static_graph: True
+    find_unused_parameters: False
+    gradient_as_bucket_view: True
