@@ -129,6 +129,13 @@ def modify_compose_file(
     command_str = command_str.replace("{{CONFIG_FILE}}", config_file)
     command_str = command_str.replace("{{OPTS_STRING}}", opts_string)
     
+    # Add extra dependencies at the beginning
+    extra_deps = trial.get("extra_deps") or trial.get("extra_pip_installs")  # Support both for backward compatibility
+    if extra_deps:
+        install_cmd = f"uv pip install {' '.join(shlex.quote(p) for p in extra_deps)} && "
+        # Insert after the initial `bash -c "` line.
+        command_str = command_str.replace('bash -c "', f'bash -c "{install_cmd}')
+    
     service["command"] = command_str
     
     # Handle environment variables
