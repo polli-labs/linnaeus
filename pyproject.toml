@@ -58,6 +58,9 @@ dev = [
     "mkdocs",
     "mkdocs-material",
 ]
+triton = [
+    "triton>=2.1.0",
+]
 inference = [
     "litserve",
     "polli-typus>=0.1.10",

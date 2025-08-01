@@ -438,6 +438,10 @@ _C.AUG.GPU_COMPILE.ENABLED = False
 _C.AUG.GPU_COMPILE.BACKEND = "inductor"
 _C.AUG.GPU_COMPILE.MODE = "default"  # Options: 'default', 'reduce-overhead', 'max-autotune'
 
+# Configuration for selective mixing (mixup/cutmix) optimization
+_C.AUG.SELECTIVE_MIXING = CN()
+_C.AUG.SELECTIVE_MIXING.USE_TRITON_KERNEL = False  # Use Triton-optimized kernel for selective mixing
+
 # ----------------------------------------------------------------------------
 # Model Settings
 # ----------------------------------------------------------------------------
@@ -914,10 +918,6 @@ _C.DEBUG.METRICS.AVG_METER_VERBOSE_ACTUAL_META_STATS = (
 _C.DEBUG.DATASET = CN()
 _C.DEBUG.DATASET.READ_ITEM_VERBOSE = False  # New flag for verbose _read_raw_item logging
 
-# Special debug flag for early termination of training
-# NOTE: DEBUG.EARLY_EXIT_AFTER_N_OPTIMIZER_STEPS removed - only worked at epoch boundaries, not useful for profiling
-# Use wrapper timeout mechanism for short profiling trials instead
-
 # PyTorch Profiler configuration
 _C.DEBUG.PROFILER = CN()
 _C.DEBUG.PROFILER.ENABLED = False
@@ -955,7 +955,7 @@ def get_default_config() -> CN:
 def check_deprecated_configs(config):
     """Check for deprecated config options and raise informative errors."""
     # Check for deprecated MODEL.FIND_UNUSED_PARAMETERS
-    if hasattr(config.MODEL, 'FIND_UNUSED_PARAMETERS'):
+    if hasattr(config.MODEL, "FIND_UNUSED_PARAMETERS"):
         raise KeyError(
             "MODEL.FIND_UNUSED_PARAMETERS is deprecated and removed. "
             "Please migrate to DISTRIBUTED.DDP.find_unused_parameters. "
