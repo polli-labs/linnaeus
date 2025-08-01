@@ -129,6 +129,7 @@ ENV CXX=g++
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
         python3.11 \
+        python3.11-dev \
         git \
         curl \
         libglib2.0-0 \
