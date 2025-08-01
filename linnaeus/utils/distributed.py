@@ -586,7 +586,7 @@ def _comm_profiling_hook(state: object, bucket: dist.GradBucket) -> torch.future
     from linnaeus.utils.profiling_helpers import prof
     
     # Profile both the bucket info and the all_reduce operation
-    bucket_size_mb = bucket.size() * 4 / (1024 * 1024)  # Assuming float32 (4 bytes)
+    bucket_size_mb = bucket.buffer().numel() * 4 / (1024 * 1024)  # Assuming float32 (4 bytes)
     bucket_info = f"bucket_{bucket.index()}_size_{bucket_size_mb:.1f}MB"
     
     # This context will wrap the all_reduce call inside the default hook
