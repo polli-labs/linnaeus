@@ -34,7 +34,10 @@ RUN apt-get update && \
         python3.11-venv \
         python3-pip \
         curl \
-        ca-certificates && \
+        ca-certificates \
+        gcc \
+        g++ \
+        clang && \
     rm -rf /var/lib/apt/lists/*
 
 # Link python
@@ -98,9 +101,13 @@ RUN uv pip install \
     pyyaml \
     termcolor \
     rich \
-    polli-typus>=0.1.7 \
+    polli-typus>=0.1.10 \
     huggingface-hub \
-    python-dateutil
+    python-dateutil \
+    kornia>=0.8.1,<0.9 \
+    triton>=2.1.0 \
+    tensorboard \
+    torch-tb-profiler
 
 #######################################
 # 2) base - slim runtime stage
@@ -115,6 +122,8 @@ COPY --from=builder /opt/venv /opt/venv
 # Set up environment
 ENV PATH="/opt/venv/bin:$PATH"
 ENV PYTHONPATH="/opt/venv/lib/python3.11/site-packages"
+ENV CC=gcc
+ENV CXX=g++
 
 # Install minimal runtime dependencies
 RUN apt-get update && \
@@ -132,7 +141,10 @@ RUN apt-get update && \
         nvtop \
         nano \
         rclone \
-        tini && \
+        tini \
+        gcc \
+        g++ \
+        libc6-dev && \
     rm -rf /var/lib/apt/lists/*
 
 # Link python
