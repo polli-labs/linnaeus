@@ -212,7 +212,7 @@ def format_pretty(comparison: RunComparison) -> Panel:
                 )
 
         content.append(metrics_table)
-        
+
         # Add Level 2 Component Breakdown Comparison
         if comparison.profiler_diffs:
             component_metrics = [
@@ -233,23 +233,27 @@ def format_pretty(comparison: RunComparison) -> Panel:
                 ("augmentation_selective_mixing_ms", "Aug Selective Mixing"),
                 ("augmentation_gpu_batch_augmentations_ms", "Aug GPU Batch Augmentations"),
             ]
-            
+
             component_table = Table(title="Component Breakdown Differences (Level 2)", show_header=True)
             component_table.add_column("Component", style="cyan")
             component_table.add_column("Run A (ms)", style="yellow")
             component_table.add_column("Run B (ms)", style="green")
             component_table.add_column("Change", style="magenta")
             component_table.add_column("% Change", style="red")
-            
+
             has_component_data = False
             for key, display_name in component_metrics:
                 if key in comparison.profiler_diffs:
                     diff = comparison.profiler_diffs[key]
-                    if isinstance(diff.value_a, (int, float)) and isinstance(diff.value_b, (int, float)) and (diff.value_a > 0 or diff.value_b > 0):
+                    if (
+                        isinstance(diff.value_a, (int, float))
+                        and isinstance(diff.value_b, (int, float))
+                        and (diff.value_a > 0 or diff.value_b > 0)
+                    ):
                         has_component_data = True
                         change_style = "red" if diff.significant else "white"
                         pct_change = f"{diff.diff_pct:+.1f}%" if diff.diff_pct is not None else "N/A"
-                        
+
                         component_table.add_row(
                             display_name,
                             f"{diff.value_a:.1f}",
@@ -257,7 +261,7 @@ def format_pretty(comparison: RunComparison) -> Panel:
                             f"[{change_style}]{diff.diff_abs:+.1f}[/{change_style}]",
                             f"[{change_style}]{pct_change}[/{change_style}]",
                         )
-            
+
             if has_component_data:
                 content.append(component_table)
     elif comparison.run_a.profiler_metrics or comparison.run_b.profiler_metrics:
@@ -327,7 +331,7 @@ def format_markdown(comparison: RunComparison) -> str:
                     f"| {key.replace('_', ' ').title()} | {diff.value_a:.2f} | {diff.value_b:.2f} | "
                     f"{diff.diff_abs:+.2f} | {pct_change}{significance} |"
                 )
-        
+
         # Add Level 2 Component Breakdown
         component_metrics = [
             ("dataloader_io_wait_ms", "Dataloader I/O Wait"),
@@ -347,30 +351,33 @@ def format_markdown(comparison: RunComparison) -> str:
             ("augmentation_selective_mixing_ms", "Aug Selective Mixing"),
             ("augmentation_gpu_batch_augmentations_ms", "Aug GPU Batch Augmentations"),
         ]
-        
+
         component_data = []
         for key, display_name in component_metrics:
             if key in comparison.profiler_diffs:
                 diff = comparison.profiler_diffs[key]
-                if isinstance(diff.value_a, (int, float)) and isinstance(diff.value_b, (int, float)) and (diff.value_a > 0 or diff.value_b > 0):
+                if (
+                    isinstance(diff.value_a, (int, float))
+                    and isinstance(diff.value_b, (int, float))
+                    and (diff.value_a > 0 or diff.value_b > 0)
+                ):
                     pct_change = f"{diff.diff_pct:+.1f}%" if diff.diff_pct is not None else "N/A"
                     significance = " ⚠️" if diff.significant else ""
                     component_data.append((display_name, diff.value_a, diff.value_b, diff.diff_abs, pct_change, significance))
-        
+
         if component_data:
-            lines.extend([
-                "",
-                "### Component Breakdown Differences (Level 2)",
-                "",
-                "| Component | Run A (ms) | Run B (ms) | Change | % Change |",
-                "|-----------|------------|------------|--------|----------|",
-            ])
-            
+            lines.extend(
+                [
+                    "",
+                    "### Component Breakdown Differences (Level 2)",
+                    "",
+                    "| Component | Run A (ms) | Run B (ms) | Change | % Change |",
+                    "|-----------|------------|------------|--------|----------|",
+                ]
+            )
+
             for display_name, value_a, value_b, diff_abs, pct_change, significance in component_data:
-                lines.append(
-                    f"| {display_name} | {value_a:.1f} | {value_b:.1f} | "
-                    f"{diff_abs:+.1f} | {pct_change}{significance} |"
-                )
+                lines.append(f"| {display_name} | {value_a:.1f} | {value_b:.1f} | {diff_abs:+.1f} | {pct_change}{significance} |")
     elif comparison.run_a.profiler_metrics or comparison.run_b.profiler_metrics:
         lines.extend(["", "## Performance Metrics", "", "⚠️ Cannot compare profiler metrics - one run missing traces"])
     else:

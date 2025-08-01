@@ -10,7 +10,8 @@ from linnaeus.utils.logging.logger import get_main_logger
 
 # Triton kernel imports (with graceful fallback)
 try:
-    from linnaeus.aug.gpu.triton_kernels import triton_is_available, selective_mix_chunks_triton
+    from linnaeus.aug.gpu.triton_kernels import selective_mix_chunks_triton, triton_is_available
+
     _TRITON_AVAILABLE = triton_is_available()
 except ImportError:
     _TRITON_AVAILABLE = False
@@ -81,7 +82,7 @@ class GPUSelectiveCutMix(SelectiveCutMix):
 
         # Cache for Triton chunk_of_dim mappings
         self._chunk_cache = {}
-        
+
         if self.config and check_debug_flag(self.config, "DEBUG.AUGMENTATION"):
             logger.debug("Initializing GPUSelectiveCutMix")
 
@@ -486,60 +487,45 @@ class GPUSelectiveCutMix(SelectiveCutMix):
 
         # Path selection: Triton vs PyTorch ------------------------------------------
         use_triton = (
-            _TRITON_AVAILABLE
-            and self.config 
-            and getattr(self.config.AUG.SELECTIVE_MIXING, 'USE_TRITON_KERNEL', False)
-            and info1.is_cuda
+            _TRITON_AVAILABLE and self.config and getattr(self.config.AUG.SELECTIVE_MIXING, "USE_TRITON_KERNEL", False) and info1.is_cuda
         )
-        
+
         if use_triton:
-            return self._triton_mix_aux_info_chunkwise(
-                info1, info2, mask1, mask2, choose_orig, choose_partner
-            )
+            return self._triton_mix_aux_info_chunkwise(info1, info2, mask1, mask2, choose_orig, choose_partner)
         else:
-            return self._torch_mix_aux_info_chunkwise(
-                info1, info2, mask1, mask2, choose_orig, choose_partner, chunks
-            )
+            return self._torch_mix_aux_info_chunkwise(info1, info2, mask1, mask2, choose_orig, choose_partner, chunks)
 
     def _torch_mix_aux_info_chunkwise(
-        self, 
-        info1: torch.Tensor, 
-        info2: torch.Tensor, 
-        mask1: torch.Tensor, 
-        mask2: torch.Tensor, 
-        choose_orig: torch.Tensor, 
+        self,
+        info1: torch.Tensor,
+        info2: torch.Tensor,
+        mask1: torch.Tensor,
+        mask2: torch.Tensor,
+        choose_orig: torch.Tensor,
         choose_partner: torch.Tensor,
-        chunks: list[tuple[int, int]]
+        chunks: list[tuple[int, int]],
     ) -> tuple[torch.Tensor, torch.Tensor]:
         """
         PyTorch-based implementation of selective mixing (original vectorized approach).
         """
         device = info1.device
-        
+
         # expand chunk decisions to [B, D] - vectorized with torch.repeat_interleave
         lens = torch.tensor([e - s for (s, e) in chunks], device=device)
         full_orig_mask = torch.repeat_interleave(choose_orig, lens, dim=1)
         full_partner_mask = torch.repeat_interleave(choose_partner, lens, dim=1)
 
         # fused copy with torch.where
-        out_info = torch.where(
-            full_orig_mask, 
-            info1, 
-            torch.where(full_partner_mask, info2, info1.new_zeros(()).expand_as(info1))
-        )
+        out_info = torch.where(full_orig_mask, info1, torch.where(full_partner_mask, info2, info1.new_zeros(()).expand_as(info1)))
 
-        out_mask = torch.where(
-            full_orig_mask, 
-            mask1, 
-            torch.where(full_partner_mask, mask2, mask1.new_zeros(()).bool().expand_as(mask1))
-        )
+        out_mask = torch.where(full_orig_mask, mask1, torch.where(full_partner_mask, mask2, mask1.new_zeros(()).bool().expand_as(mask1)))
 
         return out_info, out_mask
 
     def _triton_mix_aux_info_chunkwise(
         self,
         info1: torch.Tensor,
-        info2: torch.Tensor, 
+        info2: torch.Tensor,
         mask1: torch.Tensor,
         mask2: torch.Tensor,
         choose_orig: torch.Tensor,
@@ -555,7 +541,7 @@ class GPUSelectiveCutMix(SelectiveCutMix):
         # Get or create cached chunk_of_dim mapping
         cache_key = (device, D, C)
         chunk_of_dim = self._chunk_cache.get(cache_key)
-        
+
         if chunk_of_dim is None:
             # Create mapping from dimension index to chunk index
             chunk_of_dim = torch.empty(D, dtype=torch.int32, device=device)
@@ -564,10 +550,7 @@ class GPUSelectiveCutMix(SelectiveCutMix):
             self._chunk_cache[cache_key] = chunk_of_dim
 
         # Call Triton kernel
-        return selective_mix_chunks_triton(
-            info1, info2, mask1, mask2, 
-            choose_orig, choose_partner, chunk_of_dim
-        )
+        return selective_mix_chunks_triton(info1, info2, mask1, mask2, choose_orig, choose_partner, chunk_of_dim)
 
     def _rand_bbox_tensor(
         self, size: tuple[int, int, int, int], lam: torch.Tensor, device: torch.device

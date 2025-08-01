@@ -144,7 +144,7 @@ def weighted_hierarchical_loss(
         # 2. Determine whether to use Phase 1 deterministic null masking or scheduled null masking
         if rank == 0 and verbose_logging:
             log.debug("[HIERARCHICAL_LOSS] Step 2: Applying null masking and class weighting")
-        
+
         with prof("loss/masking", level=2):
             # Add detailed debug logging for targets to diagnose null masking issues
             debug_null_masking = False
@@ -231,7 +231,14 @@ def weighted_hierarchical_loss(
 
                 # Standard path - use apply_loss_masking
                 masked_losses, null_stats = apply_loss_masking(
-                    per_task_losses, targets, ops_schedule, current_step, task_weighting.class_weights, is_validation, logger=log, config=config
+                    per_task_losses,
+                    targets,
+                    ops_schedule,
+                    current_step,
+                    task_weighting.class_weights,
+                    is_validation,
+                    logger=log,
+                    config=config,
                 )
                 # REMOVED: null_stats["phase1_active"] = False
 

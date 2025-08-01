@@ -1,8 +1,6 @@
 import gc  # For garbage collection
-import os
 
 import torch
-from torch.profiler import ProfilerActivity, profile
 
 from linnaeus.h5data.base_prefetching_dataset import STOP_SENTINEL
 from linnaeus.loss.gradient_weighting import log_memory_usage
@@ -56,7 +54,7 @@ def train_one_epoch(
     """
     rank = get_rank_safely()  # Get rank for logging
     model.train()  # Set model to training mode
-    
+
     # Update profiler config for this training session
     update_profiler_config(config)
 

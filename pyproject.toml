@@ -151,3 +151,6 @@ max-complexity = 20               # pragmatic ceiling; revisit once stable
 [tool.ruff.lint.per-file-ignores]
 "__init__.py" = ["F401", "E402"]  # re-export patterns & late imports are fine
 "tests/**/*.py" = ["I", "F401"]   # test util imports & order don't matter yet
+
+[tool.ruff.lint.isort]
+split-on-trailing-comma = false    # align with formatter's skip-magic-trailing-comma

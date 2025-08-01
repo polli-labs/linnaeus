@@ -16,5 +16,5 @@ warnings.warn(
     "Use the profiling runner (linnaeus-prof-run) for systematic performance testing. "
     "See docs/profiling_runner.md for details.",
     DeprecationWarning,
-    stacklevel=2
+    stacklevel=2,
 )

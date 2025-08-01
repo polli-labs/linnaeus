@@ -36,13 +36,13 @@ class ProfilerMetrics:
     steps_profiled: int
     batch_aug_time_ms: float = 0.0
     mixing_time_ms: float = 0.0
-    
+
     # Level 2 Profiling - Dataloader Components
     dataloader_io_wait_ms: float = 0.0
     dataloader_cpu_decode_ms: float = 0.0
     dataloader_preprocess_wait_ms: float = 0.0
     dataloader_cpu_xform_ms: float = 0.0
-    
+
     # Level 2 Profiling - Model Components
     model_stem_ms: float = 0.0
     model_convnext_stage_0_ms: float = 0.0
@@ -50,17 +50,17 @@ class ProfilerMetrics:
     model_rope_stage_2_ms: float = 0.0
     model_rope_stage_3_ms: float = 0.0
     model_aggregation_ms: float = 0.0
-    
+
     # Level 2 Profiling - Loss Components
     loss_core_loss_ms: float = 0.0
     loss_masking_ms: float = 0.0
     loss_weighting_ms: float = 0.0
     loss_aggregation_ms: float = 0.0
-    
+
     # Level 2 Profiling - Augmentation Components (enhanced from Level 1)
     augmentation_selective_mixing_ms: float = 0.0
     augmentation_gpu_batch_augmentations_ms: float = 0.0
-    
+
     # Level 3 Profiling - Host-side Dataloader Metrics
     median_batch_index_q_depth: float = 0.0
     median_preprocess_q_depth: float = 0.0
@@ -243,7 +243,7 @@ def analyze_profiler_traces(trace_files: list[Path]) -> ProfilerMetrics:
     steps_profiled = 0
     total_batch_aug_time = 0.0
     total_mixing_time = 0.0
-    
+
     # Level 2 profiling region totals
     total_dataloader_io_wait = 0.0
     total_dataloader_cpu_decode = 0.0
@@ -380,7 +380,7 @@ def analyze_profiler_traces(trace_files: list[Path]) -> ProfilerMetrics:
     # --- Level 3 Profiling: Analyze queue_stats.jsonl if present ---
     run_dir = trace_files[0].parent.parent.parent if trace_files else None  # Heuristic to get run dir
     queue_stats_files = list(run_dir.glob("**/queue_stats_rank*.jsonl")) if run_dir else []
-    
+
     median_batch_q = 0.0
     median_preproc_q = 0.0
     median_ready_q = 0.0
@@ -391,16 +391,17 @@ def analyze_profiler_traces(trace_files: list[Path]) -> ProfilerMetrics:
     if queue_stats_files:
         try:
             import pandas as pd
+
             # For simplicity, we'll just analyze the first file found (usually rank 0)
             df = pd.read_json(queue_stats_files[0], lines=True)
             if not df.empty:
-                median_batch_q = df['batch_index_q'].median()
-                median_preproc_q = df['preprocess_q'].median()
-                median_ready_q = df['processed_batch_q'].median()
-                median_io_tput = df['io_throughput_it_s'].median()
-                median_handoff_tput = df['handoff_throughput_it_s'].median()
-                median_hit_rate = df['cache_hit_rate_pct'].median()
-        except Exception as e:
+                median_batch_q = df["batch_index_q"].median()
+                median_preproc_q = df["preprocess_q"].median()
+                median_ready_q = df["processed_batch_q"].median()
+                median_io_tput = df["io_throughput_it_s"].median()
+                median_handoff_tput = df["handoff_throughput_it_s"].median()
+                median_hit_rate = df["cache_hit_rate_pct"].median()
+        except Exception:
             # Silently continue if pandas is not available or parsing fails
             pass
 
@@ -493,25 +494,25 @@ def format_pretty(summary: RunSummary) -> Panel:
             metrics_table.add_row("Mixing Time", f"{m.mixing_time_ms:.1f} ms")
 
         content.append(metrics_table)
-        
+
         # Add Level 2 Component Breakdown Table
         component_table = Table(title="Component Breakdown (Level 2)", show_header=True)
         component_table.add_column("Component", style="cyan")
         component_table.add_column("Time (ms)", style="yellow")
         component_table.add_column("% of Step", style="green")
-        
+
         # Helper function to add component rows
         def add_component_row(name: str, time_ms: float):
             if time_ms > 0:
                 pct_of_step = (time_ms / m.avg_step_time_ms * 100) if m.avg_step_time_ms > 0 else 0
                 component_table.add_row(name, f"{time_ms:.1f}", f"{pct_of_step:.1f}%")
-        
+
         # Dataloader components
         add_component_row("Dataloader I/O Wait", m.dataloader_io_wait_ms)
         add_component_row("Dataloader CPU Decode", m.dataloader_cpu_decode_ms)
         add_component_row("Dataloader Preprocess Wait", m.dataloader_preprocess_wait_ms)
         add_component_row("Dataloader CPU Transform", m.dataloader_cpu_xform_ms)
-        
+
         # Model components
         add_component_row("Model Stem", m.model_stem_ms)
         add_component_row("Model ConvNeXt Stage 0", m.model_convnext_stage_0_ms)
@@ -519,36 +520,38 @@ def format_pretty(summary: RunSummary) -> Panel:
         add_component_row("Model RoPE Stage 2", m.model_rope_stage_2_ms)
         add_component_row("Model RoPE Stage 3", m.model_rope_stage_3_ms)
         add_component_row("Model Aggregation", m.model_aggregation_ms)
-        
+
         # Loss components
         add_component_row("Loss Core Loss", m.loss_core_loss_ms)
         add_component_row("Loss Masking", m.loss_masking_ms)
         add_component_row("Loss Weighting", m.loss_weighting_ms)
         add_component_row("Loss Aggregation", m.loss_aggregation_ms)
-        
+
         # Augmentation components (Level 2)
         add_component_row("Aug Selective Mixing", m.augmentation_selective_mixing_ms)
         add_component_row("Aug GPU Batch Augmentations", m.augmentation_gpu_batch_augmentations_ms)
-        
+
         # Only add the table if it has content
         if component_table.row_count > 0:
             content.append(component_table)
-            
+
         # Add Level 3 Host-side Dataloader Metrics Table if any values are non-zero
-        l3_metrics_exist = any([
-            m.median_batch_index_q_depth > 0,
-            m.median_preprocess_q_depth > 0, 
-            m.median_processed_batch_q_depth > 0,
-            m.median_io_throughput_it_s > 0,
-            m.median_handoff_throughput_it_s > 0,
-            m.median_cache_hit_rate_pct > 0
-        ])
-        
+        l3_metrics_exist = any(
+            [
+                m.median_batch_index_q_depth > 0,
+                m.median_preprocess_q_depth > 0,
+                m.median_processed_batch_q_depth > 0,
+                m.median_io_throughput_it_s > 0,
+                m.median_handoff_throughput_it_s > 0,
+                m.median_cache_hit_rate_pct > 0,
+            ]
+        )
+
         if l3_metrics_exist:
             l3_table = Table(title="Host-side Dataloader Metrics (Level 3)", show_header=True)
             l3_table.add_column("Metric", style="cyan")
             l3_table.add_column("Value", style="yellow")
-            
+
             if m.median_batch_index_q_depth > 0:
                 l3_table.add_row("Median Batch Index Q Depth", f"{m.median_batch_index_q_depth:.1f}")
             if m.median_preprocess_q_depth > 0:
@@ -561,9 +564,9 @@ def format_pretty(summary: RunSummary) -> Panel:
                 l3_table.add_row("Median Handoff Throughput", f"{m.median_handoff_throughput_it_s:.1f} it/s")
             if m.median_cache_hit_rate_pct > 0:
                 l3_table.add_row("Median Cache Hit Rate", f"{m.median_cache_hit_rate_pct:.1f}%")
-                
+
             content.append(l3_table)
-            
+
     elif summary.has_profiler_traces:
         content.append(f"[red]Error analyzing {summary.trace_files_count} trace files[/red]")
     else:
@@ -641,12 +644,13 @@ def format_markdown(summary: RunSummary) -> str:
 
         # Add Level 2 Component Breakdown
         component_data = []
+
         # Helper to collect non-zero components
         def add_component(name: str, time_ms: float):
             if time_ms > 0:
                 pct_of_step = (time_ms / m.avg_step_time_ms * 100) if m.avg_step_time_ms > 0 else 0
                 component_data.append((name, time_ms, pct_of_step))
-        
+
         # Collect all component data
         add_component("Dataloader I/O Wait", m.dataloader_io_wait_ms)
         add_component("Dataloader CPU Decode", m.dataloader_cpu_decode_ms)
@@ -664,7 +668,7 @@ def format_markdown(summary: RunSummary) -> str:
         add_component("Loss Aggregation", m.loss_aggregation_ms)
         add_component("Aug Selective Mixing", m.augmentation_selective_mixing_ms)
         add_component("Aug GPU Batch Augmentations", m.augmentation_gpu_batch_augmentations_ms)
-        
+
         if component_data:
             lines.extend(["", "### Component Breakdown (Level 2)", ""])
             lines.append("| Component | Time (ms) | % of Step |")
@@ -673,20 +677,22 @@ def format_markdown(summary: RunSummary) -> str:
                 lines.append(f"| {name} | {time_ms:.1f} | {pct_of_step:.1f}% |")
 
         # Add Level 3 Host-side Dataloader Metrics if any values are non-zero
-        l3_metrics_exist = any([
-            m.median_batch_index_q_depth > 0,
-            m.median_preprocess_q_depth > 0, 
-            m.median_processed_batch_q_depth > 0,
-            m.median_io_throughput_it_s > 0,
-            m.median_handoff_throughput_it_s > 0,
-            m.median_cache_hit_rate_pct > 0
-        ])
-        
+        l3_metrics_exist = any(
+            [
+                m.median_batch_index_q_depth > 0,
+                m.median_preprocess_q_depth > 0,
+                m.median_processed_batch_q_depth > 0,
+                m.median_io_throughput_it_s > 0,
+                m.median_handoff_throughput_it_s > 0,
+                m.median_cache_hit_rate_pct > 0,
+            ]
+        )
+
         if l3_metrics_exist:
             lines.extend(["", "### Host-side Dataloader Metrics (Level 3)", ""])
             lines.append("| Metric | Value |")
             lines.append("|--------|-------|")
-            
+
             if m.median_batch_index_q_depth > 0:
                 lines.append(f"| Median Batch Index Q Depth | {m.median_batch_index_q_depth:.1f} |")
             if m.median_preprocess_q_depth > 0:

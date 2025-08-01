@@ -581,29 +581,28 @@ class DistributedContext:
 # Level 3 Profiling: DDP Communication Hooks
 # =============================================================================
 
+
 def _comm_profiling_hook(state: object, bucket: dist.GradBucket) -> torch.futures.Future[torch.Tensor]:
     """A DDP communication hook that profiles the underlying collective operation."""
     from linnaeus.utils.profiling_helpers import prof
-    
+
     # Profile both the bucket info and the all_reduce operation
     bucket_size_mb = bucket.buffer().numel() * 4 / (1024 * 1024)  # Assuming float32 (4 bytes)
     bucket_info = f"bucket_{bucket.index()}_size_{bucket_size_mb:.1f}MB"
-    
+
     # This context will wrap the all_reduce call inside the default hook
     with prof(f"comms/allreduce_{bucket_info}", level=3):
         # Use the default all_reduce hook - return a proper Future
         from torch.distributed.algorithms.ddp_comm_hooks.default_hooks import allreduce_hook
+
         fut = allreduce_hook(state, bucket)
-    
+
     return fut
 
 
 def register_ddp_profiling_hook(model: torch.nn.Module, config):
     """Registers the profiling communication hook on a DDP model if L3 is enabled."""
-    if (config.DEBUG.PROFILER.ENABLED and 
-        config.DEBUG.PROFILER.LEVEL >= 3 and
-        isinstance(model, torch.nn.parallel.DistributedDataParallel)):
-        
+    if config.DEBUG.PROFILER.ENABLED and config.DEBUG.PROFILER.LEVEL >= 3 and isinstance(model, torch.nn.parallel.DistributedDataParallel):
         logger.info("[L3 Profile] Registering DDP communication profiling hook.")
         # The state can be anything; here we pass None as we don't need to maintain state.
         model.register_comm_hook(state=None, hook=_comm_profiling_hook)

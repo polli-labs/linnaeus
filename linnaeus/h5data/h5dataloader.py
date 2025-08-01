@@ -17,11 +17,11 @@ from linnaeus.aug.cpu.selective_cutmix import CPUSelectiveCutMix
 from linnaeus.aug.cpu.selective_mixup import CPUSelectiveMixup
 from linnaeus.aug.gpu.selective_cutmix import GPUSelectiveCutMix
 from linnaeus.aug.gpu.selective_mixup import GPUSelectiveMixup
-from linnaeus.utils.profiling_helpers import prof
 from linnaeus.h5data.base_prefetching_dataset import STOP_SENTINEL, BasePrefetchingDataset
 from linnaeus.utils.debug_utils import check_debug_flag
 from linnaeus.utils.distributed import get_rank_safely
 from linnaeus.utils.logging.logger import get_h5data_logger
+from linnaeus.utils.profiling_helpers import prof
 
 logger = get_h5data_logger()
 
@@ -1454,7 +1454,6 @@ class H5DataLoader(DataLoader):
                     if apply_mixing:
                         # Add profiler region for mixing
                         with prof("augmentation/selective_mixing", level=2):
-
                             images, merged_targets, aux_info, meta_validity_masks = mixing_fn(
                                 batch_tuple, exclude_null_samples=exclude_null_samples, null_task_keys=null_task_keys
                             )
@@ -1530,7 +1529,6 @@ class H5DataLoader(DataLoader):
                         # The mixing functions expect (images, targets, aux_info, meta_masks, group_ids)
                         # Add profiler region for mixing
                         with prof("augmentation/selective_mixing", level=2):
-
                             images, merged_targets, aux_info, meta_validity_masks = mixing_fn(
                                 (images, merged_targets, aux_info, meta_validity_masks, group_ids),
                                 exclude_null_samples=True,  # Let the mixing function handle null exclusion
