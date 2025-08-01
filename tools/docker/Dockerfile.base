@@ -88,24 +88,24 @@ RUN echo "Processing Flash Attention installation..." && \
 
 # Heavy Python dependencies
 RUN uv pip install \
-    numpy>=1.20 \
+    "numpy>=1.20" \
     pandas \
-    opencv-python-headless>=4.9.0 \
-    albumentations>=1.4.0 \
+    "opencv-python-headless>=4.9.0" \
+    "albumentations>=1.4.0" \
     matplotlib \
     Pillow \
     h5py \
     tqdm \
-    yacs>=0.1.8 \
+    "yacs>=0.1.8" \
     wandb \
     pyyaml \
     termcolor \
     rich \
-    polli-typus>=0.1.10 \
+    "polli-typus>=0.1.10" \
     huggingface-hub \
     python-dateutil \
-    kornia>=0.8.1,<0.9 \
-    triton>=2.1.0 \
+    "kornia>=0.8.1,<0.9" \
+    "triton>=2.1.0" \
     tensorboard \
     torch-tb-profiler
 
