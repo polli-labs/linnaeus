@@ -591,8 +591,9 @@ def _comm_profiling_hook(state: object, bucket: dist.GradBucket) -> torch.future
     
     # This context will wrap the all_reduce call inside the default hook
     with prof(f"comms/allreduce_{bucket_info}", level=3):
-        # Use the default all_reduce hook
-        fut = dist.all_reduce(bucket.buffer(), async_op=True)
+        # Use the default all_reduce hook - return a proper Future
+        from torch.distributed.algorithms.ddp_comm_hooks.default_hooks import allreduce_hook
+        fut = allreduce_hook(state, bucket)
     
     return fut
 
