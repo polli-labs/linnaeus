@@ -468,6 +468,20 @@ _C.MODEL.IMG_SIZE = 384
 _C.MODEL.IN_CHANS = 3
 # _C.MODEL.FIND_UNUSED_PARAMETERS removed - use DISTRIBUTED.DDP.find_unused_parameters instead
 
+# mFormerV1 Architecture-specific configurations
+_C.MODEL.CONVNEXT_STAGES = CN()
+_C.MODEL.CONVNEXT_STAGES.DEPTHS = [3, 3, 27, 3]  # ConvNeXt stage depths
+_C.MODEL.CONVNEXT_STAGES.DIMS = [96, 192, 384, 768]  # ConvNeXt stage dimensions
+_C.MODEL.CONVNEXT_STAGES.LAYER_SCALE_INIT_VALUE = 1e-6  # ConvNeXt layer scale initialization
+
+_C.MODEL.ROPE_STAGES = CN()
+_C.MODEL.ROPE_STAGES.DEPTHS = [5, 2]  # RoPE stage depths
+_C.MODEL.ROPE_STAGES.DIMS = [384, 768]  # RoPE stage dimensions (must match last 2 ConvNeXt dims)
+_C.MODEL.ROPE_STAGES.NUM_HEADS = [8, 8]  # Number of attention heads per RoPE stage
+_C.MODEL.ROPE_STAGES.MLP_RATIO = [4.0, 4.0]  # MLP expansion ratios per RoPE stage
+_C.MODEL.ROPE_STAGES.ROPE_THETA = 10000.0  # RoPE base frequency
+_C.MODEL.ROPE_STAGES.ROPE_MIXED = True  # Use mixed RoPE (interleaved vs block)
+
 # Feature Resolver Subconfig (e.g. LearnedProjection)
 _C.MODEL.FEATURE_RESOLVER = CN()
 _C.MODEL.FEATURE_RESOLVER.TYPE = "LearnedProjection"  # e.g. 'AdaptivePooling', 'Concatenation', 'Identity'
