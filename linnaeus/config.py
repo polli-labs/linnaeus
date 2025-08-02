@@ -193,6 +193,7 @@ _C.ENV.YAML_OVERRIDES = ""  # Optional path to YAML file with env var overrides
 # ----------------------------------------------------------------------------
 _C.DATA = CN()
 _C.DATA.FROM = ""
+_C.DATA.DATASET_NAME = ""  # Simplified dataset name for configs
 
 # Processor choice:
 # - We only support the vectorized processor (non-prefetching paths removed).
