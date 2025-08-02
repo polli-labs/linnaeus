@@ -70,12 +70,9 @@ class mFormerV1(BaseModel):
         if len(rope_depths) != 2 or len(rope_dims) != 2 or len(rope_num_heads) != 2 or len(rope_mlp_ratio) != 2:
             raise ValueError("ROPE_STAGES depths, dims, num_heads, mlp_ratio must be lists of length 2.")
 
-        # Flash Attention configuration
-        self.use_flash_attn = config.MODEL.get("USE_FLASH_ATTN", False)
-        if self.use_flash_attn:
-            logger.info("Flash Attention enabled in MODEL config")
-        else:
-            logger.info("Flash Attention disabled (default)")
+        # Flash Attention is automatically used if available in environment
+        self.use_flash_attn = True  # Always use flash attention if available
+        logger.info("Flash Attention will be used if available in environment")
 
         # --- Metadata Config ---
         self.use_meta = False
