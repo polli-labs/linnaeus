@@ -99,23 +99,36 @@ def is_experiment_run(path: Path) -> bool:
 def find_profiler_traces(run_path: Path) -> list[Path]:
     """
     Find profiler trace files in an experiment run.
+    
+    Prefers repaired traces (.pt.trace.repaired.json) over original traces
+    when both exist.
 
     Args:
         run_path: Path to experiment run directory
 
     Returns:
-        List of paths to .pt.trace.json files
+        List of paths to trace files (repaired versions preferred)
     """
-    trace_files = []
+    trace_files = {}  # Use dict to track base names
 
     # Check common profiler locations
     profiler_dirs = [run_path / "assets" / "profiler", run_path / "profiler"]
 
     for profiler_dir in profiler_dirs:
         if profiler_dir.exists():
-            trace_files.extend(profiler_dir.glob("*.pt.trace.json"))
+            # First, find all original traces
+            for trace in profiler_dir.glob("*.pt.trace.json"):
+                # Skip already repaired files in this glob
+                if ".repaired." not in str(trace):
+                    base_name = str(trace).replace(".pt.trace.json", "")
+                    trace_files[base_name] = trace
 
-    return sorted(trace_files)
+            # Then, check for repaired versions and prefer them
+            for trace in profiler_dir.glob("*.pt.trace.repaired.json"):
+                base_name = str(trace).replace(".pt.trace.repaired.json", "")
+                trace_files[base_name] = trace  # Override with repaired version
+
+    return sorted(trace_files.values())
 
 
 def runs_to_markdown(runs: list[Run], base_dir: Path) -> str:

@@ -1,0 +1,45 @@
+# Single GPU Workstation Environment Variables
+# Optimized for single-GPU training on consumer hardware (e.g., RTX 3090)
+#
+# USAGE:
+#   This file provides environment variable defaults via ENV.SCENARIO=single_gpu_workstation
+#   or via env_yaml parameter in profiling trials.
+#
+# MERGE ORDER:
+#   1. Base scenario defaults (loaded by env_ctrl.py)
+#   2. This YAML file (if specified via env_yaml)
+#   3. Runtime environment variables (highest precedence)
+#
+# INTENDED USE:
+#   - Single GPU systems with moderate CPU cores (8-16 cores)
+#   - Consumer GPUs (RTX 3090, RTX 4090, etc.)
+#   - Development and small-scale experiments
+
+BLAS:
+  OMP_NUM_THREADS: 1
+  MKL_NUM_THREADS: 1
+  OPENBLAS_NUM_THREADS: 1
+  TBB_NUM_THREADS: 1
+  OPENCV_NUM_THREADS: 1
+  HDF5_USE_THREADS: 0
+
+TORCH:
+  TORCH_INTRAOP_NUM_THREADS: 2
+  TORCH_INTEROP_NUM_THREADS: 1
+  TORCH_COMPILE_DISABLE: 1
+
+CUDA:
+  PYTORCH_CUDA_ALLOC_CONF: "expandable_segments:true,rounding:32m"
+
+NCCL:
+  NCCL_IB_DISABLE: 1
+  NCCL_P2P_DISABLE: 0
+  NCCL_P2P_LEVEL: "PXB"
+  NCCL_BLOCKING_WAIT: 1
+  NCCL_ALGO: "Ring,Tree"
+  NCCL_MIN_NCHANNELS: 4
+  NCCL_MAX_NCHANNELS: 4
+  NCCL_TOPO_DUMP_FILE: "/tmp/nccl_graph.xml"
+
+DEBUG:
+  TORCH_DISTRIBUTED_DEBUG: "OFF"

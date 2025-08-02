@@ -85,10 +85,92 @@ While not Linnaeus-specific, these CUDA environment variables are commonly used:
 - `CUDA_VISIBLE_DEVICES`: Specifies which GPUs are visible to the process
 - `PYTORCH_CUDA_ALLOC_CONF`: Controls PyTorch's CUDA memory allocator behavior
 
-### System Variables
+### Thread Control Variables
 
-- `OMP_NUM_THREADS`: Controls OpenMP thread count (affects CPU operations)
-- `MKL_NUM_THREADS`: Controls MKL thread count (affects CPU linear algebra)
+These environment variables control thread counts for PyTorch and common C/C++ libraries to prevent thread explosion and GPU starvation on high-core-count systems.
+
+#### BLAS and Threading Libraries
+
+- `OMP_NUM_THREADS`: OpenMP thread count (default: 1)
+- `MKL_NUM_THREADS`: Intel MKL thread count (default: 1)
+- `OPENBLAS_NUM_THREADS`: OpenBLAS thread count (default: 1)
+- `TBB_NUM_THREADS`: Intel TBB thread count (default: 1)
+- `OPENCV_NUM_THREADS`: OpenCV thread count (default: 1)
+- `HDF5_USE_THREADS`: HDF5 threading (default: 0, disabled due to GIL interaction)
+
+#### PyTorch Runtime
+
+- `TORCH_INTRAOP_NUM_THREADS`: PyTorch intra-op parallelism (default: varies by scenario)
+- `TORCH_INTEROP_NUM_THREADS`: PyTorch inter-op parallelism (default: 1)
+- `TORCH_COMPILE_DISABLE`: Disable torch.compile (1=disabled, default varies by scenario)
+- `PYTORCH_CUDA_ALLOC_CONF`: CUDA allocator configuration (default: "expandable_segments:true,rounding:32m")
+
+#### NCCL Communication
+
+- `NCCL_IB_DISABLE`: Disable InfiniBand (1=disabled)
+- `NCCL_P2P_DISABLE`: Disable P2P communication
+- `NCCL_P2P_LEVEL`: P2P level (PXB for PCIe, NVL for NVLink)
+- `NCCL_BLOCKING_WAIT`: Blocking wait mode (1=save CPU cycles, 0=busy-spin)
+- `NCCL_ALGO`: NCCL algorithms to use (e.g., "Ring,Tree")
+- `NCCL_MIN_NCHANNELS`: Minimum NCCL channels
+- `NCCL_MAX_NCHANNELS`: Maximum NCCL channels
+- `NCCL_NVLS_ENABLE`: Enable NVLink-Switch (Hopper)
+- `NCCL_COLLNET_ENABLE`: Enable CollNet (NVSwitch to NIC hierarchy)
+- `NCCL_NET_GDR_LEVEL`: GPUDirect RDMA level
+- `NCCL_TOPO_DUMP_FILE`: Path to dump NCCL topology
+
+#### CUDA Runtime
+
+- `CUDA_DEVICE_MAX_CONNECTIONS`: Maximum CUDA device connections (reduces launch latency)
+
+#### Debug Variables
+
+- `TORCH_DISTRIBUTED_DEBUG`: Distributed debug level (WARN, INFO, DETAIL)
+- `NCCL_TOPO_DUMP_FILE`: NCCL topology dump path
+
+## Environment Scenarios
+
+Linnaeus provides pre-configured environment variable scenarios optimized for different hardware configurations. These can be selected via the `ENV.SCENARIO` config option.
+
+### Available Scenarios
+
+1. **`safe_defaults` / `single_gpu_workstation`**: Optimized for single-GPU consumer hardware (e.g., RTX 3090)
+   - Minimal CPU threads to avoid contention
+   - PCIe P2P communication
+   - Conservative memory settings
+
+2. **`multi_gpu_workstation`**: Optimized for multi-GPU workstation setups
+   - Slightly increased CPU parallelism
+   - PCIe P2P communication enabled
+   - Maintains conservative defaults
+
+3. **`dgx_h100`**: Optimized for high-end DGX H100 systems
+   - Higher CPU thread counts (many cores available)
+   - NVLink-Switch and InfiniBand enabled
+   - Large gradient buckets (256MB)
+   - GPU-Direct RDMA enabled
+
+### Using Environment Scenarios
+
+In your experiment config:
+```yaml
+ENV:
+  SCENARIO: dgx_h100  # Select the appropriate scenario
+  YAML_OVERRIDES: /path/to/custom_overrides.yaml  # Optional custom overrides
+```
+
+Or override specific variables:
+```bash
+export ENV.SCENARIO=single_gpu_workstation
+python -m linnaeus.main --cfg experiment.yaml --opts ENV.SCENARIO dgx_h100
+```
+
+### Custom Environment Files
+
+Create custom environment variable files in `configs/env_vars/` following the existing format. See examples in:
+- `configs/env_vars/single_gpu_workstation.yaml`
+- `configs/env_vars/multi_gpu_workstation.yaml`
+- `configs/env_vars/dgx_h100.yaml`
 
 ## Best Practices
 
@@ -125,3 +207,31 @@ This is typically resolved by Linnaeus's ThreadPoolExecutor architecture. If iss
 
 ### Distributed Training Not Starting
 Verify that `MASTER_ADDR` and `MASTER_PORT` are correctly set and accessible.
+
+## Environment Variables Reference Table
+
+| Variable | Safe Default | Multi-GPU | DGX H100 | Description |
+|----------|--------------|-----------|----------|-------------|
+| CUDA_DEVICE_MAX_CONNECTIONS | - | - | 1 | Max CUDA device connections |
+| HDF5_USE_THREADS | 0 | 0 | 0 | HDF5 threading (0=disabled) |
+| MKL_NUM_THREADS | 1 | 1 | 4 | Intel MKL thread count |
+| NCCL_ALGO | Ring,Tree | Ring,Tree | Tree,Ring | NCCL algorithms to use |
+| NCCL_BLOCKING_WAIT | 1 | 1 | 0 | Blocking wait mode |
+| NCCL_COLLNET_ENABLE | - | - | 1 | Enable CollNet |
+| NCCL_IB_DISABLE | 1 | 1 | 0 | Disable InfiniBand (1=disabled) |
+| NCCL_MAX_NCHANNELS | 4 | 4 | 16 | Maximum NCCL channels |
+| NCCL_MIN_NCHANNELS | 4 | 4 | 8 | Minimum NCCL channels |
+| NCCL_NET_GDR_LEVEL | - | - | 2 | GPUDirect RDMA level |
+| NCCL_NVLS_ENABLE | - | - | 1 | Enable NVLink-Switch |
+| NCCL_P2P_DISABLE | 0 | 0 | 0 | Disable P2P communication |
+| NCCL_P2P_LEVEL | PXB | PXB | NVL | P2P level (PXB/NVL) |
+| NCCL_TOPO_DUMP_FILE | /tmp/nccl_graph.xml | /tmp/nccl_graph.xml | /tmp/nccl_dgx_h100.xml | NCCL topology dump path |
+| OMP_NUM_THREADS | 1 | 1 | 4 | OpenMP thread count |
+| OPENBLAS_NUM_THREADS | 1 | 1 | 4 | OpenBLAS thread count |
+| OPENCV_NUM_THREADS | 1 | 1 | 2 | OpenCV thread count |
+| PYTORCH_CUDA_ALLOC_CONF | expandable_segments:true,rounding:32m | expandable_segments:true,rounding:32m | expandable_segments:true,rounding:64m | CUDA allocator configuration |
+| TBB_NUM_THREADS | 1 | 1 | 4 | Intel TBB thread count |
+| TORCH_COMPILE_DISABLE | 1 | 1 | 0 | Disable torch.compile (1=disabled) |
+| TORCH_DISTRIBUTED_DEBUG | WARN | WARN | DETAIL | Distributed debug level |
+| TORCH_INTEROP_NUM_THREADS | 1 | 2 | 4 | PyTorch inter-op parallelism |
+| TORCH_INTRAOP_NUM_THREADS | 2 | 4 | 8 | PyTorch intra-op parallelism |

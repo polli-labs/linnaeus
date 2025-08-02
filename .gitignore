@@ -73,6 +73,7 @@ venv.bak/
 CLAUDE.md
 CLAUDE.md.bak
 *.ig
+*.comment
 
 # Local artifacts
 *.local
@@ -92,3 +93,5 @@ docker_test_notes.md
 # Add more if needed
 
 docker-compose.yml
+
+ENV_VARS.txt

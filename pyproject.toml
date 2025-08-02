@@ -1,6 +1,6 @@
 [project]
 name = "linnaeus"
-version = "0.2.0"
+version = "0.3.0"
 description = "Linnaeus: A deep learning framework for taxonomic recognition."
 ## Releasing
 # When releasing a new version:
@@ -49,6 +49,7 @@ dependencies = [
 
 [project.scripts]
 linnaeus-prof = "linnaeus.profiling.cli:main"
+linnaeus-prof-run = "linnaeus.tools.profiling.run_profiling_trials:main"
 
 [project.optional-dependencies]
 dev = [
@@ -56,6 +57,9 @@ dev = [
     "ruff",
     "mkdocs",
     "mkdocs-material",
+]
+triton = [
+    "triton>=2.1.0",
 ]
 inference = [
     "litserve",
@@ -65,7 +69,9 @@ inference = [
 ]
 profiling = [
     "tensorboard",
-    "torch-tb-profiler",
+    "torch-tb-profiler", 
+    "pyyaml>=6.0",  # For trial configuration files
+    "rich>=13.0",   # For pretty console output in profiling runner
 ]
 
 cuda-fa = [
@@ -145,3 +151,6 @@ max-complexity = 20               # pragmatic ceiling; revisit once stable
 [tool.ruff.lint.per-file-ignores]
 "__init__.py" = ["F401", "E402"]  # re-export patterns & late imports are fine
 "tests/**/*.py" = ["I", "F401"]   # test util imports & order don't matter yet
+
+[tool.ruff.lint.isort]
+split-on-trailing-comma = false    # align with formatter's skip-magic-trailing-comma

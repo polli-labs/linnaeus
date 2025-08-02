@@ -1,0 +1,47 @@
+# Multi-GPU Docker Compose Configuration
+# Optimized for multi-GPU workstation training with PCIe P2P
+
+version: '3.8'
+
+services:
+  linnaeus-multi-gpu:
+    image: linnaeus:latest
+    build:
+      context: ../..
+      dockerfile: tools/docker/Dockerfile.runtime
+    runtime: nvidia
+    shm_size: 32G
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - CONFIG_DIR=/app/configs
+      # Number of GPUs - adjust based on your system
+      - WORLD_SIZE=4
+    env_file:
+      - ../../configs/env_vars/multi_gpu_workstation.yaml
+    volumes:
+      # Data directories - adjust paths as needed
+      - ${DATA_DIR:-/data}:/data:ro
+      - ${OUTPUT_DIR:-./outputs}:/outputs
+      - ${MODEL_DIR:-./models}:/models
+      # Mount configs
+      - ../../configs:/app/configs:ro
+      # Optional: mount local code for development
+      # - ../..:/app/linnaeus:ro
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    working_dir: /app
+    command: >
+      python -m torch.distributed.run
+      --nproc_per_node=${NPROC_PER_NODE:-4}
+      --master_addr=localhost
+      --master_port=29500
+      -m linnaeus.main
+      --cfg /app/configs/experiments/your_experiment.yaml
+      --opts ENV.SCENARIO multi_gpu_workstation
+    tty: true
+    stdin_open: true

@@ -243,9 +243,7 @@ class PrefetchingHybridDataset(BasePrefetchingDataset):
                 flat_path = os.path.join(self.images_dir, img_id_with_ext)
                 if os.path.exists(flat_path):
                     if log_this_specific_item:
-                        h5data_logger.warning(
-                            f"[READ_ITEM_DEBUG] Sharding enabled but file found in flat directory: {flat_path}"
-                        )
+                        h5data_logger.warning(f"[READ_ITEM_DEBUG] Sharding enabled but file found in flat directory: {flat_path}")
                     img_path = flat_path
         else:
             img_path = os.path.join(self.images_dir, img_id_with_ext)

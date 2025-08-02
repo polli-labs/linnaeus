@@ -20,6 +20,7 @@ from linnaeus.models.model_factory import register_model
 from linnaeus.models.normalization import ResNormLayer
 from linnaeus.models.utils.initialization import trunc_normal_
 from linnaeus.utils.logging.logger import get_main_logger
+from linnaeus.utils.profiling_helpers import prof
 
 logger = get_main_logger()
 
@@ -290,6 +291,10 @@ class mFormerV1(BaseModel):
         self.apply(self._init_weights)
         logger.info(f"[mFormerV1] Model built. Total Params: {sum(p.numel() for p in self.parameters()):,}")
 
+        # --- Level 3 Profiling Hooks ---
+        if config.DEBUG.PROFILER.ENABLED and config.DEBUG.PROFILER.LEVEL >= 3:
+            self._register_profiling_hooks()
+
     def _init_weights(self, m):
         """Initialize weights like ConvNeXt and ViT."""
         if isinstance(m, nn.Conv2d | nn.Linear):
@@ -299,6 +304,42 @@ class mFormerV1(BaseModel):
         elif isinstance(m, nn.LayerNorm):
             nn.init.constant_(m.bias, 0)
             nn.init.constant_(m.weight, 1.0)
+
+    def _register_profiling_hooks(self):
+        """Dynamically registers profiling hooks on all submodules for L3 profiling."""
+        from linnaeus.utils.profiling_helpers import prof
+
+        logger.info("[L3 Profile] Registering per-module forward profiling hooks...")
+
+        for name, module in self.named_modules():
+            if name:  # Skip root module
+                # Attach a list to each module to act as a context stack
+                module._profiler_contexts = []
+
+                def make_pre_hook(module_name):
+                    def pre_hook(m, inputs):
+                        # When entering a module's forward, start a profiler context
+                        # and push it onto the module's stack.
+                        context = prof(f"module/{module_name}", level=3)
+                        context.__enter__()
+                        m._profiler_contexts.append(context)
+
+                    return pre_hook
+
+                def make_post_hook(module_name):
+                    def post_hook(m, inputs, outputs):
+                        # When exiting a module's forward, pop the context from the
+                        # stack and exit it. This correctly handles nested modules.
+                        if hasattr(m, "_profiler_contexts") and m._profiler_contexts:
+                            try:
+                                m._profiler_contexts.pop().__exit__(None, None, None)
+                            except Exception as e:
+                                logger.warning(f"[L3 Profile] Error exiting profiler context for {module_name}: {e}")
+
+                    return post_hook
+
+                module.register_forward_pre_hook(make_pre_hook(name))
+                module.register_forward_hook(make_post_hook(name))
 
     @property
     def parameter_groups_metadata(self) -> dict[str, Any]:
@@ -348,51 +389,55 @@ class mFormerV1(BaseModel):
             use_checkpoint = bool(self.config.TRAIN.GRADIENT_CHECKPOINTING.ENABLED_NORMAL_STEPS)
 
         # --- ConvNeXt Stages ---
-        x = self.stem(x)  # (B, D0, H/4, W/4)
-        H, W = x.shape[2], x.shape[3]
+        with prof("model/stem", level=2):
+            x = self.stem(x)  # (B, D0, H/4, W/4)
+            H, W = x.shape[2], x.shape[3]
 
         # --- Stage 0 (ConvNeXt Stage 1) ---
-        # Iterate through blocks in stages[0] (ModuleList)
-        for blk in self.stages[0]:
-            x = blk(x, use_checkpoint=use_checkpoint)
-        # H, W remain unchanged as ConvNeXt blocks don't change resolution
+        with prof("model/convnext_stage_0", level=2):
+            # Iterate through blocks in stages[0] (ModuleList)
+            for blk in self.stages[0]:
+                x = blk(x, use_checkpoint=use_checkpoint)
+            # H, W remain unchanged as ConvNeXt blocks don't change resolution
 
-        x = self.downsample_layers[0](x)  # Downsample 1: D0->D1, H/8, W/8
-        H, W = x.shape[2], x.shape[3]
+            x = self.downsample_layers[0](x)  # Downsample 1: D0->D1, H/8, W/8
+            H, W = x.shape[2], x.shape[3]
 
         # --- Stage 1 (ConvNeXt Stage 2) ---
-        # Iterate through blocks in stages[1] (ModuleList)
-        for blk in self.stages[1]:
-            x = blk(x, use_checkpoint=use_checkpoint)
-        # H, W remain unchanged
+        with prof("model/convnext_stage_1", level=2):
+            # Iterate through blocks in stages[1] (ModuleList)
+            for blk in self.stages[1]:
+                x = blk(x, use_checkpoint=use_checkpoint)
+            # H, W remain unchanged
 
-        x = self.downsample_layers[1](x)  # Downsample 2: D1->D2, H/16, W/16
-        H, W = x.shape[2], x.shape[3]
+            x = self.downsample_layers[1](x)  # Downsample 2: D1->D2, H/16, W/16
+            H, W = x.shape[2], x.shape[3]
 
         # --- RoPE Stage 3 ---
-        x = x.flatten(2).transpose(1, 2)  # (B, H*W, D2)
-        # Prepare extras_1
-        cls_1 = self.cls_token_1.expand(B, -1, -1)  # (B, 1, D2)
-        extras_1 = [cls_1]
-        if self.use_meta and meta is not None:
-            if hasattr(self, "meta_components") and self.meta_components:
-                for comp_name, comp_info in self.meta_components.items():
-                    start, end = (comp_info["offset"], comp_info["offset"] + comp_info["dim"])
-                    meta_head = getattr(self, f"meta_{comp_name.lower()}_head_1")
-                    extras_1.append(meta_head(meta[:, start:end]).unsqueeze(1))
-            else:  # Legacy
-                chunks = torch.split(meta, self.meta_dims, dim=1)
-                for i, c_ in enumerate(chunks):
-                    meta_head_1 = getattr(self, f"meta_{i + 1}_head_1")
-                    extras_1.append(meta_head_1(c_).unsqueeze(1))
+        with prof("model/rope_stage_2", level=2):
+            x = x.flatten(2).transpose(1, 2)  # (B, H*W, D2)
+            # Prepare extras_1
+            cls_1 = self.cls_token_1.expand(B, -1, -1)  # (B, 1, D2)
+            extras_1 = [cls_1]
+            if self.use_meta and meta is not None:
+                if hasattr(self, "meta_components") and self.meta_components:
+                    for comp_name, comp_info in self.meta_components.items():
+                        start, end = (comp_info["offset"], comp_info["offset"] + comp_info["dim"])
+                        meta_head = getattr(self, f"meta_{comp_name.lower()}_head_1")
+                        extras_1.append(meta_head(meta[:, start:end]).unsqueeze(1))
+                else:  # Legacy
+                    chunks = torch.split(meta, self.meta_dims, dim=1)
+                    for i, c_ in enumerate(chunks):
+                        meta_head_1 = getattr(self, f"meta_{i + 1}_head_1")
+                        extras_1.append(meta_head_1(c_).unsqueeze(1))
 
-        x = torch.cat([*extras_1, x], dim=1)  # (B, N_extra + H*W, D2)
+            x = torch.cat([*extras_1, x], dim=1)  # (B, N_extra + H*W, D2)
 
-        # Apply RoPE Stage 3 blocks
-        for blk in self.stages[2]:  # Stage 3 is index 2
-            x = blk(x, H=H, W=W, use_checkpoint=use_checkpoint)
-        x = self.norm_1(x)  # Norm after stage 3
-        H, W = H, W  # Dimensions unchanged by RoPE blocks
+            # Apply RoPE Stage 3 blocks
+            for blk in self.stages[2]:  # Stage 3 is index 2
+                x = blk(x, H=H, W=W, use_checkpoint=use_checkpoint)
+            x = self.norm_1(x)  # Norm after stage 3
+            H, W = H, W  # Dimensions unchanged by RoPE blocks
 
         # Handle cls_1 path
         if not self.only_last_cls:
@@ -407,43 +452,45 @@ class mFormerV1(BaseModel):
         x = x.flatten(2).transpose(1, 2)  # (B, H*W, D3)
 
         # --- RoPE Stage 4 ---
-        # Prepare extras_2
-        cls_2 = self.cls_token_2.expand(B, -1, -1)  # (B, 1, D3)
-        extras_2 = [cls_2]
-        if self.use_meta and meta is not None:
-            if hasattr(self, "meta_components") and self.meta_components:
-                for comp_name, comp_info in self.meta_components.items():
-                    start, end = (comp_info["offset"], comp_info["offset"] + comp_info["dim"])
-                    meta_head = getattr(self, f"meta_{comp_name.lower()}_head_2")
-                    extras_2.append(meta_head(meta[:, start:end]).unsqueeze(1))
-            else:  # Legacy
-                chunks2 = torch.split(meta, self.meta_dims, dim=1)
-                for i, c_ in enumerate(chunks2):
-                    meta_head_2 = getattr(self, f"meta_{i + 1}_head_2")
-                    extras_2.append(meta_head_2(c_).unsqueeze(1))
+        with prof("model/rope_stage_3", level=2):
+            # Prepare extras_2
+            cls_2 = self.cls_token_2.expand(B, -1, -1)  # (B, 1, D3)
+            extras_2 = [cls_2]
+            if self.use_meta and meta is not None:
+                if hasattr(self, "meta_components") and self.meta_components:
+                    for comp_name, comp_info in self.meta_components.items():
+                        start, end = (comp_info["offset"], comp_info["offset"] + comp_info["dim"])
+                        meta_head = getattr(self, f"meta_{comp_name.lower()}_head_2")
+                        extras_2.append(meta_head(meta[:, start:end]).unsqueeze(1))
+                else:  # Legacy
+                    chunks2 = torch.split(meta, self.meta_dims, dim=1)
+                    for i, c_ in enumerate(chunks2):
+                        meta_head_2 = getattr(self, f"meta_{i + 1}_head_2")
+                        extras_2.append(meta_head_2(c_).unsqueeze(1))
 
-        x = torch.cat([*extras_2, x], dim=1)  # (B, N_extra + H*W, D3)
+            x = torch.cat([*extras_2, x], dim=1)  # (B, N_extra + H*W, D3)
 
-        # Apply RoPE Stage 4 blocks
-        for blk in self.stages[3]:  # Stage 4 is index 3
-            x = blk(x, H=H, W=W, use_checkpoint=use_checkpoint)
-        x = self.norm_2(x)  # Norm after stage 4
-        cls_2_final = x[:, 0:1, :]  # (B, 1, D3)
+            # Apply RoPE Stage 4 blocks
+            for blk in self.stages[3]:  # Stage 4 is index 3
+                x = blk(x, H=H, W=W, use_checkpoint=use_checkpoint)
+            x = self.norm_2(x)  # Norm after stage 4
+            cls_2_final = x[:, 0:1, :]  # (B, 1, D3)
 
         # --- Aggregation ---
-        if not self.only_last_cls:
-            # cls_1_final is (B, 1, D3), cls_2_final is (B, 1, D3)
-            cat_tokens = torch.cat([cls_1_final, cls_2_final], dim=1)  # Shape: (B, 2, D3)
-            # Conv1d expects (B, C, N) where C=in_channels=2, N=length=D3
-            # No transpose needed - cat_tokens already has the right shape (B, 2, D3)
+        with prof("model/aggregation", level=2):
+            if not self.only_last_cls:
+                # cls_1_final is (B, 1, D3), cls_2_final is (B, 1, D3)
+                cat_tokens = torch.cat([cls_1_final, cls_2_final], dim=1)  # Shape: (B, 2, D3)
+                # Conv1d expects (B, C, N) where C=in_channels=2, N=length=D3
+                # No transpose needed - cat_tokens already has the right shape (B, 2, D3)
 
-            # Now cat_tokens has shape (B, 2, D3), which matches Conv1d expectation
-            agg = self.aggregate(cat_tokens)  # Output shape: (B, out_channels=1, D3)
-            agg = agg.squeeze(1)  # Squeeze the channel dim -> (B, D3)
-            feats = self.final_norm(agg)  # Final norm
-        else:
-            # Use only the final CLS token
-            feats = self.final_norm(cls_2_final.squeeze(1))  # (B, D3)
+                # Now cat_tokens has shape (B, 2, D3), which matches Conv1d expectation
+                agg = self.aggregate(cat_tokens)  # Output shape: (B, out_channels=1, D3)
+                agg = agg.squeeze(1)  # Squeeze the channel dim -> (B, D3)
+                feats = self.final_norm(agg)  # Final norm
+            else:
+                # Use only the final CLS token
+                feats = self.final_norm(cls_2_final.squeeze(1))  # (B, D3)
 
         return feats
 

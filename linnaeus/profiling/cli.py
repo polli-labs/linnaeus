@@ -12,7 +12,7 @@ from pathlib import Path
 from rich.console import Console
 from rich.table import Table
 
-from . import diff, scanner, summary, tensorboard_launcher
+from . import diff, repair, scanner, summary, tensorboard_launcher
 
 console = Console()
 
@@ -75,6 +75,20 @@ def setup_tensorboard_parser(subparsers):
     parser.set_defaults(func=cmd_tensorboard)
 
 
+def setup_repair_parser(subparsers):
+    """Setup argument parser for repair command."""
+    parser = subparsers.add_parser(
+        "repair",
+        help="Repair corrupted profiler traces",
+        description="Detect and repair corrupted PyTorch profiler JSON traces (e.g., H100 DDP issues)",
+    )
+    parser.add_argument("path", type=Path, help="Path to run directory or specific trace file")
+    parser.add_argument("--dry-run", action="store_true", help="Only detect corruption, don't repair")
+    parser.add_argument("--recursive", action="store_true", help="Recursively scan directories")
+    parser.add_argument("--force", action="store_true", help="Re-repair even if repaired version exists")
+    parser.set_defaults(func=cmd_repair)
+
+
 def cmd_scan(args):
     """Execute scan command."""
     try:
@@ -121,6 +135,14 @@ def cmd_scan(args):
 def cmd_summary(args):
     """Execute summary command."""
     try:
+        # Auto-repair traces if needed
+        console.print(f"Checking for corrupted traces in {args.run_dir}...")
+        repair_results = repair.repair_run_traces(args.run_dir)
+        if repair_results['repaired']:
+            console.print(f"[green]Auto-repaired {len(repair_results['repaired'])} corrupted traces[/green]")
+        if repair_results['failed']:
+            console.print(f"[yellow]Warning: Failed to repair {len(repair_results['failed'])} traces[/yellow]")
+
         run_summary = summary.build_summary(args.run_dir, write_cache=args.write_cache)
 
         if args.output_format == "pretty":
@@ -152,6 +174,12 @@ def cmd_summary(args):
 def cmd_diff(args):
     """Execute diff command."""
     try:
+        # Auto-repair traces if needed for both runs
+        for run_path in [args.run_a, args.run_b]:
+            repair_results = repair.repair_run_traces(run_path)
+            if repair_results['repaired']:
+                console.print(f"[green]Auto-repaired {len(repair_results['repaired'])} traces in {run_path}[/green]")
+
         summary_a = summary.build_summary(args.run_a)
         summary_b = summary.build_summary(args.run_b)
 
@@ -194,6 +222,74 @@ def cmd_tensorboard(args):
         sys.exit(1)
 
 
+def cmd_repair(args):
+    """Execute repair command."""
+    try:
+        path = args.path.resolve()
+
+        if path.is_file():
+            # Repair single file
+            if path.suffix == '.json' and '.trace.' in path.name:
+                console.print(f"Repairing single trace: {path}")
+
+                if args.dry_run:
+                    if repair.ProfilerTraceRepair.detect_corruption(path):
+                        console.print(f"[yellow]Corruption detected in {path}[/yellow]")
+                    else:
+                        console.print(f"[green]No corruption detected in {path}[/green]")
+                else:
+                    success, error = repair.ProfilerTraceRepair.repair_trace(path)
+                    if success:
+                        console.print(f"[green]Successfully repaired {path}[/green]")
+                    else:
+                        console.print(f"[red]Failed to repair {path}: {error}[/red]")
+                        sys.exit(1)
+            else:
+                console.print(f"[red]Error: {path} doesn't appear to be a profiler trace file[/red]")
+                sys.exit(1)
+
+        elif path.is_dir():
+            # Check if it's an experiment run directory
+            if (path / "configs").exists() and (path / "logs").exists():
+                console.print(f"Repairing traces in experiment run: {path}")
+                results = repair.repair_run_traces(path) if not args.dry_run else \
+                         repair.ProfilerTraceRepair.repair_directory(path, recursive=False, dry_run=True)
+            else:
+                # General directory
+                console.print(f"Repairing traces in directory: {path}")
+                results = repair.ProfilerTraceRepair.repair_directory(
+                    path, recursive=args.recursive, dry_run=args.dry_run
+                )
+
+            # Display results
+            if results['repaired']:
+                console.print(f"[green]{'Would repair' if args.dry_run else 'Repaired'}: "
+                             f"{len(results['repaired'])} traces[/green]")
+                for trace in results['repaired'][:5]:  # Show first 5
+                    console.print(f"  - {trace.name}")
+                if len(results['repaired']) > 5:
+                    console.print(f"  ... and {len(results['repaired']) - 5} more")
+
+            if results['failed']:
+                console.print(f"[red]Failed: {len(results['failed'])} traces[/red]")
+                for trace in results['failed']:
+                    console.print(f"  - {trace.name}")
+
+            if results['skipped']:
+                console.print(f"[dim]Skipped: {len(results['skipped'])} traces (no corruption or already repaired)[/dim]")
+
+            if results.get('already_repaired'):
+                console.print(f"[dim]Already repaired: {len(results['already_repaired'])} traces[/dim]")
+
+        else:
+            console.print(f"[red]Error: {path} not found[/red]")
+            sys.exit(1)
+
+    except Exception as e:
+        console.print(f"[red]Error during repair: {e}[/red]")
+        sys.exit(1)
+
+
 def main():
     """Main CLI entry point."""
     parser = argparse.ArgumentParser(
@@ -228,6 +324,7 @@ Examples:
     setup_summary_parser(subparsers)
     setup_diff_parser(subparsers)
     setup_tensorboard_parser(subparsers)
+    setup_repair_parser(subparsers)
 
     args = parser.parse_args()
 

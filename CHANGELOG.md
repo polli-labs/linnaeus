@@ -2,6 +2,37 @@
 
 ## [Unreleased]
 
+## [0.3.0] - 2025-08-02
+
+### Added
+- **Full-Stack Profiling System**: Introduced a comprehensive multi-level profiling system (`DEBUG.PROFILER.LEVEL`) to instrument the entire training pipeline from data loading to optimizer step.
+  - **Level 1 (Lite)**: Captures high-level timings for dataloading, forward/backward passes, and optimizer steps with minimal overhead (~1-2%).
+  - **Level 2 (Component)**: Provides detailed breakdowns of data pipeline stages (I/O, CPU decode, transform), model stages (stem, convnext, rope), loss components, and augmentation operations with ~5% overhead.
+  - **Level 3 (Deep)**: Enables per-module model profiling via dynamic hooks, DDP communication hooks for `all_reduce` operations, and detailed data queue statistics logging to `queue_stats.jsonl`.
+- **Automated Profiler Trace Repair**: New `linnaeus.profiling.repair` module automatically detects and repairs corrupted PyTorch profiler JSON traces, particularly addressing H100 DDP corruption patterns with 100% success rate.
+- **Triton Kernel Support**: Added Triton-optimized kernels for selective mixing augmentation with runtime A/B testing capability via `AUG.SELECTIVE_MIXING.USE_TRITON_KERNEL` config option.
+- **Enhanced Profiling CLI**: 
+  - `linnaeus-prof summary` and `diff` now parse and display detailed component-level performance breakdowns from Level 2 traces
+  - New `linnaeus-prof repair` command for explicit trace repair operations
+  - Auto-repair functionality integrated into summary and diff commands
+  - Scanner now prefers repaired traces (`.pt.trace.repaired.json`) when available
+- **Profiling Trial Runner**: New `linnaeus-prof-run` command-line tool for orchestrating reproducible profiling trials with Docker Compose, git branch management, and automated result collection.
+- **DDP Communication Instrumentation**: Added `torch.distributed` communication hook to profile `all_reduce` operations during distributed training (Level 3).
+- **Queue Statistics Monitoring**: Level 3 profiling includes real-time JSONL logging of queue depths, throughput metrics, and cache statistics for data pipeline analysis.
+- **Dynamic Module Profiling**: Level 3 automatically instruments all model submodules using PyTorch forward hooks for per-layer granularity.
+- **Environment Variable Management**: New `linnaeus.utils.env_ctrl` module for loading and applying environment variables from YAML files, supporting hardware-specific configurations.
+
+### Changed
+- **Docker Base Images**: Updated with profiling dependencies (tensorboard, torch-tb-profiler), Triton, and python3.11-dev for JIT compilation support.
+- **Profiling Infrastructure**: Comprehensive refactoring to support multi-level profiling with proper initialization, context management, and cleanup.
+
+### Fixed
+- **ENV_VARS.txt Location**: Environment variable dumps are now written to experiment logs directory instead of repository root, preventing accidental git tracking.
+- **Duplicate Profiler Setup**: Removed duplicate profiler initialization from train.py to fix Kineto lifecycle errors.
+- **L3 Profiling Compatibility**: Fixed GradBucket API changes and DDP hook return types for PyTorch 2.7.1 compatibility.
+- **Docker Build Issues**: Fixed shell metacharacter escaping in package specifications and added missing Python headers for Triton JIT.
+- **Duplicate Startup Logs**: Eliminated duplicate configuration logging during multi-GPU training initialization.
+
 ## [0.2.0] - 2025-07-30
 
 ### Added

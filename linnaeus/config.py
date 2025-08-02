@@ -184,6 +184,10 @@ _C.ENV.OUTPUT.DIRS.LOGS = ""
 _C.ENV.OUTPUT.DIRS.ASSETS = ""
 _C.ENV.OUTPUT.DIRS.CONFIGS = ""
 
+# Environment variable scenario selection
+_C.ENV.SCENARIO = "safe_defaults"  # Options: safe_defaults, single_gpu_workstation, multi_gpu_workstation, dgx_h100
+_C.ENV.YAML_OVERRIDES = ""  # Optional path to YAML file with env var overrides
+
 # ----------------------------------------------------------------------------
 # DATASET Settings
 # ----------------------------------------------------------------------------
@@ -434,6 +438,10 @@ _C.AUG.GPU_COMPILE.ENABLED = False
 _C.AUG.GPU_COMPILE.BACKEND = "inductor"
 _C.AUG.GPU_COMPILE.MODE = "default"  # Options: 'default', 'reduce-overhead', 'max-autotune'
 
+# Configuration for selective mixing (mixup/cutmix) optimization
+_C.AUG.SELECTIVE_MIXING = CN()
+_C.AUG.SELECTIVE_MIXING.USE_TRITON_KERNEL = False  # Use Triton-optimized kernel for selective mixing
+
 # ----------------------------------------------------------------------------
 # Model Settings
 # ----------------------------------------------------------------------------
@@ -457,7 +465,7 @@ _C.MODEL.EXTRA_TOKEN_NUM = 3
 _C.MODEL.META_DIMS = [4, 3]  # Legacy metadata dimensions (deprecated)
 _C.MODEL.IMG_SIZE = 384
 _C.MODEL.IN_CHANS = 3
-_C.MODEL.FIND_UNUSED_PARAMETERS = False
+# _C.MODEL.FIND_UNUSED_PARAMETERS removed - use DISTRIBUTED.DDP.find_unused_parameters instead
 
 # Feature Resolver Subconfig (e.g. LearnedProjection)
 _C.MODEL.FEATURE_RESOLVER = CN()
@@ -857,6 +865,20 @@ _C.MISC.PRINT_FREQ = 50
 _C.MISC.PIPELINE_METRICS_FREQ = 30.0  # seconds (DEPRECATED: use SCHEDULE.METRICS.PIPELINE_INTERVAL instead)
 
 # ----------------------------------------------------------------------------
+# Distributed Training Settings
+# ----------------------------------------------------------------------------
+_C.DISTRIBUTED = CN()
+_C.DISTRIBUTED.BACKEND = "nccl"  # Options: nccl, gloo
+
+# DDP (DistributedDataParallel) settings
+_C.DISTRIBUTED.DDP = CN()
+_C.DISTRIBUTED.DDP.bucket_cap_mb = 25  # Gradient bucket size in MB
+_C.DISTRIBUTED.DDP.static_graph = False  # Enable static graph optimization
+_C.DISTRIBUTED.DDP.find_unused_parameters = False  # Find unused parameters (migrated from MODEL.FIND_UNUSED_PARAMETERS)
+_C.DISTRIBUTED.DDP.gradient_as_bucket_view = True  # Use gradient as bucket view for efficiency
+_C.DISTRIBUTED.DDP.check_reduction_size = False  # Check reduction size for debugging
+
+# ----------------------------------------------------------------------------
 # Debug Settings
 # ----------------------------------------------------------------------------
 _C.DEBUG = CN()
@@ -896,15 +918,12 @@ _C.DEBUG.METRICS.AVG_METER_VERBOSE_ACTUAL_META_STATS = (
 _C.DEBUG.DATASET = CN()
 _C.DEBUG.DATASET.READ_ITEM_VERBOSE = False  # New flag for verbose _read_raw_item logging
 
-# Special debug flag for early termination of training
-# NOTE: DEBUG.EARLY_EXIT_AFTER_N_OPTIMIZER_STEPS removed - only worked at epoch boundaries, not useful for profiling
-# Use wrapper timeout mechanism for short profiling trials instead
-
 # PyTorch Profiler configuration
 _C.DEBUG.PROFILER = CN()
 _C.DEBUG.PROFILER.ENABLED = False
+_C.DEBUG.PROFILER.LEVEL = 1  # Profiling granularity: 0=OFF, 1=Lite, 2=Component, 3=Deep
 _C.DEBUG.PROFILER.OUTPUT_DIR = "{output_dir}/assets/profiler"
-_C.DEBUG.PROFILER.SCHEDULE = [1, 1, 3, 2]  # [wait, warmup, active, repeat]
+_C.DEBUG.PROFILER.SCHEDULE = [2, 1, 5, 2]  # [wait, warmup, active, repeat]
 _C.DEBUG.PROFILER.RECORD_SHAPES = False
 _C.DEBUG.PROFILER.WITH_STACK = False
 _C.DEBUG.PROFILER.SYNC_PROFILING = False  # Enable CUDA synchronization for accurate timing
@@ -931,3 +950,15 @@ def get_default_config() -> CN:
     Alias of get_config, for convenience.
     """
     return get_config()
+
+
+def check_deprecated_configs(config):
+    """Check for deprecated config options and raise informative errors."""
+    # Check for deprecated MODEL.FIND_UNUSED_PARAMETERS
+    if hasattr(config.MODEL, "FIND_UNUSED_PARAMETERS"):
+        raise KeyError(
+            "MODEL.FIND_UNUSED_PARAMETERS is deprecated and removed. "
+            "Please migrate to DISTRIBUTED.DDP.find_unused_parameters. "
+            "Example: Change 'MODEL.FIND_UNUSED_PARAMETERS: true' to "
+            "'DISTRIBUTED.DDP.find_unused_parameters: true' in your config."
+        )
