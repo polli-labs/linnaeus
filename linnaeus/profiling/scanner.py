@@ -110,10 +110,10 @@ def find_profiler_traces(run_path: Path) -> list[Path]:
         List of paths to trace files (repaired versions preferred)
     """
     trace_files = {}  # Use dict to track base names
-    
+
     # Check common profiler locations
     profiler_dirs = [run_path / "assets" / "profiler", run_path / "profiler"]
-    
+
     for profiler_dir in profiler_dirs:
         if profiler_dir.exists():
             # First, find all original traces
@@ -122,12 +122,12 @@ def find_profiler_traces(run_path: Path) -> list[Path]:
                 if ".repaired." not in str(trace):
                     base_name = str(trace).replace(".pt.trace.json", "")
                     trace_files[base_name] = trace
-            
+
             # Then, check for repaired versions and prefer them
             for trace in profiler_dir.glob("*.pt.trace.repaired.json"):
                 base_name = str(trace).replace(".pt.trace.repaired.json", "")
                 trace_files[base_name] = trace  # Override with repaired version
-    
+
     return sorted(trace_files.values())
 
 
