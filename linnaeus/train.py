@@ -1,8 +1,6 @@
 import gc  # For garbage collection
-import os
 
 import torch
-from torch.profiler import ProfilerActivity, profile
 
 from linnaeus.h5data.base_prefetching_dataset import STOP_SENTINEL
 from linnaeus.loss.gradient_weighting import log_memory_usage
@@ -10,6 +8,7 @@ from linnaeus.loss.hierarchical_loss import weighted_hierarchical_loss
 from linnaeus.utils.debug_utils import check_debug_flag
 from linnaeus.utils.distributed import get_rank_safely
 from linnaeus.utils.metrics.step_metrics_logger import StepMetricsLogger
+from linnaeus.utils.profiling_helpers import prof, update_profiler_config
 
 
 def train_one_epoch(
@@ -28,6 +27,7 @@ def train_one_epoch(
     start_step: int,
     total_steps: int,
     training_progress,
+    profiler=None,
 ):
     """
     Train the model for one epoch.
@@ -54,6 +54,9 @@ def train_one_epoch(
     """
     rank = get_rank_safely()  # Get rank for logging
     model.train()  # Set model to training mode
+
+    # Update profiler config for this training session
+    update_profiler_config(config)
 
     step_logger = StepMetricsLogger(config, metrics_tracker, ops_schedule)
     step_logger.start_epoch()
@@ -85,23 +88,7 @@ def train_one_epoch(
     model_to_set_checkpoint_flag = model.module if isinstance(model, torch.nn.parallel.DistributedDataParallel) else model
     backup_use_ckpt_normal = getattr(model_to_set_checkpoint_flag, "use_checkpoint", False)
 
-    # PyTorch Profiler Setup
-    profiler = None
-    if config.DEBUG.PROFILER.ENABLED and rank == 0:
-        schedule_params = config.DEBUG.PROFILER.SCHEDULE
-        profiler_output_dir = config.DEBUG.PROFILER.OUTPUT_DIR.format(output_dir=config.ENV.OUTPUT.DIRS.EXP_BASE)
-        os.makedirs(profiler_output_dir, exist_ok=True)
-        profiler = profile(
-            activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
-            schedule=torch.profiler.schedule(
-                wait=schedule_params[0], warmup=schedule_params[1], active=schedule_params[2], repeat=schedule_params[3]
-            ),
-            on_trace_ready=torch.profiler.tensorboard_trace_handler(profiler_output_dir),
-            record_shapes=config.DEBUG.PROFILER.RECORD_SHAPES,
-            with_stack=config.DEBUG.PROFILER.WITH_STACK,
-        )
-        profiler.__enter__()
-        logger.info(f"PyTorch Profiler enabled. Traces will be saved to: {profiler_output_dir}")
+    # PyTorch Profiler - managed by main.py and passed as parameter
 
     try:
         normal_ckpt_flag = bool(config.TRAIN.GRADIENT_CHECKPOINTING.ENABLED_NORMAL_STEPS)
@@ -123,36 +110,39 @@ def train_one_epoch(
                 logger.info(f"[train_one_epoch] Reached total_steps ({total_steps}). Ending epoch {epoch}.")
                 break
 
-            # Unpack and move data to GPU
-            # batch_data: (images, targets_dict, aux_info, group_ids, subset_dict, meta_validity_mask, actual_meta_stats)
-            images, targets_dict, aux_info = batch_data[0], batch_data[1], batch_data[2]
-            actual_meta_stats = batch_data[6] if len(batch_data) > 6 else {}  # Safely get actual_meta_stats
+            with prof("dataloader_iter", level=1):
+                # Unpack and move data to GPU
+                # batch_data: (images, targets_dict, aux_info, group_ids, subset_dict, meta_validity_mask, actual_meta_stats)
+                images, targets_dict, aux_info = batch_data[0], batch_data[1], batch_data[2]
+                actual_meta_stats = batch_data[6] if len(batch_data) > 6 else {}  # Safely get actual_meta_stats
 
-            bsz = images.size(0)
-            total_samples_for_epoch_avg += bsz
+                bsz = images.size(0)
+                total_samples_for_epoch_avg += bsz
 
-            images = images.cuda(non_blocking=True)
-            aux_info = aux_info.cuda(non_blocking=True)
-            tdict_gpu = {k: v.cuda(non_blocking=True) for k, v in targets_dict.items()}
+                images = images.cuda(non_blocking=True)
+                aux_info = aux_info.cuda(non_blocking=True)
+                tdict_gpu = {k: v.cuda(non_blocking=True) for k, v in targets_dict.items()}
 
             # --- Forward Pass ---
             # The checkpoint flag for the forward pass is set *before* the loop
             # And reset *after* the loop in finally block.
             # For GradNorm re-forwards, its specific flag is passed directly.
             with torch.cuda.amp.autocast(enabled=(config.TRAIN.AMP_OPT_LEVEL != "O0")):
-                outputs = model(images, aux_info)  # GradNorm flag not needed here for normal fwd
+                with prof("forward_pass", level=1):
+                    outputs = model(images, aux_info)  # GradNorm flag not needed here for normal fwd
 
-                total_loss, loss_components, task_weights_dict = weighted_hierarchical_loss(
-                    outputs,
-                    tdict_gpu,
-                    criteria,
-                    grad_weighting,
-                    ops_schedule,
-                    training_progress.global_step,  # Use global_step for schedule
-                    is_validation=False,
-                    logger=logger,
-                    config=config,
-                )
+                with prof("loss_calculation", level=1):
+                    total_loss, loss_components, task_weights_dict = weighted_hierarchical_loss(
+                        outputs,
+                        tdict_gpu,
+                        criteria,
+                        grad_weighting,
+                        ops_schedule,
+                        training_progress.global_step,  # Use global_step for schedule
+                        is_validation=False,
+                        logger=logger,
+                        config=config,
+                    )
 
             null_stats = loss_components.get("null_masking", None)
             if null_stats:
@@ -164,7 +154,8 @@ def train_one_epoch(
             if accumulation_steps > 1:
                 loss_to_backward = loss_to_backward / accumulation_steps
 
-            scaler.scale(loss_to_backward).backward()
+            with prof("backward_pass", level=1):
+                scaler.scale(loss_to_backward).backward()
             inner_accum_count += 1
 
             # Log accumulation progress
@@ -254,9 +245,10 @@ def train_one_epoch(
                     post_clip_norm_val = torch.linalg.norm(torch.cat(grads_after_clip).float()).item() if grads_after_clip else 0.0
                     # (metrics_tracker update for post_clip_norm happens in step_logger)
 
-                scaler.step(optimizer)
-                scaler.update()
-                optimizer.zero_grad(set_to_none=True)
+                with prof("optimizer_step", level=1):
+                    scaler.step(optimizer)
+                    scaler.update()
+                    optimizer.zero_grad(set_to_none=True)
 
                 # Scheduler step uses the global step *before* it's incremented for this optimizer update
                 lr_scheduler.step_update(training_progress.global_step)
@@ -319,9 +311,10 @@ def train_one_epoch(
             if config.TRAIN.CLIP_GRAD > 0.0 and params_to_clip:
                 torch.nn.utils.clip_grad_norm_(params_to_clip, float(config.TRAIN.CLIP_GRAD))
 
-            scaler.step(optimizer)
-            scaler.update()
-            optimizer.zero_grad(set_to_none=True)
+            with prof("optimizer_step", level=1):
+                scaler.step(optimizer)
+                scaler.update()
+                optimizer.zero_grad(set_to_none=True)
             lr_scheduler.step_update(training_progress.global_step)  # Use global_step BEFORE increment for this final step
 
             training_progress.global_step += 1  # Increment for this final optimizer step
@@ -343,11 +336,6 @@ def train_one_epoch(
         return avg_loss_for_epoch, steps_run_in_this_epoch
 
     finally:  # Ensure checkpointing flag is reset
-        # Profiler Exit
-        if profiler:
-            profiler.__exit__(None, None, None)
-            logger.info("PyTorch Profiler stopped.")
-
         if hasattr(model_to_set_checkpoint_flag, "use_checkpoint"):
             model_to_set_checkpoint_flag.use_checkpoint = backup_use_ckpt_normal
             if rank == 0 and debug_training_loop:

@@ -37,6 +37,38 @@ class ProfilerMetrics:
     batch_aug_time_ms: float = 0.0
     mixing_time_ms: float = 0.0
 
+    # Level 2 Profiling - Dataloader Components
+    dataloader_io_wait_ms: float = 0.0
+    dataloader_cpu_decode_ms: float = 0.0
+    dataloader_preprocess_wait_ms: float = 0.0
+    dataloader_cpu_xform_ms: float = 0.0
+
+    # Level 2 Profiling - Model Components
+    model_stem_ms: float = 0.0
+    model_convnext_stage_0_ms: float = 0.0
+    model_convnext_stage_1_ms: float = 0.0
+    model_rope_stage_2_ms: float = 0.0
+    model_rope_stage_3_ms: float = 0.0
+    model_aggregation_ms: float = 0.0
+
+    # Level 2 Profiling - Loss Components
+    loss_core_loss_ms: float = 0.0
+    loss_masking_ms: float = 0.0
+    loss_weighting_ms: float = 0.0
+    loss_aggregation_ms: float = 0.0
+
+    # Level 2 Profiling - Augmentation Components (enhanced from Level 1)
+    augmentation_selective_mixing_ms: float = 0.0
+    augmentation_gpu_batch_augmentations_ms: float = 0.0
+
+    # Level 3 Profiling - Host-side Dataloader Metrics
+    median_batch_index_q_depth: float = 0.0
+    median_preprocess_q_depth: float = 0.0
+    median_processed_batch_q_depth: float = 0.0
+    median_io_throughput_it_s: float = 0.0
+    median_handoff_throughput_it_s: float = 0.0
+    median_cache_hit_rate_pct: float = 0.0
+
 
 @dataclass
 class ExperimentConfig:
@@ -212,6 +244,24 @@ def analyze_profiler_traces(trace_files: list[Path]) -> ProfilerMetrics:
     total_batch_aug_time = 0.0
     total_mixing_time = 0.0
 
+    # Level 2 profiling region totals
+    total_dataloader_io_wait = 0.0
+    total_dataloader_cpu_decode = 0.0
+    total_dataloader_preprocess_wait = 0.0
+    total_dataloader_cpu_xform = 0.0
+    total_model_stem = 0.0
+    total_model_convnext_stage_0 = 0.0
+    total_model_convnext_stage_1 = 0.0
+    total_model_rope_stage_2 = 0.0
+    total_model_rope_stage_3 = 0.0
+    total_model_aggregation = 0.0
+    total_loss_core_loss = 0.0
+    total_loss_masking = 0.0
+    total_loss_weighting = 0.0
+    total_loss_aggregation = 0.0
+    total_augmentation_selective_mixing = 0.0
+    total_augmentation_gpu_batch_augmentations = 0.0
+
     for trace_file in trace_files:
         with open(trace_file) as f:
             trace_data = json.load(f)
@@ -249,7 +299,7 @@ def analyze_profiler_traces(trace_files: list[Path]) -> ProfilerMetrics:
             if "dur" in event:
                 total_memory_time += event["dur"] / 1000.0
 
-        # Extract custom profiler regions
+        # Extract custom profiler regions (Level 1)
         batch_aug_events = [e for e in events if e.get("name") == "gpu_batch_augmentations"]
         mixing_events = [e for e in events if e.get("name") == "gpu_selective_mixing"]
 
@@ -260,6 +310,55 @@ def analyze_profiler_traces(trace_files: list[Path]) -> ProfilerMetrics:
         for event in mixing_events:
             if "dur" in event:
                 total_mixing_time += event["dur"] / 1000.0
+
+        # Extract Level 2 profiler regions
+        # Dataloader components
+        for region_name, total_var in [
+            ("dataloader/io_wait", "total_dataloader_io_wait"),
+            ("dataloader/cpu_decode", "total_dataloader_cpu_decode"),
+            ("dataloader/preprocess_wait", "total_dataloader_preprocess_wait"),
+            ("dataloader/cpu_xform", "total_dataloader_cpu_xform"),
+        ]:
+            region_events = [e for e in events if e.get("name") == region_name]
+            for event in region_events:
+                if "dur" in event:
+                    locals()[total_var] += event["dur"] / 1000.0
+
+        # Model components
+        for region_name, total_var in [
+            ("model/stem", "total_model_stem"),
+            ("model/convnext_stage_0", "total_model_convnext_stage_0"),
+            ("model/convnext_stage_1", "total_model_convnext_stage_1"),
+            ("model/rope_stage_2", "total_model_rope_stage_2"),
+            ("model/rope_stage_3", "total_model_rope_stage_3"),
+            ("model/aggregation", "total_model_aggregation"),
+        ]:
+            region_events = [e for e in events if e.get("name") == region_name]
+            for event in region_events:
+                if "dur" in event:
+                    locals()[total_var] += event["dur"] / 1000.0
+
+        # Loss components
+        for region_name, total_var in [
+            ("loss/core_loss", "total_loss_core_loss"),
+            ("loss/masking", "total_loss_masking"),
+            ("loss/weighting", "total_loss_weighting"),
+            ("loss/aggregation", "total_loss_aggregation"),
+        ]:
+            region_events = [e for e in events if e.get("name") == region_name]
+            for event in region_events:
+                if "dur" in event:
+                    locals()[total_var] += event["dur"] / 1000.0
+
+        # Augmentation components (Level 2)
+        for region_name, total_var in [
+            ("augmentation/selective_mixing", "total_augmentation_selective_mixing"),
+            ("augmentation/gpu_batch_augmentations", "total_augmentation_gpu_batch_augmentations"),
+        ]:
+            region_events = [e for e in events if e.get("name") == region_name]
+            for event in region_events:
+                if "dur" in event:
+                    locals()[total_var] += event["dur"] / 1000.0
 
         # Calculate total trace duration
         if events:
@@ -278,6 +377,34 @@ def analyze_profiler_traces(trace_files: list[Path]) -> ProfilerMetrics:
     gpu_time_pct = (total_gpu_time / total_active_time * 100) if total_active_time > 0 else 0
     memory_bandwidth_pct = (total_memory_time / total_gpu_time * 100) if total_gpu_time > 0 else 0
 
+    # --- Level 3 Profiling: Analyze queue_stats.jsonl if present ---
+    run_dir = trace_files[0].parent.parent.parent if trace_files else None  # Heuristic to get run dir
+    queue_stats_files = list(run_dir.glob("**/queue_stats_rank*.jsonl")) if run_dir else []
+
+    median_batch_q = 0.0
+    median_preproc_q = 0.0
+    median_ready_q = 0.0
+    median_io_tput = 0.0
+    median_handoff_tput = 0.0
+    median_hit_rate = 0.0
+
+    if queue_stats_files:
+        try:
+            import pandas as pd
+
+            # For simplicity, we'll just analyze the first file found (usually rank 0)
+            df = pd.read_json(queue_stats_files[0], lines=True)
+            if not df.empty:
+                median_batch_q = df["batch_index_q"].median()
+                median_preproc_q = df["preprocess_q"].median()
+                median_ready_q = df["processed_batch_q"].median()
+                median_io_tput = df["io_throughput_it_s"].median()
+                median_handoff_tput = df["handoff_throughput_it_s"].median()
+                median_hit_rate = df["cache_hit_rate_pct"].median()
+        except Exception:
+            # Silently continue if pandas is not available or parsing fails
+            pass
+
     return ProfilerMetrics(
         avg_step_time_ms=avg_step_time,
         gpu_utilization_pct=gpu_utilization,
@@ -290,6 +417,30 @@ def analyze_profiler_traces(trace_files: list[Path]) -> ProfilerMetrics:
         steps_profiled=steps_profiled,
         batch_aug_time_ms=total_batch_aug_time,
         mixing_time_ms=total_mixing_time,
+        # Level 2 profiling metrics
+        dataloader_io_wait_ms=total_dataloader_io_wait,
+        dataloader_cpu_decode_ms=total_dataloader_cpu_decode,
+        dataloader_preprocess_wait_ms=total_dataloader_preprocess_wait,
+        dataloader_cpu_xform_ms=total_dataloader_cpu_xform,
+        model_stem_ms=total_model_stem,
+        model_convnext_stage_0_ms=total_model_convnext_stage_0,
+        model_convnext_stage_1_ms=total_model_convnext_stage_1,
+        model_rope_stage_2_ms=total_model_rope_stage_2,
+        model_rope_stage_3_ms=total_model_rope_stage_3,
+        model_aggregation_ms=total_model_aggregation,
+        loss_core_loss_ms=total_loss_core_loss,
+        loss_masking_ms=total_loss_masking,
+        loss_weighting_ms=total_loss_weighting,
+        loss_aggregation_ms=total_loss_aggregation,
+        augmentation_selective_mixing_ms=total_augmentation_selective_mixing,
+        augmentation_gpu_batch_augmentations_ms=total_augmentation_gpu_batch_augmentations,
+        # Level 3 profiling metrics
+        median_batch_index_q_depth=median_batch_q,
+        median_preprocess_q_depth=median_preproc_q,
+        median_processed_batch_q_depth=median_ready_q,
+        median_io_throughput_it_s=median_io_tput,
+        median_handoff_throughput_it_s=median_handoff_tput,
+        median_cache_hit_rate_pct=median_hit_rate,
     )
 
 
@@ -343,6 +494,79 @@ def format_pretty(summary: RunSummary) -> Panel:
             metrics_table.add_row("Mixing Time", f"{m.mixing_time_ms:.1f} ms")
 
         content.append(metrics_table)
+
+        # Add Level 2 Component Breakdown Table
+        component_table = Table(title="Component Breakdown (Level 2)", show_header=True)
+        component_table.add_column("Component", style="cyan")
+        component_table.add_column("Time (ms)", style="yellow")
+        component_table.add_column("% of Step", style="green")
+
+        # Helper function to add component rows
+        def add_component_row(name: str, time_ms: float):
+            if time_ms > 0:
+                pct_of_step = (time_ms / m.avg_step_time_ms * 100) if m.avg_step_time_ms > 0 else 0
+                component_table.add_row(name, f"{time_ms:.1f}", f"{pct_of_step:.1f}%")
+
+        # Dataloader components
+        add_component_row("Dataloader I/O Wait", m.dataloader_io_wait_ms)
+        add_component_row("Dataloader CPU Decode", m.dataloader_cpu_decode_ms)
+        add_component_row("Dataloader Preprocess Wait", m.dataloader_preprocess_wait_ms)
+        add_component_row("Dataloader CPU Transform", m.dataloader_cpu_xform_ms)
+
+        # Model components
+        add_component_row("Model Stem", m.model_stem_ms)
+        add_component_row("Model ConvNeXt Stage 0", m.model_convnext_stage_0_ms)
+        add_component_row("Model ConvNeXt Stage 1", m.model_convnext_stage_1_ms)
+        add_component_row("Model RoPE Stage 2", m.model_rope_stage_2_ms)
+        add_component_row("Model RoPE Stage 3", m.model_rope_stage_3_ms)
+        add_component_row("Model Aggregation", m.model_aggregation_ms)
+
+        # Loss components
+        add_component_row("Loss Core Loss", m.loss_core_loss_ms)
+        add_component_row("Loss Masking", m.loss_masking_ms)
+        add_component_row("Loss Weighting", m.loss_weighting_ms)
+        add_component_row("Loss Aggregation", m.loss_aggregation_ms)
+
+        # Augmentation components (Level 2)
+        add_component_row("Aug Selective Mixing", m.augmentation_selective_mixing_ms)
+        add_component_row("Aug GPU Batch Augmentations", m.augmentation_gpu_batch_augmentations_ms)
+
+        # Only add the table if it has content
+        if component_table.row_count > 0:
+            content.append(component_table)
+
+        # Add Level 3 Host-side Dataloader Metrics Table if any values are non-zero
+        l3_metrics_exist = any(
+            [
+                m.median_batch_index_q_depth > 0,
+                m.median_preprocess_q_depth > 0,
+                m.median_processed_batch_q_depth > 0,
+                m.median_io_throughput_it_s > 0,
+                m.median_handoff_throughput_it_s > 0,
+                m.median_cache_hit_rate_pct > 0,
+            ]
+        )
+
+        if l3_metrics_exist:
+            l3_table = Table(title="Host-side Dataloader Metrics (Level 3)", show_header=True)
+            l3_table.add_column("Metric", style="cyan")
+            l3_table.add_column("Value", style="yellow")
+
+            if m.median_batch_index_q_depth > 0:
+                l3_table.add_row("Median Batch Index Q Depth", f"{m.median_batch_index_q_depth:.1f}")
+            if m.median_preprocess_q_depth > 0:
+                l3_table.add_row("Median Preprocess Q Depth", f"{m.median_preprocess_q_depth:.1f}")
+            if m.median_processed_batch_q_depth > 0:
+                l3_table.add_row("Median Processed Batch Q Depth", f"{m.median_processed_batch_q_depth:.1f}")
+            if m.median_io_throughput_it_s > 0:
+                l3_table.add_row("Median I/O Throughput", f"{m.median_io_throughput_it_s:.1f} it/s")
+            if m.median_handoff_throughput_it_s > 0:
+                l3_table.add_row("Median Handoff Throughput", f"{m.median_handoff_throughput_it_s:.1f} it/s")
+            if m.median_cache_hit_rate_pct > 0:
+                l3_table.add_row("Median Cache Hit Rate", f"{m.median_cache_hit_rate_pct:.1f}%")
+
+            content.append(l3_table)
+
     elif summary.has_profiler_traces:
         content.append(f"[red]Error analyzing {summary.trace_files_count} trace files[/red]")
     else:
@@ -417,6 +641,70 @@ def format_markdown(summary: RunSummary) -> str:
                 lines.append(f"- **Batch Augmentations**: {m.batch_aug_time_ms:.1f} ms")
             if m.mixing_time_ms > 0:
                 lines.append(f"- **Selective Mixing**: {m.mixing_time_ms:.1f} ms")
+
+        # Add Level 2 Component Breakdown
+        component_data = []
+
+        # Helper to collect non-zero components
+        def add_component(name: str, time_ms: float):
+            if time_ms > 0:
+                pct_of_step = (time_ms / m.avg_step_time_ms * 100) if m.avg_step_time_ms > 0 else 0
+                component_data.append((name, time_ms, pct_of_step))
+
+        # Collect all component data
+        add_component("Dataloader I/O Wait", m.dataloader_io_wait_ms)
+        add_component("Dataloader CPU Decode", m.dataloader_cpu_decode_ms)
+        add_component("Dataloader Preprocess Wait", m.dataloader_preprocess_wait_ms)
+        add_component("Dataloader CPU Transform", m.dataloader_cpu_xform_ms)
+        add_component("Model Stem", m.model_stem_ms)
+        add_component("Model ConvNeXt Stage 0", m.model_convnext_stage_0_ms)
+        add_component("Model ConvNeXt Stage 1", m.model_convnext_stage_1_ms)
+        add_component("Model RoPE Stage 2", m.model_rope_stage_2_ms)
+        add_component("Model RoPE Stage 3", m.model_rope_stage_3_ms)
+        add_component("Model Aggregation", m.model_aggregation_ms)
+        add_component("Loss Core Loss", m.loss_core_loss_ms)
+        add_component("Loss Masking", m.loss_masking_ms)
+        add_component("Loss Weighting", m.loss_weighting_ms)
+        add_component("Loss Aggregation", m.loss_aggregation_ms)
+        add_component("Aug Selective Mixing", m.augmentation_selective_mixing_ms)
+        add_component("Aug GPU Batch Augmentations", m.augmentation_gpu_batch_augmentations_ms)
+
+        if component_data:
+            lines.extend(["", "### Component Breakdown (Level 2)", ""])
+            lines.append("| Component | Time (ms) | % of Step |")
+            lines.append("|-----------|-----------|-----------|")
+            for name, time_ms, pct_of_step in component_data:
+                lines.append(f"| {name} | {time_ms:.1f} | {pct_of_step:.1f}% |")
+
+        # Add Level 3 Host-side Dataloader Metrics if any values are non-zero
+        l3_metrics_exist = any(
+            [
+                m.median_batch_index_q_depth > 0,
+                m.median_preprocess_q_depth > 0,
+                m.median_processed_batch_q_depth > 0,
+                m.median_io_throughput_it_s > 0,
+                m.median_handoff_throughput_it_s > 0,
+                m.median_cache_hit_rate_pct > 0,
+            ]
+        )
+
+        if l3_metrics_exist:
+            lines.extend(["", "### Host-side Dataloader Metrics (Level 3)", ""])
+            lines.append("| Metric | Value |")
+            lines.append("|--------|-------|")
+
+            if m.median_batch_index_q_depth > 0:
+                lines.append(f"| Median Batch Index Q Depth | {m.median_batch_index_q_depth:.1f} |")
+            if m.median_preprocess_q_depth > 0:
+                lines.append(f"| Median Preprocess Q Depth | {m.median_preprocess_q_depth:.1f} |")
+            if m.median_processed_batch_q_depth > 0:
+                lines.append(f"| Median Processed Batch Q Depth | {m.median_processed_batch_q_depth:.1f} |")
+            if m.median_io_throughput_it_s > 0:
+                lines.append(f"| Median I/O Throughput | {m.median_io_throughput_it_s:.1f} it/s |")
+            if m.median_handoff_throughput_it_s > 0:
+                lines.append(f"| Median Handoff Throughput | {m.median_handoff_throughput_it_s:.1f} it/s |")
+            if m.median_cache_hit_rate_pct > 0:
+                lines.append(f"| Median Cache Hit Rate | {m.median_cache_hit_rate_pct:.1f}% |")
 
         lines.append("")
     elif summary.has_profiler_traces:

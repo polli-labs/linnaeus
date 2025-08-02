@@ -149,9 +149,7 @@ class ImageVerifier:
             if not sharded_path.exists():
                 flat_path = self.images_dir / filename
                 if flat_path.exists():
-                    self.logger.debug(
-                        f"Sharding enabled but file found in flat directory: {flat_path}"
-                    )
+                    self.logger.debug(f"Sharding enabled but file found in flat directory: {flat_path}")
                     return flat_path
             return sharded_path
         else:

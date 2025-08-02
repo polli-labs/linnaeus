@@ -34,7 +34,10 @@ RUN apt-get update && \
         python3.11-venv \
         python3-pip \
         curl \
-        ca-certificates && \
+        ca-certificates \
+        gcc \
+        g++ \
+        clang && \
     rm -rf /var/lib/apt/lists/*
 
 # Link python
@@ -85,22 +88,26 @@ RUN echo "Processing Flash Attention installation..." && \
 
 # Heavy Python dependencies
 RUN uv pip install \
-    numpy>=1.20 \
+    "numpy>=1.20" \
     pandas \
-    opencv-python-headless>=4.9.0 \
-    albumentations>=1.4.0 \
+    "opencv-python-headless>=4.9.0" \
+    "albumentations>=1.4.0" \
     matplotlib \
     Pillow \
     h5py \
     tqdm \
-    yacs>=0.1.8 \
+    "yacs>=0.1.8" \
     wandb \
     pyyaml \
     termcolor \
     rich \
-    polli-typus>=0.1.7 \
+    "polli-typus>=0.1.10" \
     huggingface-hub \
-    python-dateutil
+    python-dateutil \
+    "kornia>=0.8.1,<0.9" \
+    "triton>=2.1.0" \
+    tensorboard \
+    torch-tb-profiler
 
 #######################################
 # 2) base - slim runtime stage
@@ -115,11 +122,14 @@ COPY --from=builder /opt/venv /opt/venv
 # Set up environment
 ENV PATH="/opt/venv/bin:$PATH"
 ENV PYTHONPATH="/opt/venv/lib/python3.11/site-packages"
+ENV CC=gcc
+ENV CXX=g++
 
 # Install minimal runtime dependencies
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
         python3.11 \
+        python3.11-dev \
         git \
         curl \
         libglib2.0-0 \
@@ -132,7 +142,10 @@ RUN apt-get update && \
         nvtop \
         nano \
         rclone \
-        tini && \
+        tini \
+        gcc \
+        g++ \
+        libc6-dev && \
     rm -rf /var/lib/apt/lists/*
 
 # Link python

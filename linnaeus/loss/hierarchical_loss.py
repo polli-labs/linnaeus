@@ -17,6 +17,7 @@ from linnaeus.loss.gradient_weighting import GradientWeighting
 from linnaeus.loss.masking import apply_loss_masking
 from linnaeus.utils.debug_utils import check_debug_flag
 from linnaeus.utils.logging.logger import get_main_logger
+from linnaeus.utils.profiling_helpers import prof
 
 logger = get_main_logger()
 
@@ -126,7 +127,8 @@ def weighted_hierarchical_loss(
         # 1. Compute raw per-sample losses
         if rank == 0 and verbose_logging:
             log.debug("[HIERARCHICAL_LOSS] Step 1: Computing raw per-sample losses")
-        per_task_losses = compute_core_loss(outputs, targets, criteria, config)
+        with prof("loss/core_loss", level=2):
+            per_task_losses = compute_core_loss(outputs, targets, criteria, config)
 
         # Store the raw per-sample losses for null vs non-null metrics tracking
         raw_per_task_losses = {k: v.clone() for k, v in per_task_losses.items()}
@@ -143,135 +145,144 @@ def weighted_hierarchical_loss(
         if rank == 0 and verbose_logging:
             log.debug("[HIERARCHICAL_LOSS] Step 2: Applying null masking and class weighting")
 
-        # Add detailed debug logging for targets to diagnose null masking issues
-        debug_null_masking = False
-        force_mask_all_nulls = False
-        if config is not None:
-            debug_null_masking = getattr(config.DEBUG.LOSS, "NULL_MASKING", False)
-            force_mask_all_nulls = getattr(config.TRAIN, "PHASE1_MASK_NULL_LOSS", False)
+        with prof("loss/masking", level=2):
+            # Add detailed debug logging for targets to diagnose null masking issues
+            debug_null_masking = False
+            force_mask_all_nulls = False
+            if config is not None:
+                debug_null_masking = getattr(config.DEBUG.LOSS, "NULL_MASKING", False)
+                force_mask_all_nulls = getattr(config.TRAIN, "PHASE1_MASK_NULL_LOSS", False)
 
-        # If null masking debug is enabled, log at INFO level to ensure visibility even at default log levels
-        if rank == 0 and debug_null_masking:
-            log.info(f"[NULL_MASKING_DEBUG] Null masking debug enabled - Checking targets at step {current_step}")
+            # If null masking debug is enabled, log at INFO level to ensure visibility even at default log levels
+            if rank == 0 and debug_null_masking:
+                log.info(f"[NULL_MASKING_DEBUG] Null masking debug enabled - Checking targets at step {current_step}")
 
-            # Note any null masking configuration
-            null_mask_prob = ops_schedule.get_null_mask_prob(current_step) if not is_validation else 1.0
-            if null_mask_prob < 1.0:
-                log.info(f"[NULL_MASKING_DEBUG] Current null_mask_prob: {null_mask_prob:.4f}")
-                log.info("[NULL_MASKING_DEBUG] Use --log-level DEBUG for detailed diagnostics")
+                # Note any null masking configuration
+                null_mask_prob = ops_schedule.get_null_mask_prob(current_step) if not is_validation else 1.0
+                if null_mask_prob < 1.0:
+                    log.info(f"[NULL_MASKING_DEBUG] Current null_mask_prob: {null_mask_prob:.4f}")
+                    log.info("[NULL_MASKING_DEBUG] Use --log-level DEBUG for detailed diagnostics")
 
-            # Log Phase 1 mode status
+                # Log Phase 1 mode status
+                if force_mask_all_nulls and not is_validation:
+                    log.info("[NULL_MASKING_DEBUG] PHASE1_MASK_NULL_LOSS is enabled - will deterministically mask all nulls")
+
+                # Add detailed targets logging just before calling apply_loss_masking
+                log.debug("[DEBUG_NULL_MASKING_INPUT] Targets passed to apply_loss_masking:")
+                for task_key, tgt_tensor in targets.items():
+                    log.debug(f"  - Task {task_key}: shape={tgt_tensor.shape}, dtype={tgt_tensor.dtype}")
+                    # Print first 5 rows or fewer
+                    sample_rows = min(5, tgt_tensor.shape[0])
+                    log.debug(f"    Sample targets:\n{tgt_tensor[:sample_rows]}")
+                    # Specifically check for nulls at index 0
+                    if tgt_tensor.dim() == 1:
+                        null_check = (tgt_tensor == 0).sum().item()
+                        log.debug(f"    Nulls detected (hard labels == 0): {null_check}")
+                        # Always log a summary at INFO level
+                        log.info(f"[NULL_MASKING_DEBUG] Task {task_key}: {null_check}/{len(tgt_tensor)} nulls detected (hard labels)")
+                    else:
+                        null_check = (tgt_tensor[:, 0] > 0.5).sum().item()
+                        log.debug(f"    Nulls detected (one-hot index 0 > 0.5): {null_check}")
+                        # Always log a summary at INFO level
+                        log.info(f"[NULL_MASKING_DEBUG] Task {task_key}: {null_check}/{len(tgt_tensor)} nulls detected (one-hot index 0)")
+
+            # Create placeholder for losses after masking
+            masked_losses = {}
+            null_stats = {}
+
+            # 2A. Apply EITHER deterministic null masking (Phase 1) OR scheduled null masking
             if force_mask_all_nulls and not is_validation:
-                log.info("[NULL_MASKING_DEBUG] PHASE1_MASK_NULL_LOSS is enabled - will deterministically mask all nulls")
-
-            # Add detailed targets logging just before calling apply_loss_masking
-            log.debug("[DEBUG_NULL_MASKING_INPUT] Targets passed to apply_loss_masking:")
-            for task_key, tgt_tensor in targets.items():
-                log.debug(f"  - Task {task_key}: shape={tgt_tensor.shape}, dtype={tgt_tensor.dtype}")
-                # Print first 5 rows or fewer
-                sample_rows = min(5, tgt_tensor.shape[0])
-                log.debug(f"    Sample targets:\n{tgt_tensor[:sample_rows]}")
-                # Specifically check for nulls at index 0
-                if tgt_tensor.dim() == 1:
-                    null_check = (tgt_tensor == 0).sum().item()
-                    log.debug(f"    Nulls detected (hard labels == 0): {null_check}")
-                    # Always log a summary at INFO level
-                    log.info(f"[NULL_MASKING_DEBUG] Task {task_key}: {null_check}/{len(tgt_tensor)} nulls detected (hard labels)")
-                else:
-                    null_check = (tgt_tensor[:, 0] > 0.5).sum().item()
-                    log.debug(f"    Nulls detected (one-hot index 0 > 0.5): {null_check}")
-                    # Always log a summary at INFO level
-                    log.info(f"[NULL_MASKING_DEBUG] Task {task_key}: {null_check}/{len(tgt_tensor)} nulls detected (one-hot index 0)")
-
-        # Create placeholder for losses after masking
-        masked_losses = {}
-        null_stats = {}
-
-        # 2A. Apply EITHER deterministic null masking (Phase 1) OR scheduled null masking
-        if force_mask_all_nulls and not is_validation:
-            if rank == 0 and debug_null_masking:
-                log.debug(f"[PHASE1_MASK_LOSS] Applying deterministic null loss masking at step {current_step}.")
-
-            for task_key, loss_vec in per_task_losses.items():
-                target = targets[task_key]
-                # Create null mask (True where GT is null)
-                if target.dim() == 1:
-                    is_null_mask = target == 0
-                else:
-                    is_null_mask = target[:, 0] > 0.5
-
-                # Apply mask: Zero out loss where GT is null
-                masked_vec = loss_vec.clone() * (~is_null_mask).float()  # Multiply by 0.0 where null
-                masked_losses[task_key] = masked_vec
-
                 if rank == 0 and debug_null_masking:
-                    null_count = is_null_mask.sum().item()
-                    log.debug(f"[PHASE1_MASK_LOSS] Task {task_key}: Masked {null_count} null samples.")
-                    log.debug(f"  - Original mean loss: {loss_vec.mean().item():.4f}")
-                    log.debug(f"  - Masked mean loss:   {masked_vec.mean().item():.4f}")
+                    log.debug(f"[PHASE1_MASK_LOSS] Applying deterministic null loss masking at step {current_step}.")
 
-            # Set dummy null stats for consistency in logging structure
-            null_stats = {
-                "null_samples_total": 0,
-                "null_samples_included": 0,
-                "inclusion_percentage": 0.0,
-                "null_mask_prob": 0.0,
-                # "phase1_active": True # We will set this after the if/else block
-            }
+                for task_key, loss_vec in per_task_losses.items():
+                    target = targets[task_key]
+                    # Create null mask (True where GT is null)
+                    if target.dim() == 1:
+                        is_null_mask = target == 0
+                    else:
+                        is_null_mask = target[:, 0] > 0.5
 
-        else:
-            # Standard path: Use scheduled null masking (handles is_validation internally)
-            if rank == 0 and debug_null_masking:
-                log.debug(
-                    f"[PHASE1_MASK_LOSS] Applying SCHEDULED null loss masking at step {current_step} (is_validation={is_validation})."
-                )
+                    # Apply mask: Zero out loss where GT is null
+                    masked_vec = loss_vec.clone() * (~is_null_mask).float()  # Multiply by 0.0 where null
+                    masked_losses[task_key] = masked_vec
 
-            # Standard path - use apply_loss_masking
-            masked_losses, null_stats = apply_loss_masking(
-                per_task_losses, targets, ops_schedule, current_step, task_weighting.class_weights, is_validation, logger=log, config=config
-            )
-            # REMOVED: null_stats["phase1_active"] = False
+                    if rank == 0 and debug_null_masking:
+                        null_count = is_null_mask.sum().item()
+                        log.debug(f"[PHASE1_MASK_LOSS] Task {task_key}: Masked {null_count} null samples.")
+                        log.debug(f"  - Original mean loss: {loss_vec.mean().item():.4f}")
+                        log.debug(f"  - Masked mean loss:   {masked_vec.mean().item():.4f}")
 
-        # ---> ADD: Set the correct phase1_active status AFTER getting null_stats <---
-        null_stats["phase1_active"] = phase1_is_truly_active
-        # -------------------------------------------------------------------------
+                # Set dummy null stats for consistency in logging structure
+                null_stats = {
+                    "null_samples_total": 0,
+                    "null_samples_included": 0,
+                    "inclusion_percentage": 0.0,
+                    "null_mask_prob": 0.0,
+                    # "phase1_active": True # We will set this after the if/else block
+                }
 
-        if rank == 0 and verbose_logging:
-            # Log masked loss statistics
-            for task_key, loss in masked_losses.items():
-                log.debug(
-                    f"[HIERARCHICAL_LOSS] Masked loss for '{task_key}': shape={loss.shape}, "
-                    f"mean={loss.mean().item():.4f}, min={loss.min().item():.4f}, max={loss.max().item():.4f}"
-                )
-
-        # Apply class weighting if provided (after null masking)
-        losses_after_cw = masked_losses  # Default: no class weighting
-
-        if task_weighting.class_weights:  # Check if class weights are actually defined
-            # Check if class weighting should be applied for this phase (train/val)
-            try:
-                apply_cw = config.LOSS.GRAD_WEIGHTING.CLASS.TRAIN if not is_validation else config.LOSS.GRAD_WEIGHTING.CLASS.VAL
-            except AttributeError:  # More specific exception
-                apply_cw = True  # Default to applying class weighting if config not found
-
-            if apply_cw:
-                if rank == 0 and debug_null_masking:
-                    log.debug("[PHASE1_MASK_LOSS] Applying class weighting.")
-
-                from linnaeus.loss.masking import apply_class_weighting
-
-                losses_after_cw = apply_class_weighting(masked_losses, targets, task_weighting.class_weights)
             else:
+                # Standard path: Use scheduled null masking (handles is_validation internally)
                 if rank == 0 and debug_null_masking:
-                    log.debug(f"[PHASE1_MASK_LOSS] Skipping class weighting for this phase (is_validation={is_validation}).")
-        elif rank == 0 and debug_null_masking:
-            log.debug("[PHASE1_MASK_LOSS] No class weights configured.")
+                    log.debug(
+                        f"[PHASE1_MASK_LOSS] Applying SCHEDULED null loss masking at step {current_step} (is_validation={is_validation})."
+                    )
+
+                # Standard path - use apply_loss_masking
+                masked_losses, null_stats = apply_loss_masking(
+                    per_task_losses,
+                    targets,
+                    ops_schedule,
+                    current_step,
+                    task_weighting.class_weights,
+                    is_validation,
+                    logger=log,
+                    config=config,
+                )
+                # REMOVED: null_stats["phase1_active"] = False
+
+            # ---> ADD: Set the correct phase1_active status AFTER getting null_stats <---
+            null_stats["phase1_active"] = phase1_is_truly_active
+            # -------------------------------------------------------------------------
+
+            if rank == 0 and verbose_logging:
+                # Log masked loss statistics
+                for task_key, loss in masked_losses.items():
+                    log.debug(
+                        f"[HIERARCHICAL_LOSS] Masked loss for '{task_key}': shape={loss.shape}, "
+                        f"mean={loss.mean().item():.4f}, min={loss.min().item():.4f}, max={loss.max().item():.4f}"
+                    )
+
+            # Apply class weighting if provided (after null masking)
+            losses_after_cw = masked_losses  # Default: no class weighting
+
+            if task_weighting.class_weights:  # Check if class weights are actually defined
+                # Check if class weighting should be applied for this phase (train/val)
+                try:
+                    apply_cw = config.LOSS.GRAD_WEIGHTING.CLASS.TRAIN if not is_validation else config.LOSS.GRAD_WEIGHTING.CLASS.VAL
+                except AttributeError:  # More specific exception
+                    apply_cw = True  # Default to applying class weighting if config not found
+
+                if apply_cw:
+                    if rank == 0 and debug_null_masking:
+                        log.debug("[PHASE1_MASK_LOSS] Applying class weighting.")
+
+                    from linnaeus.loss.masking import apply_class_weighting
+
+                    losses_after_cw = apply_class_weighting(masked_losses, targets, task_weighting.class_weights)
+                else:
+                    if rank == 0 and debug_null_masking:
+                        log.debug(f"[PHASE1_MASK_LOSS] Skipping class weighting for this phase (is_validation={is_validation}).")
+            elif rank == 0 and debug_null_masking:
+                log.debug("[PHASE1_MASK_LOSS] No class weights configured.")
 
         # 3. Apply task-level weighting
         if rank == 0 and verbose_logging:
             log.debug("[HIERARCHICAL_LOSS] Step 3: Applying task-level weighting")
-        num_valid_samples_per_task = null_stats.get("num_valid_samples_per_task", {})
-        weighted_dict, task_weights = task_weighting(losses_after_cw, targets, num_valid_samples_per_task=num_valid_samples_per_task)
+        with prof("loss/weighting", level=2):
+            num_valid_samples_per_task = null_stats.get("num_valid_samples_per_task", {})
+            weighted_dict, task_weights = task_weighting(losses_after_cw, targets, num_valid_samples_per_task=num_valid_samples_per_task)
 
         if rank == 0 and verbose_logging:
             # Log task weights
@@ -283,23 +294,24 @@ def weighted_hierarchical_loss(
         # 4. Sum up the weighted task losses
         if rank == 0 and verbose_logging:
             log.debug("[HIERARCHICAL_LOSS] Step 4: Computing total loss")
-        total_loss = sum(weighted_dict.values())
+        with prof("loss/aggregation", level=2):
+            total_loss = sum(weighted_dict.values())
 
-        if rank == 0 and verbose_logging:
-            log.debug(f"[HIERARCHICAL_LOSS] Total loss: {total_loss.item():.4f}")
+            if rank == 0 and verbose_logging:
+                log.debug(f"[HIERARCHICAL_LOSS] Total loss: {total_loss.item():.4f}")
 
-        # Build a logging dictionary with string task keys
-        loss_components = {
-            "total": total_loss.item(),
-            "tasks": {task_key: per_task_losses[task_key].mean().item() for task_key in sorted_task_keys},
-            "masked_tasks": {task_key: losses_after_cw[task_key].mean().item() for task_key in sorted_task_keys},
-            "weighted_tasks": {task_key: weighted_dict[task_key].item() for task_key in sorted_task_keys},
-            # Add raw per-sample losses for null vs non-null metrics tracking
-            "raw_per_sample_losses": raw_per_task_losses,
-        }
+            # Build a logging dictionary with string task keys
+            loss_components = {
+                "total": total_loss.item(),
+                "tasks": {task_key: per_task_losses[task_key].mean().item() for task_key in sorted_task_keys},
+                "masked_tasks": {task_key: losses_after_cw[task_key].mean().item() for task_key in sorted_task_keys},
+                "weighted_tasks": {task_key: weighted_dict[task_key].item() for task_key in sorted_task_keys},
+                # Add raw per-sample losses for null vs non-null metrics tracking
+                "raw_per_sample_losses": raw_per_task_losses,
+            }
 
-        # Add null masking statistics to the loss components
-        loss_components["null_masking"] = null_stats
+            # Add null masking statistics to the loss components
+            loss_components["null_masking"] = null_stats
 
         if rank == 0 and verbose_logging:
             log.debug("[HIERARCHICAL_LOSS] Successfully completed hierarchical loss computation")
