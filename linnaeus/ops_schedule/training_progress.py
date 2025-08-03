@@ -5,8 +5,11 @@ This module implements a TrainingProgress class that tracks the current training
 (training vs different validation types) and ensures correct resumption after interruptions.
 """
 
+import logging
 from enum import Enum, auto
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 
 class TrainingStage(Enum):
@@ -141,6 +144,55 @@ class TrainingProgress:
         self.pending_validations = [TrainingStage[name] for name in state_dict["pending_validations"]]
         self.completed_validations = [TrainingStage[name] for name in state_dict["completed_validations"]]
         self.partial_validation_indices = state_dict["partial_validation_indices"]
+        
+        # Validate checkpoint consistency after loading
+        self.validate_checkpoint_consistency()
+
+    def validate_checkpoint_consistency(self) -> None:
+        """
+        Validate that the checkpoint state is internally consistent.
+        
+        Raises:
+            ValueError: If checkpoint state is invalid or corrupted
+        """
+        # Check for impossible states
+        if self.current_epoch > 0 and self.global_step == 0:
+            raise ValueError(
+                f"Invalid checkpoint state: epoch {self.current_epoch} with 0 global steps. "
+                f"This indicates a corrupted checkpoint. Expected approximately "
+                f"{self.expected_total_steps * self.current_epoch if self.expected_total_steps else 'unknown'} steps."
+            )
+        
+        # Check for negative values
+        if self.current_epoch < 0:
+            raise ValueError(f"Invalid checkpoint state: negative epoch {self.current_epoch}")
+        
+        if self.global_step < 0:
+            raise ValueError(f"Invalid checkpoint state: negative global_step {self.global_step}")
+        
+        # Check that completed validations make sense for the epoch
+        if self.current_epoch == 0 and self.completed_validations:
+            # It's possible to have completed validations at epoch 0 if we're resuming
+            # from a checkpoint saved after epoch 0 validation
+            logger.warning(
+                f"Checkpoint at epoch 0 has completed validations: {[v.name for v in self.completed_validations]}. "
+                "This may indicate resuming from an epoch boundary."
+            )
+        
+        # Check for validation stage with no pending validations
+        if self.current_stage.is_validation() and self.current_stage not in self.pending_validations:
+            # This is actually OK - we might be in the middle of a validation
+            logger.info(
+                f"Currently in {self.current_stage.name} stage, which is not in pending list. "
+                "This is normal if resuming mid-validation."
+            )
+        
+        # Warn about unusual states
+        if self.expected_total_steps and self.global_step > self.expected_total_steps * 2:
+            logger.warning(
+                f"Global step ({self.global_step}) is unusually high for expected total steps "
+                f"({self.expected_total_steps}). This may indicate extended training."
+            )
 
     def __str__(self) -> str:
         """Return a string representation of the training progress state."""
