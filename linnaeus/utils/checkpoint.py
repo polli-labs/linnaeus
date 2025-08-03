@@ -1,7 +1,10 @@
 # linnaeus/utils/checkpoint.py
 
+import hashlib
+import json
 import os
 import re
+from datetime import datetime
 from typing import Any
 
 import torch
@@ -11,11 +14,146 @@ from linnaeus.utils.backblaze import sync_to_backblaze
 from linnaeus.utils.checkpoint_utils import resolve_checkpoint_path
 from linnaeus.utils.debug_utils import check_debug_flag
 from linnaeus.utils.distributed import get_rank_safely
+from linnaeus.utils.git_utils import get_git_info
 from linnaeus.utils.logging.logger import get_main_logger
 from linnaeus.utils.metrics.tracker import Metric
 from linnaeus.utils.model_utils import relative_bias_interpolate
 
 logger = get_main_logger()
+
+
+def create_checkpoint_metadata(config, model, epoch: int, global_step: int) -> dict[str, Any]:
+    """
+    Create comprehensive metadata for checkpoint validation.
+    
+    Args:
+        config: Configuration object
+        model: The model being saved
+        epoch: Current epoch number
+        global_step: Current global step count
+    
+    Returns:
+        Dictionary containing checkpoint metadata
+    """
+    # Get git information
+    git_info = get_git_info()
+    
+    # Calculate model architecture hash
+    model_config_str = json.dumps({
+        "type": config.MODEL.TYPE,
+        "name": config.MODEL.NAME,
+        "img_size": config.MODEL.IMG_SIZE,
+        "in_chans": config.MODEL.IN_CHANS,
+        "extra_token_num": getattr(config.MODEL, "EXTRA_TOKEN_NUM", 0),
+    }, sort_keys=True)
+    architecture_hash = hashlib.sha256(model_config_str.encode()).hexdigest()
+    
+    # Count model parameters
+    num_parameters = sum(p.numel() for p in model.parameters())
+    
+    # Get dataset information
+    dataset_info = {
+        "name": config.DATA.DATASET.NAME,
+        "version": config.DATA.DATASET.get("VERSION", "unknown"),
+        "clade": config.DATA.DATASET.get("CLADE", "unknown"),
+        "task_keys": config.DATA.TASK_KEYS_H5,
+    }
+    
+    # Calculate expected steps per epoch
+    try:
+        dataset_size = config.DATA.get("TRAIN_DATASET_SIZE", 0)
+        batch_size = config.DATA.BATCH_SIZE
+        accumulation_steps = config.TRAIN.ACCUMULATION_STEPS
+        effective_batch_size = batch_size * accumulation_steps
+        expected_steps_per_epoch = dataset_size // effective_batch_size if dataset_size > 0 else 0
+    except (AttributeError, ZeroDivisionError):
+        expected_steps_per_epoch = 0
+    
+    metadata = {
+        "git": git_info,
+        "dataset": dataset_info,
+        "model": {
+            "type": config.MODEL.TYPE,
+            "name": config.MODEL.NAME,
+            "architecture_hash": architecture_hash,
+            "num_parameters": num_parameters,
+        },
+        "training": {
+            "epoch": epoch,
+            "global_step": global_step,
+            "expected_steps_per_epoch": expected_steps_per_epoch,
+            "phase": 1,  # TODO: Detect phase 2 if applicable
+            "batch_size": config.DATA.BATCH_SIZE,
+            "accumulation_steps": config.TRAIN.ACCUMULATION_STEPS,
+            "effective_batch_size": config.DATA.BATCH_SIZE * config.TRAIN.ACCUMULATION_STEPS,
+        },
+        "compatibility": {
+            "min_version": "0.3.0",  # Minimum linnaeus version required
+            "max_version": None,
+        },
+        "created_at": datetime.utcnow().isoformat() + "Z",
+    }
+    
+    return metadata
+
+
+def validate_checkpoint_metadata(checkpoint: dict[str, Any], config, strict: bool = False) -> tuple[bool, list[str]]:
+    """
+    Validate checkpoint metadata against current configuration.
+    
+    Args:
+        checkpoint: Loaded checkpoint dictionary
+        config: Current configuration
+        strict: If True, treat warnings as errors
+    
+    Returns:
+        Tuple of (is_valid, list_of_warnings)
+    """
+    warnings = []
+    metadata = checkpoint.get("metadata", {})
+    
+    if not metadata:
+        warnings.append("Checkpoint has no metadata - cannot validate compatibility")
+        return not strict, warnings
+    
+    # Check dataset compatibility
+    current_dataset = config.DATA.DATASET.NAME
+    ckpt_dataset = metadata.get("dataset", {}).get("name")
+    if ckpt_dataset and ckpt_dataset != current_dataset:
+        msg = f"Dataset mismatch: checkpoint trained on '{ckpt_dataset}', current config uses '{current_dataset}'"
+        if strict:
+            raise ValueError(msg)
+        warnings.append(msg)
+    
+    # Check model type compatibility
+    current_model_type = config.MODEL.TYPE
+    ckpt_model_type = metadata.get("model", {}).get("type")
+    if ckpt_model_type and ckpt_model_type != current_model_type:
+        raise ValueError(
+            f"Model type mismatch: checkpoint has '{ckpt_model_type}', current config has '{current_model_type}'"
+        )
+    
+    # Check git branch/commit
+    current_git = get_git_info()
+    ckpt_git = metadata.get("git", {})
+    
+    if ckpt_git.get("branch") and ckpt_git["branch"] != current_git["branch"]:
+        warnings.append(
+            f"Git branch mismatch: checkpoint from '{ckpt_git['branch']}', currently on '{current_git['branch']}'"
+        )
+    
+    if ckpt_git.get("commit") and ckpt_git["commit"] != current_git["commit"]:
+        warnings.append(
+            f"Git commit mismatch: checkpoint from {ckpt_git['commit'][:8]}, currently at {current_git['commit'][:8]}"
+        )
+    
+    if current_git.get("dirty"):
+        warnings.append("Working directory has uncommitted changes")
+    
+    # Check training state consistency (moved to training_progress.py)
+    # This is now handled by TrainingProgress.validate_checkpoint_consistency()
+    
+    return True, warnings
 
 
 def _clean_state_dict_keys(sd: dict[str, Any], model_is_ddp: bool, ckpt_has_module_prefix: bool) -> dict[str, Any]:
@@ -642,6 +780,21 @@ def load_checkpoint(config, model, optimizer, lr_scheduler, logger, preserve_sch
             checkpoint["model"] = checkpoint["state_dict_ema"]
         else:
             checkpoint["model"] = checkpoint
+    
+    # Validate checkpoint metadata
+    strict_loading = getattr(config.TRAIN, "STRICT_CHECKPOINT_LOADING", False)
+    try:
+        is_valid, warnings = validate_checkpoint_metadata(checkpoint, config, strict=strict_loading)
+        if warnings:
+            for warning in warnings:
+                logger.warning(f"[Checkpoint Validation] {warning}")
+        if not is_valid and strict_loading:
+            raise ValueError("Checkpoint validation failed in strict mode")
+    except ValueError as e:
+        logger.error(f"Checkpoint validation error: {e}")
+        if strict_loading:
+            raise
+        logger.warning("Continuing with checkpoint loading despite validation issues (strict mode disabled)")
 
     # Check if the checkpoint was saved from a DistributedDataParallel model
     # If so, remove the 'module.' prefix from all keys
@@ -857,6 +1010,9 @@ def save_checkpoint(config, epoch, model, metrics_tracker, optimizer, lr_schedul
     # DO NOT update or recalculate it here - it's managed by TrainingProgress.update_step
     current_global_step = training_progress.global_step if training_progress is not None else 0
 
+    # Create comprehensive metadata for validation
+    metadata = create_checkpoint_metadata(config, model, epoch, current_global_step)
+    
     # Gather state
     save_state = {
         "model": model.state_dict(),
@@ -865,6 +1021,7 @@ def save_checkpoint(config, epoch, model, metrics_tracker, optimizer, lr_schedul
         "epoch": epoch,
         "config": config,
         "iteration": current_global_step,  # Use correct global step as iteration
+        "metadata": metadata,  # Add metadata for validation
     }
 
     # Save the training progress state if provided
@@ -926,12 +1083,24 @@ def save_checkpoint(config, epoch, model, metrics_tracker, optimizer, lr_schedul
             logger.debug(f"[SAVE_CHECKPOINT PRE-SAVE Check] Error accessing/formatting metrics during logging: {e}", exc_info=True)
 
     # Save the checkpoint - no redundant check here as the caller should have already decided to save
-    save_path = os.path.join(config.ENV.OUTPUT.DIRS.CHECKPOINTS, f"ckpt_epoch_{epoch}.pth")
+    # Apply namespacing if enabled
+    if getattr(config.TRAIN, "CHECKPOINT_NAMESPACING", False):
+        git_info = metadata.get("git", {})
+        branch_name = git_info.get("branch", "unknown").replace("/", "_")  # Replace slashes for filesystem
+        commit_hash = git_info.get("commit", "unknown")[:8]
+        namespace = f"{branch_name}_{commit_hash}"
+        checkpoint_dir = os.path.join(config.ENV.OUTPUT.DIRS.CHECKPOINTS, namespace)
+        os.makedirs(checkpoint_dir, exist_ok=True)
+        logger.info(f"Using checkpoint namespace: {namespace}")
+    else:
+        checkpoint_dir = config.ENV.OUTPUT.DIRS.CHECKPOINTS
+    
+    save_path = os.path.join(checkpoint_dir, f"ckpt_epoch_{epoch}.pth")
     logger.info(f"Saving checkpoint to {save_path}")
     torch.save(save_state, save_path)
 
     # Also save the latest checkpoint for convenience
-    latest_save_path = os.path.join(config.ENV.OUTPUT.DIRS.CHECKPOINTS, "latest.pth")
+    latest_save_path = os.path.join(checkpoint_dir, "latest.pth")
     torch.save(save_state, latest_save_path)
 
     # Post-save metrics state check
@@ -1076,8 +1245,28 @@ def auto_resume_helper(output_dir, config=None):
 
     Args:
         output_dir: The directory to search for checkpoints
-        config: Optional configuration for debug flag checks
+        config: Optional configuration for debug flag checks and namespacing
     """
+    # Check if namespacing is enabled
+    if config and getattr(config.TRAIN, "CHECKPOINT_NAMESPACING", False):
+        # Look for checkpoints in the namespace directory
+        git_info = get_git_info()
+        branch_name = git_info.get("branch", "unknown").replace("/", "_")
+        commit_hash = git_info.get("commit", "unknown")[:8]
+        namespace = f"{branch_name}_{commit_hash}"
+        namespaced_dir = os.path.join(output_dir, namespace)
+        
+        if os.path.exists(namespaced_dir):
+            logger.info(f"Looking for checkpoints in namespace directory: {namespaced_dir}")
+            checkpoints = [ckpt for ckpt in os.listdir(namespaced_dir) if ckpt.endswith(".pth")]
+            if checkpoints:
+                latest_checkpoint = max(checkpoints, key=lambda ck: os.path.getmtime(os.path.join(namespaced_dir, ck)))
+                logger.info(f"Found checkpoint in namespace: {latest_checkpoint}")
+                return os.path.join(namespaced_dir, latest_checkpoint)
+        else:
+            logger.info(f"Namespace directory does not exist: {namespaced_dir}")
+    
+    # Fall back to looking in the main directory
     checkpoints = [ckpt for ckpt in os.listdir(output_dir) if ckpt.endswith(".pth")]
     logger.info(f"All checkpoints found in {output_dir}: {checkpoints}")
     if len(checkpoints) > 0:

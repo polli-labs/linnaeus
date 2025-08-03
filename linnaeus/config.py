@@ -572,6 +572,8 @@ _C.TRAIN.EPOCHS = 300  # Total number of training epochs
 _C.TRAIN.CLIP_GRAD = 5.0
 _C.TRAIN.ACCUMULATION_STEPS = 0
 _C.TRAIN.AUTO_RESUME = True
+_C.TRAIN.STRICT_CHECKPOINT_LOADING = False  # If True, reject checkpoints with metadata mismatches
+_C.TRAIN.CHECKPOINT_NAMESPACING = False  # If True, save checkpoints in branch/commit subdirectories
 _C.TRAIN.ALLOW_WANDB_VAL_CHANGE = True  # Allow small value changes when resuming wandb runs
 # Gradient checkpointing configuration (for memory efficiency)
 _C.TRAIN.GRADIENT_CHECKPOINTING = CN()
