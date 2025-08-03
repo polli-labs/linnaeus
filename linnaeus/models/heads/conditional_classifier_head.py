@@ -6,6 +6,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from linnaeus.utils.logging.logger import get_main_logger
+from linnaeus.utils.profiling_helpers import prof
 
 # Importing TaxonomyTree
 try:
@@ -161,35 +162,28 @@ class ConditionalClassifierHead(BaseHierarchicalHead):
 
         # 1. Compute base logits for all levels
         all_logits: dict[str, torch.Tensor] = {}
-        for task_key in self.task_keys:
-            if task_key not in self.level_classifiers:
-                raise RuntimeError(f"Missing classifier for task '{task_key}' in ConditionalClassifierHead.")
-            all_logits[task_key] = self.level_classifiers[task_key](x)
+        with prof("head/conditional/base_logits", level=3):
+            for task_key in self.task_keys:
+                if task_key not in self.level_classifiers:
+                    raise RuntimeError(f"Missing classifier for task '{task_key}' in ConditionalClassifierHead.")
+                all_logits[task_key] = self.level_classifiers[task_key](x)
 
         # 2. Apply conditional refinement (top-down)
-        refined_logits = all_logits.copy()  # Start with base logits
+        refined_logits = all_logits.copy()
+        with prof("head/conditional/refine", level=3):
+            for i in range(len(self.task_keys) - 1):
+                parent_task = self.task_keys[i]
+                child_task = self.task_keys[i + 1]
+                pair_key = f"{parent_task}_{child_task}"
 
-        for i in range(len(self.task_keys) - 1):
-            parent_task = self.task_keys[i]
-            child_task = self.task_keys[i + 1]
-            pair_key = f"{parent_task}_{child_task}"
-
-            matrix_buffer_name = f"hmatrix_{pair_key}"
-            if hasattr(self, matrix_buffer_name):
-                # Get parent routing probabilities using the *refined* logits from the previous step
-                parent_probs = self._compute_routing_probabilities(refined_logits[parent_task], parent_task)  # [B, num_parent_classes]
-
-                hierarchy_matrix = getattr(self, matrix_buffer_name)  # [num_parent, num_child]
-
-                # Calculate hierarchy weights (prior for children based on parents)
-                hierarchy_weights = torch.matmul(parent_probs, hierarchy_matrix)  # [B, num_child_classes]
-                hierarchy_weights = hierarchy_weights + 1e-10  # Epsilon for log stability
-
-                # Refine child logits: Logits = BaseLogits + LogPrior
-                # Use all_logits (base) here, as refinement is cumulative based on parent probs
-                refined_logits[child_task] = all_logits[child_task] + torch.log(hierarchy_weights)
-            # else: # No warning needed if matrix simply doesn't exist (sparse hierarchy)
-            # Logits remain as base_logits[child_task] via the initial copy
+                matrix_buffer_name = f"hmatrix_{pair_key}"
+                if hasattr(self, matrix_buffer_name):
+                    parent_probs = self._compute_routing_probabilities(refined_logits[parent_task], parent_task)
+                    hierarchy_matrix = getattr(self, matrix_buffer_name)
+                    hierarchy_weights = torch.matmul(parent_probs, hierarchy_matrix)
+                    hierarchy_weights = hierarchy_weights + 1e-10
+                    refined_logits[child_task] = all_logits[child_task] + torch.log(hierarchy_weights)
+                # else: remain as base logits
 
         # 3. Return only the logits for the primary task key
         if self.primary_task_key not in refined_logits:

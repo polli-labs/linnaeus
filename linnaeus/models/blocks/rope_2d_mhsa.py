@@ -14,6 +14,7 @@ import torch.utils.checkpoint
 from linnaeus.models.blocks.drop_path import DropPath  # E402: moved to top
 from linnaeus.models.blocks.mlp import Mlp  # E402: moved to top
 from linnaeus.utils.flash_attn_utils import is_flash_attn3_available  # E402: moved to top
+from linnaeus.utils.profiling_helpers import prof
 
 _flash_attn_func_impl = None
 _flash_attn_qkvpacked_func_impl = None  # For completeness if other code uses it
@@ -244,7 +245,7 @@ class RoPE2DAttention(nn.Module):
             if _is_flash_attn_v2_plus_available and _flash_attn_func_impl is not None:
                 try:
                     if not (hasattr(torch, "cuda") and torch.cuda.is_available()):
-                        logger.warning("Flash Attention selected but CUDA not available. Falling back.")
+                        self.logger.warning("Flash Attention selected but CUDA not available. Falling back.")
                     else:
                         device_cap = torch.cuda.get_device_capability()
 
@@ -354,22 +355,23 @@ class RoPE2DAttention(nn.Module):
 
     def _get_current_freqs_cis(self, H: int, W: int, device: torch.device) -> torch.Tensor:
         """Gets or recomputes freqs_cis based on current grid size."""
-        N_img = H * W
-        if self.rope_mixed:
-            # Needs coordinates for the current size
-            t_x, t_y = init_t_xy(W, H, device=device)
-            freqs_cis = compute_mixed_cis(self.freqs.to(device), t_x, t_y)  # Compute complex
-            return freqs_cis.to(torch.complex64)
-        else:
-            # Axial: Check if precomputed size matches
-            if N_img != self.freqs_cis.shape[0]:
-                self.logger.warning(f"RoPE Axial freqs size mismatch ({self.freqs_cis.shape[0]} vs {N_img}). Recomputing.")
-                # Recompute and update buffer (this might be slow if called often)
-                new_freqs_cis = self._precompute_axial_freqs_cis(10000.0).to(device)
-                self.register_buffer("freqs_cis", new_freqs_cis, persistent=False)
-                return new_freqs_cis
+        with prof("rope/get_current_freqs_cis", level=3):
+            N_img = H * W
+            if self.rope_mixed:
+                # Needs coordinates for the current size
+                t_x, t_y = init_t_xy(W, H, device=device)
+                freqs_cis = compute_mixed_cis(self.freqs.to(device), t_x, t_y)  # Compute complex
+                return freqs_cis.to(torch.complex64)
             else:
-                return self.freqs_cis.to(device)
+                # Axial: Check if precomputed size matches
+                if N_img != self.freqs_cis.shape[0]:
+                    self.logger.warning(f"RoPE Axial freqs size mismatch ({self.freqs_cis.shape[0]} vs {N_img}). Recomputing.")
+                    # Recompute and update buffer (this might be slow if called often)
+                    new_freqs_cis = self._precompute_axial_freqs_cis(10000.0).to(device)
+                    self.register_buffer("freqs_cis", new_freqs_cis, persistent=False)
+                    return new_freqs_cis
+                else:
+                    return self.freqs_cis.to(device)
 
     def forward(self, x: torch.Tensor, H: int, W: int) -> torch.Tensor:
         """Forward pass of RoPE attention."""
@@ -379,74 +381,82 @@ class RoPE2DAttention(nn.Module):
         assert N == N_img + N_extra, f"Input sequence length {N} != H*W+extra {N_img + N_extra}"
 
         # QKV projection
-        qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, self.head_dim).permute(2, 0, 3, 1, 4)
-        q, k, v = qkv.unbind(0)  # Shape: (B, num_heads, N, head_dim)
+        with prof("rope/qkv_projection", level=3):
+            qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, self.head_dim).permute(2, 0, 3, 1, 4)
+            q, k, v = qkv.unbind(0)  # Shape: (B, num_heads, N, head_dim)
 
         # Split extra tokens and image tokens
-        q_extra, q_img = q.split([N_extra, N_img], dim=2)
-        k_extra, k_img = k.split([N_extra, N_img], dim=2)
-        v_extra, v_img = v.split([N_extra, N_img], dim=2)
+        with prof("rope/split_tokens", level=3):
+            q_extra, q_img = q.split([N_extra, N_img], dim=2)
+            k_extra, k_img = k.split([N_extra, N_img], dim=2)
+            v_extra, v_img = v.split([N_extra, N_img], dim=2)
 
         # Compute RoPE frequencies (cis) based on current H, W
-        freqs_cis = self._get_current_freqs_cis(H, W, device=x.device)
+        with prof("rope/freqs_compute", level=3):
+            freqs_cis = self._get_current_freqs_cis(H, W, device=x.device)
 
         # Apply RoPE to image tokens only
-        q_img_rot, k_img_rot = apply_rotary_emb(q_img, k_img, freqs_cis)
+        with prof("rope/apply_rotary_emb", level=3):
+            q_img_rot, k_img_rot = apply_rotary_emb(q_img, k_img, freqs_cis)
 
         # Concatenate back
-        q_final = torch.cat([q_extra, q_img_rot], dim=2)
-        k_final = torch.cat([k_extra, k_img_rot], dim=2)
-        v_final = torch.cat([v_extra, v_img], dim=2)  # Use original v
+        with prof("rope/concat_tokens", level=3):
+            q_final = torch.cat([q_extra, q_img_rot], dim=2)
+            k_final = torch.cat([k_extra, k_img_rot], dim=2)
+            v_final = torch.cat([v_extra, v_img], dim=2)  # Use original v
 
         # Apply scaling
         q_final = q_final * self.scale
 
         # Use Flash Attention implementation if available and enabled
         if self.use_flash_attn_impl and q_final.is_cuda:
-            # Flash Attention expects inputs in [batch_size, seq_len, num_heads, head_dim]
-            # Reshape our inputs to [batch_size, seq_len, num_heads, head_dim]
-            q_final_perm = q_final.permute(0, 2, 1, 3)  # [B, N, H, D]
-            k_final_perm = k_final.permute(0, 2, 1, 3)  # [B, N, H, D]
-            v_final_perm = v_final.permute(0, 2, 1, 3)  # [B, N, H, D]
+            with prof("rope/flash_attention", level=3):
+                # Flash Attention expects inputs in [batch_size, seq_len, num_heads, head_dim]
+                # Reshape our inputs to [batch_size, seq_len, num_heads, head_dim]
+                q_final_perm = q_final.permute(0, 2, 1, 3)  # [B, N, H, D]
+                k_final_perm = k_final.permute(0, 2, 1, 3)  # [B, N, H, D]
+                v_final_perm = v_final.permute(0, 2, 1, 3)  # [B, N, H, D]
 
-            # *** START FIX ***
-            # Explicitly cast inputs to float16 for FlashAttention
-            input_dtype = torch.float16
-            # Optional: Check if bf16 is supported and preferred, but fp16 is safer baseline
-            # if torch.cuda.is_bf16_supported():
-            #     input_dtype = torch.bfloat16
+                # *** START FIX ***
+                # Explicitly cast inputs to float16 for FlashAttention
+                input_dtype = torch.float16
+                # Optional: Check if bf16 is supported and preferred, but fp16 is safer baseline
+                # if torch.cuda.is_bf16_supported():
+                #     input_dtype = torch.bfloat16
 
-            q_fa = q_final_perm.to(input_dtype)
-            k_fa = k_final_perm.to(input_dtype)
-            v_fa = v_final_perm.to(input_dtype)
+                q_fa = q_final_perm.to(input_dtype)
+                k_fa = k_final_perm.to(input_dtype)
+                v_fa = v_final_perm.to(input_dtype)
 
-            # Call flash_attn_func with casted tensors
-            # No need for autocast(enabled=False) context here
-            context = flash_attn_func(
-                q_fa,
-                k_fa,
-                v_fa,
-                dropout_p=self.attn_drop.p if self.training else 0.0,
-                softmax_scale=self.scale,  # Pass pre-computed scale
-                causal=False,
-            )
-            # *** END FIX ***
+                # Call flash_attn_func with casted tensors
+                # No need for autocast(enabled=False) context here
+                context = flash_attn_func(
+                    q_fa,
+                    k_fa,
+                    v_fa,
+                    dropout_p=self.attn_drop.p if self.training else 0.0,
+                    softmax_scale=self.scale,  # Pass pre-computed scale
+                    causal=False,
+                )
+                # *** END FIX ***
 
-            # Output shape is (B, N, num_heads, head_dim)
-            # Reshape to (B, N, C) - ensure output matches original dtype
-            out = context.permute(0, 2, 1, 3).to(x.dtype)  # Cast back to original dtype
+                # Output shape is (B, N, num_heads, head_dim)
+                # Reshape to (B, N, C) - ensure output matches original dtype
+                out = context.permute(0, 2, 1, 3).to(x.dtype)  # Cast back to original dtype
         else:
-            # Standard attention implementation
-            # Use float32 for attention calculation for stability
-            attn = q_final.float() @ k_final.float().transpose(-2, -1)  # [B, H, N, N]
-            attn = self.softmax(attn).type_as(v_final)  # Cast back to original dtype
-            attn = self.attn_drop(attn)
-            out = attn @ v_final  # [B, H, N, D]
+            with prof("rope/standard_attention", level=3):
+                # Standard attention implementation
+                # Use float32 for attention calculation for stability
+                attn = q_final.float() @ k_final.float().transpose(-2, -1)  # [B, H, N, N]
+                attn = self.softmax(attn).type_as(v_final)  # Cast back to original dtype
+                attn = self.attn_drop(attn)
+                out = attn @ v_final  # [B, H, N, D]
 
         # Output projection
-        out = out.transpose(1, 2).reshape(B, N, C)
-        out = self.proj(out)
-        out = self.proj_drop(out)
+        with prof("rope/output_projection", level=3):
+            out = out.transpose(1, 2).reshape(B, N, C)
+            out = self.proj(out)
+            out = self.proj_drop(out)
 
         return out
 
@@ -553,7 +563,8 @@ class RoPE2DMHSABlock(nn.Module):
         identity = x
 
         # --- Attention + Residual ---
-        x_norm1 = self.norm1(x)
+        with prof("rope_block/norm1", level=3):
+            x_norm1 = self.norm1(x)
         # Check if grid size changed unexpectedly - triggers recompute in attn if needed
         if (H, W) != self.img_grid_size:
             # Log only if size actually changed from expected block init size
@@ -563,30 +574,35 @@ class RoPE2DMHSABlock(nn.Module):
                 )
                 self._logged_grid_warning = (H, W)  # Log only once per size change
 
-        if use_checkpoint and self.training:
-            # self.logger.debug(f"[GC_INTERNAL RoPE Block] Applying CHECKPOINT to Attention")
-            attn_output = torch.utils.checkpoint.checkpoint(
-                self._attn_impl,
-                x_norm1,
-                H,
-                W,  # Pass current H, W
-                use_reentrant=False,
-                preserve_rng_state=True,
-            )
-        else:
-            attn_output = self._attn_impl(x_norm1, H, W)
+        with prof("rope_block/attn", level=3):
+            if use_checkpoint and self.training:
+                # self.logger.debug(f"[GC_INTERNAL RoPE Block] Applying CHECKPOINT to Attention")
+                attn_output = torch.utils.checkpoint.checkpoint(
+                    self._attn_impl,
+                    x_norm1,
+                    H,
+                    W,  # Pass current H, W
+                    use_reentrant=False,
+                    preserve_rng_state=True,
+                )
+            else:
+                attn_output = self._attn_impl(x_norm1, H, W)
 
-        x = identity + self.drop_path(attn_output)
+        with prof("rope_block/residual_attn", level=3):
+            x = identity + self.drop_path(attn_output)
 
         # --- MLP + Residual ---
         identity_mlp = x  # Store identity for the MLP residual
-        x_norm2 = self.norm2(x)
-        if use_checkpoint and self.training:
-            # logger.debug(f"[GC_INTERNAL RoPE Block] Applying CHECKPOINT to MLP")
-            mlp_output = torch.utils.checkpoint.checkpoint(self._mlp_impl, x_norm2, use_reentrant=False, preserve_rng_state=True)
-        else:
-            mlp_output = self._mlp_impl(x_norm2)
+        with prof("rope_block/norm2", level=3):
+            x_norm2 = self.norm2(x)
+        with prof("rope_block/mlp", level=3):
+            if use_checkpoint and self.training:
+                # logger.debug(f"[GC_INTERNAL RoPE Block] Applying CHECKPOINT to MLP")
+                mlp_output = torch.utils.checkpoint.checkpoint(self._mlp_impl, x_norm2, use_reentrant=False, preserve_rng_state=True)
+            else:
+                mlp_output = self._mlp_impl(x_norm2)
 
-        x = identity_mlp + self.drop_path(mlp_output)
+        with prof("rope_block/residual_mlp", level=3):
+            x = identity_mlp + self.drop_path(mlp_output)
 
         return x
