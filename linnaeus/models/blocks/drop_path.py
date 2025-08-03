@@ -4,6 +4,7 @@ import torch
 import torch.nn as nn
 
 from linnaeus.utils.logging.logger import get_main_logger
+from linnaeus.utils.profiling_helpers import prof
 
 logger = get_main_logger()
 
@@ -26,9 +27,11 @@ def drop_path(x: torch.Tensor, drop_prob: float = 0.0, training: bool = False) -
         return x
     keep_prob = 1 - drop_prob
     shape = (x.shape[0],) + (1,) * (x.ndim - 1)
-    random_tensor = keep_prob + torch.rand(shape, dtype=x.dtype, device=x.device)
-    random_tensor = random_tensor.floor()
-    output = x.div(keep_prob) * random_tensor
+    with prof("drop_path/rand", level=3):
+        random_tensor = keep_prob + torch.rand(shape, dtype=x.dtype, device=x.device)
+    with prof("drop_path/scale", level=3):
+        random_tensor = random_tensor.floor()
+        output = x.div(keep_prob) * random_tensor
     if torch.isnan(output).any():
         logger.warning("drop_path resulted in NaN values.")
     return output

@@ -6,6 +6,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from linnaeus.utils.logging.logger import get_main_logger
+from linnaeus.utils.profiling_helpers import prof
 
 # Importing TaxonomyTree
 try:
@@ -131,36 +132,28 @@ class HierarchicalSoftmaxHead(BaseHierarchicalHead):
 
         # 1. Compute base logits for each task level independently
         base_logits: dict[str, torch.Tensor] = {}
-        for task_key in self.task_keys:
-            if task_key not in self.task_classifiers:
-                # This should not happen if __init__ is correct
-                raise RuntimeError(f"Missing classifier for task '{task_key}' in HierarchicalSoftmaxHead.")
-            base_logits[task_key] = self.task_classifiers[task_key](x)
+        with prof("head/hsm/base_logits", level=3):
+            for task_key in self.task_keys:
+                if task_key not in self.task_classifiers:
+                    raise RuntimeError(f"Missing classifier for task '{task_key}' in HierarchicalSoftmaxHead.")
+                base_logits[task_key] = self.task_classifiers[task_key](x)
 
         # 2. Apply hierarchical structure to refine logits level by level (top-down)
-        refined_logits = base_logits.copy()  # Start with base logits
+        refined_logits = base_logits.copy()
+        with prof("head/hsm/refine", level=3):
+            for i in range(len(self.task_keys) - 1):
+                parent_task = self.task_keys[i]
+                child_task = self.task_keys[i + 1]
+                pair_key = f"{parent_task}_{child_task}"
 
-        for i in range(len(self.task_keys) - 1):
-            parent_task = self.task_keys[i]
-            child_task = self.task_keys[i + 1]
-            pair_key = f"{parent_task}_{child_task}"  # Key structure from tree method
-
-            matrix_buffer_name = f"hmatrix_{pair_key}"
-            if hasattr(self, matrix_buffer_name):
-                # Get parent probabilities (using potentially refined logits from previous step)
-                parent_probs = F.softmax(refined_logits[parent_task], dim=1)  # [B, num_parent]
-
-                hierarchy_matrix = getattr(self, matrix_buffer_name)  # [num_parent, num_child]
-
-                # Calculate prior probability for children based on parent probs
-                hierarchy_weights = torch.matmul(parent_probs, hierarchy_matrix)  # [B, num_child]
-                hierarchy_weights = hierarchy_weights + 1e-10  # Epsilon for log stability
-
-                # Refine child logits: Z_child_refined = Z_child_base + log(Prior)
-                refined_logits[child_task] = base_logits[child_task] + torch.log(hierarchy_weights)
-            # else: # No warning needed here if matrix simply doesn't exist (sparse hierarchy)
-            # logger.debug(f"No hierarchy matrix for {pair_key}, {child_task} logits remain unrefined by {parent_task}.")
-            # refined_logits[child_task] = base_logits[child_task] # Already copied
+                matrix_buffer_name = f"hmatrix_{pair_key}"
+                if hasattr(self, matrix_buffer_name):
+                    parent_probs = F.softmax(refined_logits[parent_task], dim=1)
+                    hierarchy_matrix = getattr(self, matrix_buffer_name)
+                    hierarchy_weights = torch.matmul(parent_probs, hierarchy_matrix)
+                    hierarchy_weights = hierarchy_weights + 1e-10
+                    refined_logits[child_task] = base_logits[child_task] + torch.log(hierarchy_weights)
+                # else: remain as base logits
 
         # 3. Return only the logits for the primary task key associated with this head instance
         if self.primary_task_key not in refined_logits:

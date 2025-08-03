@@ -4,6 +4,7 @@ import torch
 import torch.nn as nn
 
 from linnaeus.utils.logging.logger import get_main_logger
+from linnaeus.utils.profiling_helpers import prof
 
 logger = get_main_logger()
 
@@ -53,7 +54,9 @@ class Mlp(nn.Module):
         """
         x = self.fc1(x)
         x = self.act(x)
-        x = self.drop(x)
+        with prof("mlp/dropout1", level=3):
+            x = self.drop(x)
         x = self.fc2(x)
-        x = self.drop(x)
+        with prof("mlp/dropout2", level=3):
+            x = self.drop(x)
         return x

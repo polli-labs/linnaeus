@@ -14,6 +14,7 @@ import torch.utils.checkpoint
 # Assuming these utilities are available
 from linnaeus.models.blocks.drop_path import DropPath
 from linnaeus.utils.logging.logger import get_main_logger
+from linnaeus.utils.profiling_helpers import prof
 
 logger = get_main_logger()
 
@@ -65,17 +66,22 @@ class ConvNeXtBlock(nn.Module):
     def _forward_impl(self, x: torch.Tensor) -> torch.Tensor:
         """Core logic wrapped by checkpointing."""
         input_tensor = x
-        x = self.dwconv(x)
-        x = x.permute(0, 2, 3, 1)  # (N, C, H, W) -> (N, H, W, C)
-        x = self.norm(x)
+        with prof("convnext/dwconv", level=3):
+            x = self.dwconv(x)
+        with prof("convnext/nchw_to_nhwc", level=3):
+            x = x.permute(0, 2, 3, 1)  # (N, C, H, W) -> (N, H, W, C)
+        with prof("convnext/norm", level=3):
+            x = self.norm(x)
         x = self.pwconv1(x)
         x = self.act(x)
         x = self.pwconv2(x)
         if self.gamma is not None:
             x = self.gamma * x
-        x = x.permute(0, 3, 1, 2)  # (N, H, W, C) -> (N, C, H, W)
+        with prof("convnext/nhwc_to_nchw", level=3):
+            x = x.permute(0, 3, 1, 2)  # (N, H, W, C) -> (N, C, H, W)
 
-        x = input_tensor + self.drop_path(x)
+        with prof("convnext/residual", level=3):
+            x = input_tensor + self.drop_path(x)
         return x
 
     def forward(self, x: torch.Tensor, use_checkpoint: bool = False) -> torch.Tensor:

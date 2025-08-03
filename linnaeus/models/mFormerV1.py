@@ -80,7 +80,7 @@ class mFormerV1(BaseModel):
                 f"Example for ConvNeXt-S: [3, 3, 27, 3], not just [3, 3].\n"
                 f"This is a known YACS limitation - partial list overrides don't work as expected."
             )
-        
+
         if len(convnext_dims) != 4:
             raise ValueError(
                 f"CONVNEXT_STAGES.DIMS must have exactly 4 elements, got {len(convnext_dims)}.\n"
@@ -88,7 +88,7 @@ class mFormerV1(BaseModel):
                 f"Expected format for ConvNeXt-S: [96, 192, 384, 768].\n"
                 f"You must specify ALL 4 values due to YACS list replacement behavior."
             )
-        
+
         # Additional validation for RoPE with clearer error messages
         if len(rope_depths) != 2:
             raise ValueError(
@@ -97,7 +97,7 @@ class mFormerV1(BaseModel):
                 f"Expected format: [10, 2] or similar.\n"
                 f"You must specify both values due to YACS list replacement behavior."
             )
-        
+
         if len(rope_dims) != 2:
             raise ValueError(
                 f"ROPE_STAGES.DIMS must have exactly 2 elements, got {len(rope_dims)}.\n"
@@ -105,9 +105,9 @@ class mFormerV1(BaseModel):
                 f"Expected format: [384, 768] matching ConvNeXt dims[2:4].\n"
                 f"You must specify both values due to YACS list replacement behavior."
             )
-        
+
         # Log the actual configuration being used for debugging
-        logger.info(f"[mFormerV1] Configuration validated successfully:")
+        logger.info("[mFormerV1] Configuration validated successfully:")
         logger.info(f"  ConvNeXt depths: {convnext_depths} (using stages 0-1: {convnext_depths[:2]})")
         logger.info(f"  ConvNeXt dims: {convnext_dims}")
         logger.info(f"  RoPE depths: {rope_depths}")
@@ -436,27 +436,25 @@ class mFormerV1(BaseModel):
 
         # --- Stage 0 (ConvNeXt Stage 1) ---
         with prof("model/convnext_stage_0", level=2):
-            # Iterate through blocks in stages[0] (ModuleList)
             for blk in self.stages[0]:
                 x = blk(x, use_checkpoint=use_checkpoint)
-            # H, W remain unchanged as ConvNeXt blocks don't change resolution
-
-            x = self.downsample_layers[0](x)  # Downsample 1: D0->D1, H/8, W/8
+        with prof("model/downsample_0", level=2):
+            x = self.downsample_layers[0](x)  # D0->D1, H/8, W/8
             H, W = x.shape[2], x.shape[3]
 
         # --- Stage 1 (ConvNeXt Stage 2) ---
         with prof("model/convnext_stage_1", level=2):
-            # Iterate through blocks in stages[1] (ModuleList)
             for blk in self.stages[1]:
                 x = blk(x, use_checkpoint=use_checkpoint)
-            # H, W remain unchanged
-
-            x = self.downsample_layers[1](x)  # Downsample 2: D1->D2, H/16, W/16
+        with prof("model/downsample_1", level=2):
+            x = self.downsample_layers[1](x)  # D1->D2, H/16, W/16
             H, W = x.shape[2], x.shape[3]
 
         # --- RoPE Stage 3 ---
         with prof("model/rope_stage_3", level=2):
-            x = x.flatten(2).transpose(1, 2)  # (B, H*W, D2)
+            with prof("model/rope_stage_3/flatten", level=3):
+                x = x.flatten(2).transpose(1, 2)  # (B, H*W, D2)
+
             # Prepare extras_1
             cls_1 = self.cls_token_1.expand(B, -1, -1)  # (B, 1, D2)
             extras_1 = [cls_1]
@@ -465,20 +463,22 @@ class mFormerV1(BaseModel):
                     for comp_name, comp_info in self.meta_components.items():
                         start, end = (comp_info["offset"], comp_info["offset"] + comp_info["dim"])
                         meta_head = getattr(self, f"meta_{comp_name.lower()}_head_1")
-                        extras_1.append(meta_head(meta[:, start:end]).unsqueeze(1))
+                        with prof(f"model/rope_stage_3/meta_{comp_name}", level=3):
+                            extras_1.append(meta_head(meta[:, start:end]).unsqueeze(1))
                 else:  # Legacy
                     chunks = torch.split(meta, self.meta_dims, dim=1)
                     for i, c_ in enumerate(chunks):
                         meta_head_1 = getattr(self, f"meta_{i + 1}_head_1")
-                        extras_1.append(meta_head_1(c_).unsqueeze(1))
+                        with prof(f"model/rope_stage_3/meta_{i + 1}", level=3):
+                            extras_1.append(meta_head_1(c_).unsqueeze(1))
 
-            x = torch.cat([*extras_1, x], dim=1)  # (B, N_extra + H*W, D2)
+            with prof("model/rope_stage_3/concat", level=3):
+                x = torch.cat([*extras_1, x], dim=1)  # (B, N_extra + H*W, D2)
 
             # Apply RoPE Stage 3 blocks (index 2)
-            for blk in self.stages[2]:  # RoPE Stage 3 is index 2
+            for blk in self.stages[2]:
                 x = blk(x, H=H, W=W, use_checkpoint=use_checkpoint)
-            x = self.norm_1(x)  # Norm after stage 3
-            H, W = H, W  # Dimensions unchanged by RoPE blocks
+            x = self.norm_1(x)
 
         # Handle cls_1 path
         if not self.only_last_cls:
@@ -486,36 +486,41 @@ class mFormerV1(BaseModel):
             cls_1_final = self.cl_1_fc(cls_1_final)  # Project D2 -> D3
 
         # Prepare for Stage 4
-        x = x[:, self.extra_token_num :, :]  # Get patch tokens (B, H*W, D2)
-        x = x.transpose(1, 2).reshape(B, -1, H, W)  # (B, D2, H, W)
-        x = self.downsample_layers[2](x)  # Downsample 3: D2->D3, H/32, W/32
-        H, W = x.shape[2], x.shape[3]
-        x = x.flatten(2).transpose(1, 2)  # (B, H*W, D3)
+        x = x[:, self.extra_token_num :, :]  # (B, H*W, D2)
+        with prof("model/rope_stage_3/unflatten", level=3):
+            x = x.transpose(1, 2).reshape(B, -1, H, W)  # (B, D2, H, W)
+        with prof("model/downsample_2", level=2):
+            x = self.downsample_layers[2](x)  # D2->D3, H/32, W/32
+            H, W = x.shape[2], x.shape[3]
+        with prof("model/rope_stage_4/flatten", level=3):
+            x = x.flatten(2).transpose(1, 2)  # (B, H*W, D3)
 
         # --- RoPE Stage 4 ---
         with prof("model/rope_stage_4", level=2):
             # Prepare extras_2
-            cls_2 = self.cls_token_2.expand(B, -1, -1)  # (B, 1, D3)
+            cls_2 = self.cls_token_2.expand(B, -1, -1)
             extras_2 = [cls_2]
             if self.use_meta and meta is not None:
                 if hasattr(self, "meta_components") and self.meta_components:
                     for comp_name, comp_info in self.meta_components.items():
                         start, end = (comp_info["offset"], comp_info["offset"] + comp_info["dim"])
                         meta_head = getattr(self, f"meta_{comp_name.lower()}_head_2")
-                        extras_2.append(meta_head(meta[:, start:end]).unsqueeze(1))
+                        with prof(f"model/rope_stage_4/meta_{comp_name}", level=3):
+                            extras_2.append(meta_head(meta[:, start:end]).unsqueeze(1))
                 else:  # Legacy
                     chunks2 = torch.split(meta, self.meta_dims, dim=1)
                     for i, c_ in enumerate(chunks2):
                         meta_head_2 = getattr(self, f"meta_{i + 1}_head_2")
-                        extras_2.append(meta_head_2(c_).unsqueeze(1))
+                        with prof(f"model/rope_stage_4/meta_{i + 1}", level=3):
+                            extras_2.append(meta_head_2(c_).unsqueeze(1))
 
-            x = torch.cat([*extras_2, x], dim=1)  # (B, N_extra + H*W, D3)
+            with prof("model/rope_stage_4/concat", level=3):
+                x = torch.cat([*extras_2, x], dim=1)  # (B, N_extra + H*W, D3)
 
-            # Apply RoPE Stage 4 blocks (index 3)
-            for blk in self.stages[3]:  # RoPE Stage 4 is index 3
+            for blk in self.stages[3]:
                 x = blk(x, H=H, W=W, use_checkpoint=use_checkpoint)
-            x = self.norm_2(x)  # Norm after stage 4
-            cls_2_final = x[:, 0:1, :]  # (B, 1, D3)
+            x = self.norm_2(x)
+            cls_2_final = x[:, 0:1, :]
 
         # --- Aggregation ---
         with prof("model/aggregation", level=2):
@@ -540,6 +545,8 @@ class mFormerV1(BaseModel):
     ) -> dict[str, torch.Tensor]:
         """Forward pass including classification heads."""
         feats = self.forward_features(x, meta, force_checkpointing=force_checkpointing)
-        # Pass features to each classification head
-        out = {t: head(feats) for (t, head) in self.head.items()}
+        out: dict[str, torch.Tensor] = {}
+        for t, head in self.head.items():
+            with prof(f"head/{t}", level=2):
+                out[t] = head(feats)
         return out
