@@ -2,6 +2,28 @@
 
 ## [Unreleased]
 
+## [0.3.1] - 2025-08-03
+
+### Added
+- **YACS List Validation**: Comprehensive validation in mFormerV1 to detect and reject partial list configurations that could cause silent architectural misconfigurations.
+- **Checkpoint Validation System**: New checkpoint metadata and validation system to prevent checkpoint contamination:
+  - Git metadata tracking (branch, commit hash, dirty state)
+  - Namespace isolation for checkpoint paths
+  - Strict loading mode to reject mismatched checkpoints
+  - Consistency validation hooks
+- **YACS Warning Documentation**: Added YACS_WARNING.md documenting critical list replacement behavior that can cause 46.8% performance regressions.
+
+### Fixed
+- **Config Schema**: Added missing YACS schema entries:
+  - `DATA.DATASET_NAME` for dataset configuration
+  - `MODEL.AGGREGATION.PARAMETERS.in_channels` for aggregation layer
+  - `MODEL.CONVNEXT_STAGES` and `MODEL.ROPE_STAGES` for mFormerV1 architecture
+- **Flash Attention Config**: Removed `USE_FLASH_ATTN` config option - flash attention is now automatically used when available in the environment.
+- **P0 Optimization Bug**: Reverted accidental addition of 27 ConvNeXt blocks that caused 46.8% performance regression due to YACS list inheritance issue.
+
+### Changed
+- **mFormerV1 Validation**: Model now requires complete list specifications for ConvNeXt and RoPE stages, with clear error messages explaining YACS behavior.
+
 ## [0.3.0] - 2025-08-02
 
 ### Added
