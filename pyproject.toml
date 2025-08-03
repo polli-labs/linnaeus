@@ -1,6 +1,6 @@
 [project]
 name = "linnaeus"
-version = "0.3.0"
+version = "0.3.1"
 description = "Linnaeus: A deep learning framework for taxonomic recognition."
 ## Releasing
 # When releasing a new version:

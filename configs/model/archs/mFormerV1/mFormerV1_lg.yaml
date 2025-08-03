@@ -13,7 +13,7 @@ MODEL:
   ONLY_LAST_CLS: false
   EXTRA_TOKEN_NUM: 4 # 1 CLS + 3 meta components assumed
   IN_CHANS: 3
-  USE_FLASH_ATTN: true # Enable Flash Attention by default
+  # Flash attention is automatically used if present in environment
 
   CONVNEXT_STAGES:
     DEPTHS: [3, 3, 27, 3]   # Depths from ConvNeXt-L

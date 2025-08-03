@@ -193,6 +193,7 @@ _C.ENV.YAML_OVERRIDES = ""  # Optional path to YAML file with env var overrides
 # ----------------------------------------------------------------------------
 _C.DATA = CN()
 _C.DATA.FROM = ""
+_C.DATA.DATASET_NAME = ""  # Simplified dataset name for configs
 
 # Processor choice:
 # - We only support the vectorized processor (non-prefetching paths removed).
@@ -467,6 +468,20 @@ _C.MODEL.IMG_SIZE = 384
 _C.MODEL.IN_CHANS = 3
 # _C.MODEL.FIND_UNUSED_PARAMETERS removed - use DISTRIBUTED.DDP.find_unused_parameters instead
 
+# mFormerV1 Architecture-specific configurations
+_C.MODEL.CONVNEXT_STAGES = CN()
+_C.MODEL.CONVNEXT_STAGES.DEPTHS = [3, 3, 27, 3]  # ConvNeXt stage depths
+_C.MODEL.CONVNEXT_STAGES.DIMS = [96, 192, 384, 768]  # ConvNeXt stage dimensions
+_C.MODEL.CONVNEXT_STAGES.LAYER_SCALE_INIT_VALUE = 1e-6  # ConvNeXt layer scale initialization
+
+_C.MODEL.ROPE_STAGES = CN()
+_C.MODEL.ROPE_STAGES.DEPTHS = [5, 2]  # RoPE stage depths
+_C.MODEL.ROPE_STAGES.DIMS = [384, 768]  # RoPE stage dimensions (must match last 2 ConvNeXt dims)
+_C.MODEL.ROPE_STAGES.NUM_HEADS = [8, 8]  # Number of attention heads per RoPE stage
+_C.MODEL.ROPE_STAGES.MLP_RATIO = [4.0, 4.0]  # MLP expansion ratios per RoPE stage
+_C.MODEL.ROPE_STAGES.ROPE_THETA = 10000.0  # RoPE base frequency
+_C.MODEL.ROPE_STAGES.ROPE_MIXED = True  # Use mixed RoPE (interleaved vs block)
+
 # Feature Resolver Subconfig (e.g. LearnedProjection)
 _C.MODEL.FEATURE_RESOLVER = CN()
 _C.MODEL.FEATURE_RESOLVER.TYPE = "LearnedProjection"  # e.g. 'AdaptivePooling', 'Concatenation', 'Identity'
@@ -486,6 +501,7 @@ _C.MODEL.AGGREGATION.TYPE = "default"
 _C.MODEL.AGGREGATION.PARAMETERS = CN()
 _C.MODEL.AGGREGATION.PARAMETERS.NORM_LAYER = "LayerNorm"
 _C.MODEL.AGGREGATION.PARAMETERS.ACTIVATION = "GELU"
+_C.MODEL.AGGREGATION.PARAMETERS.in_channels = 2  # Default for dual-token aggregation
 
 # Classification subconfig
 _C.MODEL.CLASSIFICATION = CN()
@@ -572,6 +588,8 @@ _C.TRAIN.EPOCHS = 300  # Total number of training epochs
 _C.TRAIN.CLIP_GRAD = 5.0
 _C.TRAIN.ACCUMULATION_STEPS = 0
 _C.TRAIN.AUTO_RESUME = True
+_C.TRAIN.STRICT_CHECKPOINT_LOADING = False  # If True, reject checkpoints with metadata mismatches
+_C.TRAIN.CHECKPOINT_NAMESPACING = False  # If True, save checkpoints in branch/commit subdirectories
 _C.TRAIN.ALLOW_WANDB_VAL_CHANGE = True  # Allow small value changes when resuming wandb runs
 # Gradient checkpointing configuration (for memory efficiency)
 _C.TRAIN.GRADIENT_CHECKPOINTING = CN()

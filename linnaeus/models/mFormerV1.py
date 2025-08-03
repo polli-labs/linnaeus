@@ -70,12 +70,53 @@ class mFormerV1(BaseModel):
         if len(rope_depths) != 2 or len(rope_dims) != 2 or len(rope_num_heads) != 2 or len(rope_mlp_ratio) != 2:
             raise ValueError("ROPE_STAGES depths, dims, num_heads, mlp_ratio must be lists of length 2.")
 
-        # Flash Attention configuration
-        self.use_flash_attn = config.MODEL.get("USE_FLASH_ATTN", False)
-        if self.use_flash_attn:
-            logger.info("Flash Attention enabled in MODEL config")
-        else:
-            logger.info("Flash Attention disabled (default)")
+        # Comprehensive validation to prevent YACS list inheritance issues
+        # See work/bugs/inbox/P0/yacs_list_inheritance/ for details
+        if len(convnext_depths) != 4:
+            raise ValueError(
+                f"CONVNEXT_STAGES.DEPTHS must have exactly 4 elements, got {len(convnext_depths)}.\n"
+                f"Current value: {convnext_depths}\n"
+                f"Due to YACS list replacement behavior, you MUST specify all 4 values.\n"
+                f"Example for ConvNeXt-S: [3, 3, 27, 3], not just [3, 3].\n"
+                f"This is a known YACS limitation - partial list overrides don't work as expected."
+            )
+        
+        if len(convnext_dims) != 4:
+            raise ValueError(
+                f"CONVNEXT_STAGES.DIMS must have exactly 4 elements, got {len(convnext_dims)}.\n"
+                f"Current value: {convnext_dims}\n"
+                f"Expected format for ConvNeXt-S: [96, 192, 384, 768].\n"
+                f"You must specify ALL 4 values due to YACS list replacement behavior."
+            )
+        
+        # Additional validation for RoPE with clearer error messages
+        if len(rope_depths) != 2:
+            raise ValueError(
+                f"ROPE_STAGES.DEPTHS must have exactly 2 elements, got {len(rope_depths)}.\n"
+                f"Current value: {rope_depths}\n"
+                f"Expected format: [10, 2] or similar.\n"
+                f"You must specify both values due to YACS list replacement behavior."
+            )
+        
+        if len(rope_dims) != 2:
+            raise ValueError(
+                f"ROPE_STAGES.DIMS must have exactly 2 elements, got {len(rope_dims)}.\n"
+                f"Current value: {rope_dims}\n"
+                f"Expected format: [384, 768] matching ConvNeXt dims[2:4].\n"
+                f"You must specify both values due to YACS list replacement behavior."
+            )
+        
+        # Log the actual configuration being used for debugging
+        logger.info(f"[mFormerV1] Configuration validated successfully:")
+        logger.info(f"  ConvNeXt depths: {convnext_depths} (using stages 0-1: {convnext_depths[:2]})")
+        logger.info(f"  ConvNeXt dims: {convnext_dims}")
+        logger.info(f"  RoPE depths: {rope_depths}")
+        logger.info(f"  RoPE dims: {rope_dims}")
+        logger.info(f"  Model will use {sum(convnext_depths[:2])} ConvNeXt + {sum(rope_depths)} RoPE blocks")
+
+        # Flash Attention is automatically used if available in environment
+        self.use_flash_attn = True  # Always use flash attention if available
+        logger.info("Flash Attention will be used if available in environment")
 
         # --- Metadata Config ---
         self.use_meta = False
@@ -158,13 +199,13 @@ class mFormerV1(BaseModel):
         self.stages.append(nn.ModuleList(stage2_blocks))
         dp_idx += convnext_depths[1]
         # Apply Downsampler 2 (prepares for RoPE Stage 3)
+        current_dim = convnext_dims[2]
+        current_H, current_W = current_H // 2, current_W // 2  # Now H/16
         if rope_dims[0] != convnext_dims[2]:  # Dimension check
             raise ValueError(f"ConvNeXt dim[2] ({convnext_dims[2]}) must match RoPE dim[0] ({rope_dims[0]})")
-        current_dim = rope_dims[0]
-        current_H, current_W = current_H // 2, current_W // 2
         grid_size_stage3 = (current_H, current_W)
 
-        # RoPE Stage 3 (index 2 in config, uses rope_depths[0], rope_dims[0])
+        # RoPE Stage 3 (index 2 in stages list)
         stage3_blocks = []
         for i in range(rope_depths[0]):
             stage3_blocks.append(
@@ -194,7 +235,7 @@ class mFormerV1(BaseModel):
         current_H, current_W = current_H // 2, current_W // 2
         grid_size_stage4 = (current_H, current_W)
 
-        # RoPE Stage 4 (index 3 in config, uses rope_depths[1], rope_dims[1])
+        # RoPE Stage 4 (index 3 in stages list, uses rope_depths[1], rope_dims[1])
         stage4_blocks = []
         for i in range(rope_depths[1]):
             stage4_blocks.append(
@@ -353,7 +394,7 @@ class mFormerV1(BaseModel):
                     "downsample_layers.0",
                     "downsample_layers.1",
                 ],  # Downsampler index matters
-                "rope_stages": ["stages.2.", "stages.3.", "downsample_layers.2", "downsample_layers.3"],
+                "rope_stages": ["stages.2.", "stages.3.", "downsample_layers.2"],
                 "rope_freqs": ["freqs"],  # Learnable RoPE frequencies
             },
             "heads": {"classification_heads": ["head."], "meta_heads": ["meta_"]},
@@ -414,7 +455,7 @@ class mFormerV1(BaseModel):
             H, W = x.shape[2], x.shape[3]
 
         # --- RoPE Stage 3 ---
-        with prof("model/rope_stage_2", level=2):
+        with prof("model/rope_stage_3", level=2):
             x = x.flatten(2).transpose(1, 2)  # (B, H*W, D2)
             # Prepare extras_1
             cls_1 = self.cls_token_1.expand(B, -1, -1)  # (B, 1, D2)
@@ -433,8 +474,8 @@ class mFormerV1(BaseModel):
 
             x = torch.cat([*extras_1, x], dim=1)  # (B, N_extra + H*W, D2)
 
-            # Apply RoPE Stage 3 blocks
-            for blk in self.stages[2]:  # Stage 3 is index 2
+            # Apply RoPE Stage 3 blocks (index 2)
+            for blk in self.stages[2]:  # RoPE Stage 3 is index 2
                 x = blk(x, H=H, W=W, use_checkpoint=use_checkpoint)
             x = self.norm_1(x)  # Norm after stage 3
             H, W = H, W  # Dimensions unchanged by RoPE blocks
@@ -452,7 +493,7 @@ class mFormerV1(BaseModel):
         x = x.flatten(2).transpose(1, 2)  # (B, H*W, D3)
 
         # --- RoPE Stage 4 ---
-        with prof("model/rope_stage_3", level=2):
+        with prof("model/rope_stage_4", level=2):
             # Prepare extras_2
             cls_2 = self.cls_token_2.expand(B, -1, -1)  # (B, 1, D3)
             extras_2 = [cls_2]
@@ -470,8 +511,8 @@ class mFormerV1(BaseModel):
 
             x = torch.cat([*extras_2, x], dim=1)  # (B, N_extra + H*W, D3)
 
-            # Apply RoPE Stage 4 blocks
-            for blk in self.stages[3]:  # Stage 4 is index 3
+            # Apply RoPE Stage 4 blocks (index 3)
+            for blk in self.stages[3]:  # RoPE Stage 4 is index 3
                 x = blk(x, H=H, W=W, use_checkpoint=use_checkpoint)
             x = self.norm_2(x)  # Norm after stage 4
             cls_2_final = x[:, 0:1, :]  # (B, 1, D3)
