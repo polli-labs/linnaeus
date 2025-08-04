@@ -2,6 +2,21 @@
 
 ## [Unreleased]
 
+### Added
+- **Concurrent Profiling Trial Execution**: Integrated multi-GPU concurrent trial execution capabilities into `linnaeus-prof-run` for dramatically faster profiling workflows:
+  - Thread-safe GPU pool management with fair FIFO allocation
+  - Support for auto, manual, and round-robin GPU assignment strategies
+  - Configurable stagger delay to reduce initial resource contention
+  - `--max-concurrent` option to specify number of parallel trials
+  - `--gpu-assignment` option to control GPU allocation strategy
+  - Automatic resource cleanup and error isolation per trial
+  - Progress tracking with GPU utilization statistics
+- **GPU Pool Manager**: New `linnaeus.profiling.gpu_pool` module provides thread-safe GPU allocation and tracking for concurrent execution
+- **Concurrent Trial Executor**: New `linnaeus.profiling.concurrent_executor` module orchestrates parallel trial execution with proper isolation
+
+### Performance
+- **Profiling Speedup**: Concurrent execution provides near-linear speedup for multi-GPU systems (e.g., 2x speedup on 2 GPUs)
+
 ## [0.3.4] - 2025-08-04
 
 ### Fixed
