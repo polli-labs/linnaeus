@@ -481,6 +481,7 @@ _C.MODEL.ROPE_STAGES.NUM_HEADS = [8, 8]  # Number of attention heads per RoPE st
 _C.MODEL.ROPE_STAGES.MLP_RATIO = [4.0, 4.0]  # MLP expansion ratios per RoPE stage
 _C.MODEL.ROPE_STAGES.ROPE_THETA = 10000.0  # RoPE base frequency
 _C.MODEL.ROPE_STAGES.ROPE_MIXED = True  # Use mixed RoPE (interleaved vs block)
+_C.MODEL.ROPE_STAGES.USE_FLASH_ATTN = True  # Enable Flash Attention if available in environment
 
 # Feature Resolver Subconfig (e.g. LearnedProjection)
 _C.MODEL.FEATURE_RESOLVER = CN()
