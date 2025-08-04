@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+## [0.3.3] - 2025-08-04
+
+### Added
+- **Flash Attention Configuration Control**: Added `MODEL.ROPE_STAGES.USE_FLASH_ATTN` configuration parameter to explicitly control Flash Attention usage in mFormerV1. This enables proper ablation testing to verify Flash Attention performance impact.
+
+### Changed
+- **Flash Attention Default Behavior**: Flash Attention now defaults to True for backward compatibility but can be explicitly disabled via configuration for testing purposes.
+
 ## [0.3.1] - 2025-08-03
 
 ### Added

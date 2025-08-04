@@ -114,9 +114,14 @@ class mFormerV1(BaseModel):
         logger.info(f"  RoPE dims: {rope_dims}")
         logger.info(f"  Model will use {sum(convnext_depths[:2])} ConvNeXt + {sum(rope_depths)} RoPE blocks")
 
-        # Flash Attention is automatically used if available in environment
-        self.use_flash_attn = True  # Always use flash attention if available
-        logger.info("Flash Attention will be used if available in environment")
+        # Flash Attention configuration
+        # Check if explicitly configured via YACS, otherwise default to True for backward compatibility
+        if hasattr(rs, 'USE_FLASH_ATTN'):
+            self.use_flash_attn = rs.USE_FLASH_ATTN
+            logger.info(f"Flash Attention explicitly configured: {self.use_flash_attn}")
+        else:
+            self.use_flash_attn = True  # Default to True for backward compatibility
+            logger.info("Flash Attention defaulting to True (backward compatibility)")
 
         # --- Metadata Config ---
         self.use_meta = False
