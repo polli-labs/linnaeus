@@ -1,6 +1,6 @@
-# CLAUDE.md — Local Development Guide for the Linnaeus Codebase
+# CLAUDE.md - Local Development Guide for the Linnaeus Codebase
 
-## ⚠️ CRITICAL SECURITY RULES - READ FIRST ⚠️
+## CRITICAL SECURITY RULES - READ FIRST
 
 ### PUBLIC vs PRIVATE CONFIG SEPARATION
 
@@ -26,43 +26,101 @@
 
 **ENFORCEMENT**: Always use absolute paths to private configs in linnaeus-deployment repo. Never copy configs to linnaeus/configs/ for any reason.
 
+## Quick Reference: Complete Profiling Workflow
+
+1. **Design**: Create spec in `work/active/<feature>/spec.md`
+2. **Implement**: Make changes in `linnaeus`, commit and push
+3. **Configure**: `/prof_impl work/active/<feature>/spec.md` (creates trials in linnaeus-deployment)
+4. **Execute**: `/prof_run work/active/<feature>/spec.md --timeout 600` (runs trials concurrently)
+5. **Analyze**: `/prof_analyze work/active/<feature>/spec.md` (generates performance reports)
+
+**Key Points**:
+- All trial configs go in PRIVATE linnaeus-deployment repo
+- All results/analysis go in PUBLIC linnaeus/work/ directory
+- Always use concurrent execution (`--max-concurrent 2`) for 2x speedup
+- Always commit AND push before running trials
+
 ## Project Overview
 
-Linnaeus is a PyTorch‑based toolkit for hierarchical biodiversity classification.
+Linnaeus is a PyTorch-based toolkit for hierarchical biodiversity classification.
 
 The project is public on github at polli-labs/linnaeus. Deployment wrappers (for local and cloud testing, training) are all in the polli-labs/linnaeus-deployment repo, which, critically, is private. Local copies of both repos are on this machine, you have access to both in your workspace.
 
 ## Profiling Workflow (Preferred Development Pattern)
 
-We use a fully reproducible, high-observability job+runner model for development flows:
+We use a fully reproducible, high-observability job+runner model for development flows with **strict separation** between public code and private configurations.
+
+### Complete Workflow Summary:
+1. **Design**: Create spec in `linnaeus/work/active/<feature>/spec.md`
+2. **Implement**: Code changes in `linnaeus` repo, commit and push
+3. **Configure**: Use `/prof_impl` to prepare trials in `linnaeus-deployment` (private)
+4. **Execute**: Run `linnaeus-prof-run` with concurrent GPU execution (2x speedup)
+5. **Analyze**: Use `/prof_analyze` to generate performance reports
 
 ### Key Principles:
 1. **Reproducibility**: Each trial specified with exact git ref, commit hash, config, and env vars
 2. **Observability**: All parameters explicitly documented in JSONL format
 3. **Control**: Fine-grained control over experimental params and environment variables
 4. **Consistency**: Baseline constancy within branches with trial-by-trial configurability
+5. **Security**: All experiment configs stay in private repo (linnaeus-deployment)
+6. **Performance**: Concurrent GPU execution by default for ~2x speedup
+
+### Critical Directory Structure:
+
+#### Trial Fixtures (PRIVATE - linnaeus-deployment repo):
+```
+/home/caleb/repo/linnaeus-deployment/linnaeus_deploy/configs/experiments/tests/
+├── trial_template_MASTER.yaml          # Master template - copy for each version
+├── v035/                               # Target release version
+│   ├── trial_template_v035.yaml       # Version-specific base template
+│   └── test0/                         # Feature or test name
+│       └── trials.jsonl               # Trial definitions
+├── v040/
+│   ├── trial_template_v040.yaml
+│   └── mFormerV1-downsample/
+│       └── p0/
+│           └── trials.jsonl
+```
+
+#### Working Documents (PUBLIC - linnaeus repo):
+```
+/home/caleb/repo/linnaeus/work/
+├── active/                            # Active development work
+│   └── mFormerV1-downsample/         # Feature branch work
+│       └── p0/                       # Round/phase
+│           ├── spec.md               # Design spec
+│           └── results/              # Output from prof-run
+└── bugs/inbox/                       # Bug tracking
+    └── v015/                         # Version with issue
+        └── issue_analysis.md         # Must reference absolute paths to fixtures
+```
+
+**CRITICAL**: Working docs in `work/` MUST use absolute paths to reference fixtures in linnaeus-deployment!
 
 ### Workflow Components:
-1. **Trial Definition** (work/active/<version>/<round>/trials.jsonl)
-   - All trials use same template from work/fixtures/trial_template_MASTER.yaml
+1. **Trial Definition** (`/home/caleb/repo/linnaeus-deployment/linnaeus_deploy/configs/experiments/tests/<version>/<feature>/trials.jsonl`)
+   - All trials inherit from version-specific template in same directory tree
    - Differences expressed via --opts and env_yaml parameters only
-   - DEBUG.PROFILER settings identical across trials for fair comparison
+   - Container paths (`/configs/...`) map to linnaeus-deployment at runtime
 
 2. **Docker-based Execution**
    - Spin up per-job containers with specified branch/commit
    - Pull linnaeus from source at container startup
    - **Critical**: Must commit AND push branches before running trials
 
-3. **Profiling Runner** (linnaeus-prof-run)
+3. **Profiling Runner** (linnaeus-prof-run) - Now with concurrent execution by default!
    - Automated trial orchestration with template substitution
+   - Multi-GPU concurrent execution for ~2x speedup
    - Environment variable integration via scenario files
    - Intelligent error handling and retry logic
 
 ### Example Trial Definition:
 ```jsonl
-{"name": "v015a_baseline", "config_file": "/home/caleb/repo/linnaeus-deployment/linnaeus_deploy/configs/experiments/tests/trial_template_v015.yaml", "git_ref": "main", "commit_hash": "6e34cee...", "env_yaml": "/home/caleb/repo/linnaeus-deployment/linnaeus_deploy/configs/env_vars/single_gpu_workstation.yaml", "opts": ["EXPERIMENT.NAME", "aves_mFormerV1_md_115e_v015a_baseline", "EXPERIMENT.CODE_VERSION", "main_v0.1.4"]}
-{"name": "v015a_optimized", "config_file": "/home/caleb/repo/linnaeus-deployment/linnaeus_deploy/configs/experiments/tests/trial_template_v015.yaml", "git_ref": "v0.1.5", "commit_hash": "9573bd9...", "env_yaml": "/home/caleb/repo/linnaeus-deployment/linnaeus_deploy/configs/env_vars/single_gpu_workstation.yaml", "opts": ["EXPERIMENT.NAME", "aves_mFormerV1_md_115e_v015a_optimized", "EXPERIMENT.CODE_VERSION", "v0.1.5a"]}
+{"name": "v040_baseline", "config_file": "/configs/experiments/tests/v040/trial_template_v040.yaml", "git_ref": "main", "commit_hash": "6e34cee", "env_yaml": "/configs/env_vars/single_gpu_workstation.yaml", "env": {"TORCH_DISTRIBUTED_DEBUG": "OFF"}, "opts": ["EXPERIMENT.NAME", "aves_mFormerV1_md_v040_baseline", "EXPERIMENT.CODE_VERSION", "main_6e34cee"]}
+{"name": "v040_optimized", "config_file": "/configs/experiments/tests/v040/trial_template_v040.yaml", "git_ref": "experiment/feature-branch", "commit_hash": "9573bd9", "env_yaml": "/configs/env_vars/single_gpu_workstation.yaml", "env": {"TORCH_DISTRIBUTED_DEBUG": "OFF"}, "opts": ["EXPERIMENT.NAME", "aves_mFormerV1_md_v040_optimized", "EXPERIMENT.CODE_VERSION", "exp_9573bd9"]}
 ```
+
+**Note**: Paths in trials.jsonl use container mount points (`/configs/...`) which map to `/home/caleb/repo/linnaeus-deployment/linnaeus_deploy/configs/...` on host.
 
 ## Common Development Commands
 
@@ -72,101 +130,90 @@ We use a fully reproducible, high-observability job+runner model for development
 - NEVER save experiment configs in the linnaeus repo. Only example and model arch configs are allowed in the public repo.
 - ALWAYS use linnaeus-deployment/linnaeus_deploy/configs/ for ALL experiment/trial/profiling configs
 - ALWAYS push commits immediately after committing when working on feature branches (not main). Use `git push origin <branch-name>` or `git push -u origin <branch-name>` for first push.
-- work/ is untracked. You can use it for scratch work and for any non-public work. We organize our work like `work/active/<second part of branch name>`, typically there is a spec file there that we are iterating on. more substantial branches are often split into multiple subdirs under there. 
-  - bugs are in `work/bugs/inbox`. some branches are also currently in there but that is not a good practice, going forward we will put branch work dirs under work/active.
+- work/ is untracked. You can use it for scratch work and for any non-public work.
 
-### 2  Common Local Commands
+### Work Organization:
 
-#### 2.1  Environment
+1. **Bug/Issue Tracking** (`work/bugs/inbox/`):
+   - All bugs and issues flow through the tracker system
+   - Use `/file_issue` command or describe issues naturally
+   - Issues are auto-triaged by priority (P0-P3)
+   - GitHub-migration ready format
+   - Move to `work/closed/` after PR merge
+   - Must include context (project, git worktree) for non-main branches
+
+2. **Active Development** (`work/active/`):
+   - Complex iterative experimental workflows (e.g., optimization)
+   - Structure: `work/active/<feature-name>/`
+   - Contains specs, hypotheses, analyses, trial results
+   - Actionable code changes from here should flow through issue tracker
+   - Always reference the git branch/worktree context
+
+3. **Issue Filing**:
+   ```bash
+   # Use the Claude command
+   /file_issue "The validation is triggering too early"
+   
+   # Or with explicit type/priority
+   /file_issue bug P0 "Config breaks" "YACS inheritance issue"
+   ```
+
+### 2  Common Local Commands
+
+#### 2.1  Environment
 
 python -m venv .venv     # first time only
 source .venv/bin/activate
 
-#### 2.2  Training (local, single‑GPU)
+#### 2.2  Training (local, single-GPU)
 
 python -m linnaeus.main \
   --cfg configs/experiments/examples/aves_smoke.yaml \
   --opts TRAIN.EPOCHS 1 DEBUG.PROFILER.ENABLED False
 
-#### 2.3  Modern Profiling / Trial Orchestration  :rocket:
+#### 2.3  Modern Profiling / Trial Orchestration
 
-Stop editing docker‑compose files by hand.
-Use the two dedicated slash commands which wrap the orchestration script stored in linnaeus‑deployment/tools/profiling:
+Complete workflow for performance optimization with concurrent GPU execution:
 
-##### 1) Implement spec + generate baseline/opt trials.jsonl
-./.claude/commands/prof_impl work/active/shared_hybrid_img_dir/v016a_spec.md
+##### Step 1: Implement spec + prepare trial configurations
+```
+/prof_impl work/active/mFormerV1-downsample/spec.md
+```
+This creates trial configurations in linnaeus-deployment (private repo).
 
-##### 2) Launch both trials under Docker Compose, timeout after 5 min each
-./.claude/commands/prof_run  work/active/shared_hybrid_img_dir/v016a_spec.md --timeout 300
+##### Step 2: Execute trials with concurrent GPU support (2x speedup)
+```
+/prof_run work/active/mFormerV1-downsample/spec.md --timeout 600
+```
+This runs baseline and optimized trials concurrently on separate GPUs.
 
-Behind the scenes this:
-	1.	Checks out the correct Git refs (baseline vs. feature branch)
-	2.	Re‑writes a temporary docker-compose.yml per trial
-	3.	Streams logs & captures debug_log_rank0.txt on failure
-	4.	Produces summary.json ready for /prof_analyze
-Note that those are claude slash commands-- not scripts, you can't run them directly, but you can read them and then gather required info to execute the test (or whatever) it is you need to do.
+##### Step 3: Analyze results
+```
+/prof_analyze work/active/mFormerV1-downsample/spec.md
+```
+This generates comprehensive performance reports.
 
-**For manual execution**, use the installed CLI directly:
+**Behind the scenes**:
+- Trials are defined in: `/home/caleb/repo/linnaeus-deployment/linnaeus_deploy/configs/experiments/tests/<version>/<feature>/trials.jsonl`
+- Docker templates from: `/home/caleb/repo/linnaeus-deployment/linnaeus_deploy/docker/runtime/profiling/blade/templates/`
+- Results saved to: `/home/caleb/repo/linnaeus/work/active/<feature>/results/`
+- Concurrent execution allocates GPUs automatically for ~2x speedup
+
+**For manual execution**, use the installed CLI directly with concurrent execution (default):
 ```bash
-# Run profiling trials with the installed CLI
+# Run profiling trials with concurrent execution (2x speedup on 2 GPUs)
 linnaeus-prof-run \
-  --trial-params-file work/active/v016/v016a/trials.jsonl \
-  --output-dir work/active/v016/v016a/results \
-  --compose-template work/fixtures/docker-compose.template.yml \
-  --timeout 300 \
-  --capture-debug-logs
+  --trial-params-file /home/caleb/repo/linnaeus-deployment/linnaeus_deploy/configs/experiments/tests/v040/feature-name/trials.jsonl \
+  --output-dir /home/caleb/repo/linnaeus/work/active/feature-name/results \
+  --compose-template /home/caleb/repo/linnaeus-deployment/linnaeus_deploy/docker/runtime/profiling/blade/templates/docker-compose.template.yml \
+  --timeout 600 \
+  --capture-debug-logs \
+  --max-concurrent 2 \
+  --gpu-assignment auto \
+  --stagger-delay 10
 ```
 
-##### 3) Set up a wrapper script for a round of trials
-
-Example from branch v0.1.5, revision d:
-
-```example trial wrapper
-#!/bin/bash
-
-# v015d Final Vectorization Profiling Trials (Stable)
-# Tests the complete end-to-end vectorization of selective mixing
-# Uses steps 81-90 and 101-110 for stable measurements
-
-echo "=� Starting v015d Final Vectorization Profiling Trials (Stable)"
-echo "=============================================================="
-echo "Baseline: v0.1.5a (9573bd9) vs Optimized: v0.1.5d (a25fa94)"
-echo "Profiling: Steps 81-90 and 101-110 (20 total steps)"
-echo ""
-echo "Expected improvements:"
-echo "  - Selective mixing: 120ms � <50ms per step (-60%)"
-echo "  - Kernel count: 1,800 � <900 per step (-50%)"
-echo "  - Overall step time: 1,120ms � <1,050ms (-7%)"
-
-# Create output directory  
-mkdir -p /home/caleb/repo/linnaeus/work/bugs/inbox/v015/v015d/v015d_results_stable
-
-# Run trials with stable profiling schedule
-PYTHONPATH=/home/caleb/repo/linnaeus-deployment uv run --python 3.10 \
-  /home/caleb/repo/linnaeus-deployment/tools/profiling/run_profiling_trials.py \
-  --trial-params-file /home/caleb/repo/linnaeus/work/bugs/inbox/v015/v015d/v015d_trials_stable.jsonl \
-  --output-dir /home/caleb/repo/linnaeus/work/bugs/inbox/v015/v015d/v015d_results_stable \
-  --compose-template /home/caleb/repo/linnaeus-deployment/tools/profiling/docker-compose.template.yml \
-  --timeout 320 \
-  --capture-debug-logs
-
-echo ""
-echo " v015d stable trials completed. Results saved to:"
-echo "   /home/caleb/repo/linnaeus/work/bugs/inbox/v015/v015d/v015d_results_stable/"
-echo ""
-echo "=
- To analyze results:"
-echo "   cd /home/caleb/repo/linnaeus"
-echo "   source .venv/bin/activate"  
-echo "   python -m linnaeus.profiling.cli diff \\"
-echo "     /datasets/modelWorkshop/mFormerV1/linnaeus-dev/aves_mFormerV1/aves_mFormerV1_md_115e_v015a_baseline_stable \\"
-echo "     /datasets/modelWorkshop/mFormerV1/linnaeus-dev/aves_mFormerV1/aves_mFormerV1_md_115e_v015d_optimized_stable \\"
-echo "     --output-format md --save /home/caleb/repo/linnaeus/work/bugs/inbox/v015/v015d/v015d_results_stable/comparison.md"
-
-
-# Note: baseline trial skipped (already done), but the jsonl looks like:
-### // skip (already done) {"name": "v015a_baseline_stable", "config_file": "/configs/experiments/tests/v015_trials/trial_template_v015.yaml", "git_ref": "v0.1.5", "commit_hash": "9573bd97e0bcf3638e7a8544e21cd8329e6acb35", "extra_deps": ["kornia>=0.8.1,<0.9"], "opts": ["EXPERIMENT.NAME", "aves_mFormerV1_md_115e_v015a_baseline_stable", "EXPERIMENT.CODE_VERSION", "v0.1.5a", "DEBUG.PROFILER.SYNC_PROFILING", "True", "DEBUG.PROFILER.SCHEDULE", "[77, 3, 10, 2]"]}
-```
+**Note**: For complex multi-round profiling campaigns, you can create wrapper scripts that orchestrate multiple trial runs with different configurations.
 
 ## Architecture Overview
 
@@ -209,7 +256,44 @@ echo "     --output-format md --save /home/caleb/repo/linnaeus/work/bugs/inbox/v
 
 ## Docker Testing and Debugging Guidelines
 
-You should almost always use the run_profiling_trials.py script to run trials (see `/home/caleb/repo/linnaeus-deployment/tools/profiling`). Extra instructions are in the .claude/commands/prof_run file. This requires that you create a jsonl according to the examples in the .claude/commands/prof_impl (also in `/home/caleb/repo/linnaeus-deployment/tools/profiling/<README.md/trials.example.jsonl`), inheriting from a template (see `/home/caleb/repo/linnaeus-deployment/linnaeus_deploy/configs/experiments/tests/trial_template_MASTER.yaml`, you must create a new one for each branch, stored in `/home/caleb/repo/linnaeus-deployment/linnaeus_deploy/configs/experiments/tests/<branch_name or target version formatted like v016>`). trials are defined by the --opts passed in the jsonl on top of the template.
+### Quick Start: Running Profiling Trials
+
+**IMPORTANT**: Always use concurrent execution for ~2x speedup on our dual-GPU system.
+
+```bash
+# From linnaeus repo
+cd /home/caleb/repo/linnaeus
+source .venv/bin/activate
+
+# Run trials concurrently on 2 GPUs (default)
+linnaeus-prof-run \
+  --trial-params-file /home/caleb/repo/linnaeus-deployment/linnaeus_deploy/configs/experiments/tests/v040/feature-name/trials.jsonl \
+  --output-dir /home/caleb/repo/linnaeus/work/active/feature-name/results \
+  --compose-template /home/caleb/repo/linnaeus-deployment/linnaeus_deploy/docker/runtime/profiling/blade/templates/docker-compose.template.yml \
+  --timeout 600 \
+  --max-concurrent 2 \
+  --gpu-assignment auto \
+  --stagger-delay 10 \
+  --capture-debug-logs
+```
+
+### Manual Trial Setup Process (if not using /prof_impl):
+
+1. **Create version-specific template** in linnaeus-deployment (private repo):
+   ```bash
+   cd /home/caleb/repo/linnaeus-deployment
+   cp linnaeus_deploy/configs/experiments/tests/trial_template_MASTER.yaml \
+      linnaeus_deploy/configs/experiments/tests/v040/trial_template_v040.yaml
+   # Edit template to use amphibia dataset for faster iteration
+   ```
+
+2. **Create trials.jsonl** with baseline and optimized configurations:
+   ```bash
+   mkdir -p linnaeus_deploy/configs/experiments/tests/v040/feature-name/
+   # Create trials.jsonl with exact commit hashes and proper opts
+   ```
+
+**Remember**: All trial configs stay in linnaeus-deployment (private), results go to linnaeus/work/ (public).
 
 ### Trial Management Best Practices:
 1. **Git Hygiene**: Always commit AND push branches before running trials (containers pull from remote)
@@ -217,6 +301,8 @@ You should almost always use the run_profiling_trials.py script to run trials (s
 3. **Environment Variables**: Use scenario files (env_yaml) for hardware-specific settings
 4. **Debugging**: Capture debug logs with --capture-debug-logs for failed trials
 5. **Organization**: Keep all trials for a branch in one jsonl file for investigative debugging
+6. **Concurrent Execution**: Always use `--max-concurrent 2` for optimal performance
+7. **Timeout Settings**: Use minimum 600s (10 min) for meaningful profiling data
 
 ### Testing Training Runs
 - **Always use 3+ minute timeout** when testing docker compose training runs to verify training steps actually run
