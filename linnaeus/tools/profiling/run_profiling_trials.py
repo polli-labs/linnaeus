@@ -130,7 +130,6 @@ def modify_compose_file(template_data: dict[str, Any], trial: dict[str, Any], ou
     """Modifies the docker-compose data using template substitution."""
     data = yaml.safe_load(yaml.dump(template_data))  # Deep copy
     service = data["services"][DOCKER_SERVICE_NAME]
-    command_str = service["command"]
 
     # Extract trial parameters
     git_ref = trial.get("git_ref", "main")
@@ -161,35 +160,66 @@ def modify_compose_file(template_data: dict[str, Any], trial: dict[str, Any], ou
         service["image"] = service["image"].replace("${IMAGE_TAG:-ampere-0.3.2}", docker_tag)
         service["image"] = service["image"].replace("{{LINNAEUS_TAG}}", docker_tag)
     
-    # Perform template substitutions
-    command_str = command_str.replace("{{GIT_REF}}", git_ref)
-    command_str = command_str.replace("{{COMMIT_HASH}}", commit_hash or "")
-    command_str = command_str.replace("{{COMMIT_RESET_CMD}}", commit_reset_cmd)
-    command_str = command_str.replace("{{CONFIG_FILE}}", config_file)
-    command_str = command_str.replace("{{OPTS_STRING}}", opts_string)
-
-    # Add extra dependencies at the beginning
-    extra_deps = trial.get("extra_deps") or trial.get("extra_pip_installs")  # Support both for backward compatibility
-    if extra_deps:
-        install_cmd = f"uv pip install {' '.join(shlex.quote(p) for p in extra_deps)} && "
-        # Insert after the initial `bash -c "` line.
-        command_str = command_str.replace('bash -c "', f'bash -c "{install_cmd}')
-
-    service["command"] = command_str
+    # Handle command field - it might be a list or string
+    command = service.get("command")
+    if isinstance(command, list):
+        # Find the shell script part and do replacements
+        for i, cmd_part in enumerate(command):
+            if isinstance(cmd_part, str) and "{{" in cmd_part:
+                command[i] = cmd_part.replace("{{GIT_REF}}", git_ref)
+                command[i] = command[i].replace("{{COMMIT_HASH}}", commit_hash or "")
+                command[i] = command[i].replace("{{COMMIT_RESET_CMD}}", commit_reset_cmd)
+                command[i] = command[i].replace("{{CONFIG_FILE}}", config_file)
+                # For opts, we need to properly quote list values
+                quoted_opts = []
+                for opt in opts:
+                    opt_str = str(opt)
+                    # If it looks like a list or contains spaces, quote it
+                    if opt_str.startswith('[') or ' ' in opt_str:
+                        quoted_opts.append(shlex.quote(opt_str))
+                    else:
+                        quoted_opts.append(opt_str)
+                command[i] = command[i].replace("{{OPTS}}", " ".join(quoted_opts))
+    else:
+        # Legacy string format
+        command_str = command
+        command_str = command_str.replace("{{GIT_REF}}", git_ref)
+        command_str = command_str.replace("{{COMMIT_HASH}}", commit_hash or "")
+        command_str = command_str.replace("{{COMMIT_RESET_CMD}}", commit_reset_cmd)
+        command_str = command_str.replace("{{CONFIG_FILE}}", config_file)
+        command_str = command_str.replace("{{OPTS_STRING}}", opts_string)
+        service["command"] = command_str
 
     # Handle environment variables
-    # Add env_file directive if env_yaml is specified
-    if env_yaml:
-        if "env_file" not in service:
-            service["env_file"] = []
-        service["env_file"].append(env_yaml)
+    if "environment" not in service:
+        service["environment"] = []
     
+    # Load env_yaml and inject variables directly
+    if env_yaml:
+        # Map container path to host path
+        if isinstance(env_yaml, list):
+            console.print(f"[red]Error: env_yaml is a list, expected string: {env_yaml}[/red]")
+            env_yaml = env_yaml[0] if env_yaml else None
+        if env_yaml:
+            host_env_path = env_yaml.replace("/configs/", "/home/caleb/repo/linnaeus-deployment/linnaeus_deploy/configs/")
+            if Path(host_env_path).exists():
+                with open(host_env_path, 'r') as f:
+                    env_data = yaml.safe_load(f)
+                    # Flatten nested structure if present
+                    for key, value in env_data.items():
+                        if isinstance(value, dict):
+                            # Handle nested env vars (e.g., profiling: {TORCH_PROFILER_LEVEL: 2})
+                            for sub_key, sub_value in value.items():
+                                service["environment"].append(f"{sub_key}={sub_value}")
+                        else:
+                            service["environment"].append(f"{key}={value}")
+            else:
+                console.print(f"[yellow]Warning: env_yaml file not found: {host_env_path}[/yellow]")
+
     # Apply any direct environment overrides
     if env_overrides:
-        if "environment" not in service:
-            service["environment"] = []
         for key, value in env_overrides.items():
-            # Check if this env var already exists
+            # Check if this env var already exists and update it
             found = False
             for i, env in enumerate(service["environment"]):
                 if isinstance(env, str) and env.startswith(f"{key}="):
@@ -210,7 +240,6 @@ def modify_compose_file(template_data: dict[str, Any], trial: dict[str, Any], ou
     
     # Parse back to dict
     data = yaml.safe_load(yaml_str)
-    
     return data
 
 

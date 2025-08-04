@@ -95,6 +95,7 @@ class ConcurrentTrialExecutor:
         try:
             # Modify compose data for this trial
             if modify_compose_fn:
+                logger.info(f"Calling modify_compose_fn for trial: {trial}")
                 compose_data = modify_compose_fn(template_data, trial)
             else:
                 compose_data = template_data.copy()
@@ -182,13 +183,16 @@ class ConcurrentTrialExecutor:
             }
             
         except Exception as e:
+            import traceback
             logger.error(f"Error running trial {trial_name}: {e}")
+            logger.error(f"Traceback: {traceback.format_exc()}")
             result = {
                 'name': trial_name,
                 'status': 'error',
                 'gpu_id': gpu_id,
                 'elapsed_time': time.time() - start_time,
-                'error': str(e)
+                'error': str(e),
+                'traceback': traceback.format_exc()
             }
             
         finally:
