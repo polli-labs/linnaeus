@@ -178,8 +178,6 @@ def modify_compose_file(template_data: dict[str, Any], trial: dict[str, Any], ou
     service["command"] = command_str
 
     # Handle environment variables
-    env_vars_str = ""
-    
     # Add env_file directive if env_yaml is specified
     if env_yaml:
         if "env_file" not in service:
@@ -201,14 +199,14 @@ def modify_compose_file(template_data: dict[str, Any], trial: dict[str, Any], ou
             if not found:
                 service["environment"].append(f"{key}={value}")
     
-    # Handle template substitution for ENV_VARS placeholder
+    # Handle template substitutions
     # Convert the entire YAML back to string to handle substitutions
     yaml_str = yaml.dump(data)
     yaml_str = yaml_str.replace("{{LINNAEUS_TAG}}", docker_tag)
     yaml_str = yaml_str.replace("{{TRIAL_NAME}}", trial.get("name", "unnamed"))
     yaml_str = yaml_str.replace("{{GPU_RANK}}", str(trial.get("gpu_rank", 0)))
     yaml_str = yaml_str.replace("{{OUTPUT_DIR}}", str(Path(output_dir).absolute()))
-    yaml_str = yaml_str.replace("{{ENV_VARS}}", env_vars_str)
+    yaml_str = yaml_str.replace("{{OPTS}}", " ".join(str(o) for o in opts))
     
     # Parse back to dict
     data = yaml.safe_load(yaml_str)
