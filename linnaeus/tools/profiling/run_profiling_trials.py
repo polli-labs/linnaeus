@@ -126,7 +126,7 @@ Trial JSONL format:
     return parser.parse_args()
 
 
-def modify_compose_file(template_data: dict[str, Any], trial: dict[str, Any]) -> dict[str, Any]:
+def modify_compose_file(template_data: dict[str, Any], trial: dict[str, Any], output_dir: str = "") -> dict[str, Any]:
     """Modifies the docker-compose data using template substitution."""
     data = yaml.safe_load(yaml.dump(template_data))  # Deep copy
     service = data["services"][DOCKER_SERVICE_NAME]
@@ -150,6 +150,17 @@ def modify_compose_file(template_data: dict[str, Any], trial: dict[str, Any]) ->
     if opts:
         opts_string = " --opts " + " ".join(str(o) for o in opts)
 
+    # Get Docker tag
+    docker_tag = trial.get("docker_tag")
+    if not docker_tag:
+        # Default to latest available tag for the branch
+        docker_tag = "ampere-0.3.5" if git_ref == "feature/concurrent-profiling-v035" else "ampere-0.3.4"
+    
+    # Update image tag if present
+    if "image" in service:
+        service["image"] = service["image"].replace("${IMAGE_TAG:-ampere-0.3.2}", docker_tag)
+        service["image"] = service["image"].replace("{{LINNAEUS_TAG}}", docker_tag)
+    
     # Perform template substitutions
     command_str = command_str.replace("{{GIT_REF}}", git_ref)
     command_str = command_str.replace("{{COMMIT_HASH}}", commit_hash or "")
@@ -167,19 +178,41 @@ def modify_compose_file(template_data: dict[str, Any], trial: dict[str, Any]) ->
     service["command"] = command_str
 
     # Handle environment variables
+    env_vars_str = ""
+    
+    # Add env_file directive if env_yaml is specified
     if env_yaml:
-        # Add env_file directive if env_yaml is specified
         if "env_file" not in service:
             service["env_file"] = []
         service["env_file"].append(env_yaml)
-
+    
     # Apply any direct environment overrides
     if env_overrides:
         if "environment" not in service:
             service["environment"] = []
         for key, value in env_overrides.items():
-            service["environment"].append(f"{key}={value}")
-
+            # Check if this env var already exists
+            found = False
+            for i, env in enumerate(service["environment"]):
+                if isinstance(env, str) and env.startswith(f"{key}="):
+                    service["environment"][i] = f"{key}={value}"
+                    found = True
+                    break
+            if not found:
+                service["environment"].append(f"{key}={value}")
+    
+    # Handle template substitution for ENV_VARS placeholder
+    # Convert the entire YAML back to string to handle substitutions
+    yaml_str = yaml.dump(data)
+    yaml_str = yaml_str.replace("{{LINNAEUS_TAG}}", docker_tag)
+    yaml_str = yaml_str.replace("{{TRIAL_NAME}}", trial.get("name", "unnamed"))
+    yaml_str = yaml_str.replace("{{GPU_RANK}}", str(trial.get("gpu_rank", 0)))
+    yaml_str = yaml_str.replace("{{OUTPUT_DIR}}", str(Path(output_dir).absolute()))
+    yaml_str = yaml_str.replace("{{ENV_VARS}}", env_vars_str)
+    
+    # Parse back to dict
+    data = yaml.safe_load(yaml_str)
+    
     return data
 
 
@@ -342,7 +375,7 @@ def run_trials_concurrent(
     
     # Define compose modification function
     def modify_compose_fn(template: Dict[str, Any], trial: Dict[str, Any]) -> Dict[str, Any]:
-        return modify_compose_file(template, trial)
+        return modify_compose_file(template, trial, str(output_dir))
     
     # Run trials concurrently
     results = executor.run_trials_concurrent(
@@ -375,7 +408,7 @@ def run_trial(
     console.print(f"\n[bold blue]Running trial: {trial_name}[/bold blue]")
 
     # Create temporary compose file
-    compose_data = modify_compose_file(template_data, trial)
+    compose_data = modify_compose_file(template_data, trial, str(output_dir))
     temp_compose = output_dir / f"docker-compose.{trial_name}.yml"
 
     with open(temp_compose, "w") as f:
