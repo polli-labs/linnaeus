@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+## [0.3.4] - 2025-08-04
+
+### Fixed
+- **Critical Segfault in L3 Profiling**: Fixed segmentation fault in Level 3 profiling instrumentation that occurred when registering forward hooks. The issue was caused by improper context manager lifecycle management in the hook registration code. Now uses direct torch.profiler.record_function calls with proper handle management.
+
 ## [0.3.3] - 2025-08-04
 
 ### Added
@@ -9,6 +14,24 @@
 
 ### Changed
 - **Flash Attention Default Behavior**: Flash Attention now defaults to True for backward compatibility but can be explicitly disabled via configuration for testing purposes.
+
+## [0.3.2] - 2025-08-03
+
+### Added
+- **Component-Level Profiling Instrumentation**: Added comprehensive profiling hooks throughout mFormerV1 model components for granular performance analysis:
+  - Model stages: `model/stem`, `model/convnext_stage_*`, `model/rope_stage_*`, `model/downsample_*`
+  - RoPE attention components: `rope/qkv_projection`, `rope/apply_rotary_emb`, `rope/flash_attention`, `rope/standard_attention`
+  - Sub-components: `drop_path/forward`, `mlp/forward`, `convnext/depthwise_conv`, `convnext/pointwise_conv`
+  - Classification heads: Conditional and hierarchical softmax forward passes
+- **Level 2/3 Profiling Support**: All new instrumentation respects `DEBUG.PROFILER.LEVEL` for selective activation
+
+### Changed
+- **Profiling Context Managers**: Migrated from timer-based profiling to context manager pattern using `prof()` helper
+- **Code Organization**: Improved readability and consistency of profiling instrumentation across all model components
+
+### Performance
+- **Zero-Overhead When Disabled**: Profiling hooks have negligible impact when `DEBUG.PROFILER.ENABLED: False`
+- **Targeted Instrumentation**: Fine-grained control allows profiling specific bottlenecks without full-model overhead
 
 ## [0.3.1] - 2025-08-03
 
