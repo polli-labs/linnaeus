@@ -4,10 +4,14 @@
 This tool automates the process of running multiple training trials with different
 git branches, commits, and configuration options, useful for performance profiling
 and comparison testing.
+
+Supports both sequential and concurrent execution modes for multi-GPU systems.
 """
 
 import argparse
 import json
+import logging
+import os
 import re
 import shlex
 import shutil
@@ -16,9 +20,17 @@ import sys
 import time
 from collections import deque
 from pathlib import Path
-from typing import Any
+from typing import Any, Dict, List, Optional
 
 import yaml
+
+# Import concurrent execution modules if available
+try:
+    from linnaeus.profiling.gpu_pool import GPUPoolManager
+    from linnaeus.profiling.concurrent_executor import ConcurrentTrialExecutor
+    CONCURRENT_SUPPORT = True
+except ImportError:
+    CONCURRENT_SUPPORT = False
 
 try:
     from rich.console import Console
@@ -36,6 +48,13 @@ except ImportError:
     Panel = None
     Text = None
 
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
+
 # Constants for log monitoring
 SUCCESS_STRING = "DEBUG: Early exiting main training loop"
 FAILURE_STRING = "Emergency shutdown initiated"
@@ -50,15 +69,27 @@ def parse_args():
         formatter_class=argparse.RawTextHelpFormatter,
         epilog="""
 Example Usage:
+  # Sequential execution (default)
   python -m linnaeus.tools.profiling.run_profiling_trials \\
     --trial-params-file work/fixtures/trials.jsonl \\
     --output-dir work/profiling_results/v014e \\
     --compose-template work/fixtures/docker-compose.template.yml \\
     --timeout 300
 
+  # Concurrent execution on 2 GPUs
+  python -m linnaeus.tools.profiling.run_profiling_trials \\
+    --trial-params-file work/fixtures/trials.jsonl \\
+    --output-dir work/profiling_results/v014e \\
+    --compose-template work/fixtures/docker-compose.template.yml \\
+    --timeout 300 \\
+    --max-concurrent 2 \\
+    --gpu-assignment auto \\
+    --stagger-delay 5
+
 Trial JSONL format:
   {"name": "baseline", "git_ref": "main", "config_file": "configs/exp.yaml", "opts": ["TRAIN.EPOCHS", "10"]}
   {"name": "optimized", "git_ref": "feature-branch", "config_file": "configs/exp.yaml", "env_yaml": "configs/env_vars/dgx_h100.yaml"}
+  {"name": "manual_gpu", "git_ref": "main", "config_file": "configs/exp.yaml", "gpu_rank": 1}  # Manual GPU assignment
 """,
     )
     parser.add_argument("--trial-params-file", required=True, type=Path, help="Path to the JSONL file defining trials.")
@@ -71,6 +102,27 @@ Trial JSONL format:
         action="store_true",
         help="On failure, copy the full debug_log_rank0.txt from the experiment output directory.",
     )
+    
+    # Concurrent execution arguments
+    parser.add_argument(
+        "--max-concurrent",
+        type=int,
+        default=1,
+        help="Maximum concurrent trials (default: 1 for sequential execution). Requires concurrent support."
+    )
+    parser.add_argument(
+        "--gpu-assignment",
+        choices=['auto', 'manual', 'round-robin'],
+        default='auto',
+        help="GPU assignment strategy: auto (pool-based), manual (from trial config), round-robin (distribute evenly)"
+    )
+    parser.add_argument(
+        "--stagger-delay",
+        type=float,
+        default=5.0,
+        help="Delay between trial starts to reduce contention (seconds, default: 5.0)"
+    )
+    
     return parser.parse_args()
 
 
@@ -242,6 +294,79 @@ def copy_debug_log(exp_path: str, output_file: Path) -> bool:
     return False
 
 
+def run_trials_concurrent(
+    trials: List[Dict[str, Any]], 
+    template_data: Dict[str, Any], 
+    output_dir: Path,
+    timeout: int, 
+    capture_debug_logs: bool,
+    max_concurrent: int,
+    gpu_assignment: str,
+    stagger_delay: float
+) -> List[Dict[str, Any]]:
+    """Run trials concurrently across multiple GPUs.
+    
+    Args:
+        trials: List of trial configurations
+        template_data: Docker compose template data
+        output_dir: Output directory for results
+        timeout: Timeout per trial in seconds
+        capture_debug_logs: Whether to capture debug logs
+        max_concurrent: Maximum concurrent trials
+        gpu_assignment: GPU assignment strategy
+        stagger_delay: Delay between trial starts
+        
+    Returns:
+        List of result dictionaries
+    """
+    # Initialize GPU pool manager
+    gpu_pool = GPUPoolManager(gpu_count=max_concurrent)
+    
+    # Initialize concurrent executor
+    executor = ConcurrentTrialExecutor(
+        gpu_pool=gpu_pool,
+        max_workers=max_concurrent,
+        stagger_delay=stagger_delay
+    )
+    
+    # Apply GPU assignment strategy
+    if gpu_assignment == 'manual':
+        # Trials should have gpu_rank specified in config
+        pass
+    elif gpu_assignment == 'round-robin':
+        # Assign GPUs in round-robin fashion
+        for i, trial in enumerate(trials):
+            if 'gpu_rank' not in trial:
+                trial['gpu_rank'] = i % max_concurrent
+    # 'auto' uses pool-based dynamic assignment
+    
+    # Define compose modification function
+    def modify_compose_fn(template: Dict[str, Any], trial: Dict[str, Any]) -> Dict[str, Any]:
+        return modify_compose_file(template, trial)
+    
+    # Run trials concurrently
+    results = executor.run_trials_concurrent(
+        trials,
+        template_data,
+        output_dir,
+        timeout,
+        capture_debug_logs,
+        modify_compose_fn
+    )
+    
+    # Shutdown executor
+    executor.shutdown()
+    
+    # Process results to match expected format
+    for result in results:
+        if 'elapsed_time' not in result:
+            result['elapsed_time'] = 0.0
+        if 'status' not in result:
+            result['status'] = 'error'
+            
+    return results
+
+
 def run_trial(
     trial: dict[str, Any], template_data: dict[str, Any], output_dir: Path, timeout: int, capture_debug_logs: bool
 ) -> dict[str, Any]:
@@ -318,6 +443,12 @@ def main():
     if not check_docker_compose():
         console.print("[red]docker compose (or docker-compose) not found![/red]")
         sys.exit(1)
+    
+    # Check concurrent execution support
+    if args.max_concurrent > 1 and not CONCURRENT_SUPPORT:
+        console.print("[red]Concurrent execution requested but concurrent modules not available![/red]")
+        console.print("[yellow]Falling back to sequential execution[/yellow]")
+        args.max_concurrent = 1
 
     # Create output directory
     args.output_dir.mkdir(parents=True, exist_ok=True)
@@ -358,25 +489,40 @@ def main():
         console.print(f"Timeout per trial: {args.timeout}s")
         console.print(f"Output directory: {args.output_dir}\n")
 
-    # Run trials
-    results = []
-    for i, trial in enumerate(trials, 1):
-        console.print(f"\n[bold]Trial {i}/{len(trials)}[/bold]")
-
-        result = run_trial(trial, template_data, args.output_dir, args.timeout, args.capture_debug_logs)
-        results.append(result)
-
-        # Print result
-        status_color = "green" if result["status"] == "success" else "red"
-        console.print(
-            f"[{status_color}]Trial '{result['name']}' completed: "
-            f"{result['status']} (elapsed: {result['elapsed_time']:.1f}s)[/{status_color}]"
+    # Run trials based on execution mode
+    start_time = time.time()
+    
+    if args.max_concurrent > 1 and CONCURRENT_SUPPORT:
+        # Concurrent execution mode
+        console.print(f"\n[bold blue]Running trials concurrently on {args.max_concurrent} GPUs[/bold blue]")
+        results = run_trials_concurrent(
+            trials, template_data, args.output_dir, args.timeout,
+            args.capture_debug_logs, args.max_concurrent, 
+            args.gpu_assignment, args.stagger_delay
         )
+    else:
+        # Sequential execution mode
+        console.print(f"\n[bold blue]Running trials sequentially[/bold blue]")
+        results = []
+        for i, trial in enumerate(trials, 1):
+            console.print(f"\n[bold]Trial {i}/{len(trials)}[/bold]")
 
-        # Exit on failure if requested
-        if args.exit_on_failure and result["status"] != "success":
-            console.print("[red]Exiting due to trial failure (--exit-on-failure)[/red]")
-            break
+            result = run_trial(trial, template_data, args.output_dir, args.timeout, args.capture_debug_logs)
+            results.append(result)
+
+            # Print result
+            status_color = "green" if result["status"] == "success" else "red"
+            console.print(
+                f"[{status_color}]Trial '{result['name']}' completed: "
+                f"{result['status']} (elapsed: {result['elapsed_time']:.1f}s)[/{status_color}]"
+            )
+
+            # Exit on failure if requested
+            if args.exit_on_failure and result["status"] != "success":
+                console.print("[red]Exiting due to trial failure (--exit-on-failure)[/red]")
+                break
+    
+    total_time = time.time() - start_time
 
     # Save summary
     summary_file = args.output_dir / "summary.json"
@@ -392,6 +538,11 @@ def main():
         summary_text.append(f"Total trials: {total}\n", style="bold")
         summary_text.append(f"Successful: {successful}\n", style="green" if successful == total else "yellow")
         summary_text.append(f"Failed: {total - successful}\n", style="red" if successful < total else "dim")
+        summary_text.append(f"\nTotal time: {total_time:.1f}s\n", style="blue")
+        if args.max_concurrent > 1 and CONCURRENT_SUPPORT:
+            sequential_time = sum(r.get('elapsed_time', 0) for r in results)
+            speedup = sequential_time / total_time if total_time > 0 else 1.0
+            summary_text.append(f"Speedup: {speedup:.2f}x (sequential estimate: {sequential_time:.1f}s)\n", style="cyan")
         summary_text.append(f"\nResults saved to: {summary_file}", style="blue")
 
         console.print(Panel(summary_text, title="Summary", border_style="green" if successful == total else "red"))
@@ -400,6 +551,11 @@ def main():
         console.print(f"Total trials: {total}")
         console.print(f"Successful: {successful}")
         console.print(f"Failed: {total - successful}")
+        console.print(f"Total time: {total_time:.1f}s")
+        if args.max_concurrent > 1 and CONCURRENT_SUPPORT:
+            sequential_time = sum(r.get('elapsed_time', 0) for r in results)
+            speedup = sequential_time / total_time if total_time > 0 else 1.0
+            console.print(f"Speedup: {speedup:.2f}x (sequential estimate: {sequential_time:.1f}s)")
         console.print(f"Results saved to: {summary_file}")
 
     # Exit with appropriate code
