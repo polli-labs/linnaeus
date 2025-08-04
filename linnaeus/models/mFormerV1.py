@@ -353,35 +353,36 @@ class mFormerV1(BaseModel):
 
     def _register_profiling_hooks(self):
         """Dynamically registers profiling hooks on all submodules for L3 profiling."""
-        from linnaeus.utils.profiling_helpers import prof
+        from linnaeus.utils.profiling_helpers import is_profiling_active
+        import torch
 
         logger.info("[L3 Profile] Registering per-module forward profiling hooks...")
 
         for name, module in self.named_modules():
             if name:  # Skip root module
-                # Attach a list to each module to act as a context stack
-                module._profiler_contexts = []
-
+                # Create a closure for each module with its name
                 def make_pre_hook(module_name):
                     def pre_hook(m, inputs):
-                        # When entering a module's forward, start a profiler context
-                        # and push it onto the module's stack.
-                        context = prof(f"module/{module_name}", level=3)
-                        context.__enter__()
-                        m._profiler_contexts.append(context)
-
+                        # Only record if profiling is active
+                        if is_profiling_active(level=3):
+                            # Use torch.profiler directly to avoid context manager issues
+                            handle = torch.profiler.record_function(f"module/{module_name}")
+                            handle.__enter__()
+                            # Store the handle so we can exit it later
+                            if not hasattr(m, "_profiler_handles"):
+                                m._profiler_handles = []
+                            m._profiler_handles.append(handle)
                     return pre_hook
 
                 def make_post_hook(module_name):
                     def post_hook(m, inputs, outputs):
-                        # When exiting a module's forward, pop the context from the
-                        # stack and exit it. This correctly handles nested modules.
-                        if hasattr(m, "_profiler_contexts") and m._profiler_contexts:
+                        # Exit the profiler context if we have one
+                        if hasattr(m, "_profiler_handles") and m._profiler_handles:
                             try:
-                                m._profiler_contexts.pop().__exit__(None, None, None)
+                                handle = m._profiler_handles.pop()
+                                handle.__exit__(None, None, None)
                             except Exception as e:
                                 logger.warning(f"[L3 Profile] Error exiting profiler context for {module_name}: {e}")
-
                     return post_hook
 
                 module.register_forward_pre_hook(make_pre_hook(name))
