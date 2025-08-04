@@ -2,6 +2,34 @@
 
 ## [Unreleased]
 
+## [0.3.5] - 2025-08-04
+
+### Added
+- **Concurrent Profiling Trial Execution**: Integrated multi-GPU concurrent trial execution capabilities into `linnaeus-prof-run` for dramatically faster profiling workflows:
+  - Thread-safe GPU pool management with fair FIFO allocation
+  - Support for auto, manual, and round-robin GPU assignment strategies
+  - Configurable stagger delay to reduce initial resource contention
+  - `--max-concurrent` option to specify number of parallel trials
+  - `--gpu-assignment` option to control GPU allocation strategy
+  - `--stagger-delay` option to control delay between trial starts
+  - Automatic resource cleanup and error isolation per trial
+  - Progress tracking with GPU utilization statistics
+- **GPU Pool Manager**: New `linnaeus.profiling.gpu_pool` module provides thread-safe GPU allocation and tracking for concurrent execution
+- **Concurrent Trial Executor**: New `linnaeus.profiling.concurrent_executor` module orchestrates parallel trial execution with proper isolation
+
+### Changed
+- **Default Profiling Mode**: Updated workflow documentation to make concurrent execution the default mode with `--max-concurrent 2` for optimal performance on multi-GPU systems
+- **Docker Compose Template Handling**: Enhanced `modify_compose_file` to support both string and list-format command fields in Docker compose templates
+- **Environment Variable Management**: Fixed env_yaml feature to properly read YAML files from host and inject variables into Docker containers, supporting nested YAML structures
+
+### Fixed
+- **YAML Parsing Errors**: Fixed syntax errors in `docker-compose-single-gpu-ranked.template.yml` including proper indentation and quoted template variables
+- **Command Option Quoting**: Fixed proper quoting of opts parameters containing lists or spaces to prevent YACS parsing errors
+- **env_yaml Feature**: Fixed environment variable loading from YAML files by reading from host filesystem and injecting directly into Docker compose
+
+### Performance
+- **Profiling Speedup**: Concurrent execution provides near-linear speedup for multi-GPU systems (e.g., 2x speedup on 2 GPUs, 1.36x measured speedup in practice due to initialization overhead)
+
 ## [0.3.4] - 2025-08-04
 
 ### Fixed
