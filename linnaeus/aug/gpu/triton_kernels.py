@@ -6,25 +6,74 @@ metadata operations, reducing kernel launch overhead compared to the PyTorch
 vectorized implementation.
 """
 
-
+import os
 import torch
+from typing import Optional, Tuple
+from linnaeus.utils.logging.logger import get_main_logger
+
+logger = get_main_logger()
+
+# Check environment variable to disable Triton
+_TRITON_DISABLED = os.environ.get("LINNAEUS_DISABLE_TRITON", "0") == "1"
 
 try:
-    import triton
-    import triton.language as tl
+    if not _TRITON_DISABLED:
+        import triton
+        import triton.language as tl
+        _TRITON_IMPORT_SUCCESS = True
+    else:
+        _TRITON_IMPORT_SUCCESS = False
+        logger.info("Triton disabled via LINNAEUS_DISABLE_TRITON environment variable")
+except (ImportError, RuntimeError) as e:
+    _TRITON_IMPORT_SUCCESS = False
+    logger.warning(f"Failed to import Triton: {e}")
 
-    _TRITON_AVAILABLE = True
-except (ImportError, RuntimeError):
-    _TRITON_AVAILABLE = False
+# Global state for lazy initialization
+_TRITON_AVAILABLE = False
+_kernels_initialized = False
+_kernel_cache = {}
 
 
 def triton_is_available() -> bool:
     """Check if Triton is available for kernel compilation."""
+    if _TRITON_DISABLED or not _TRITON_IMPORT_SUCCESS:
+        return False
+    
+    # Try lazy initialization if not done yet
+    if not _kernels_initialized:
+        _try_init_kernels()
+    
     return _TRITON_AVAILABLE
 
 
-if _TRITON_AVAILABLE:
+def _try_init_kernels():
+    """Try to initialize Triton kernels with CUDA context."""
+    global _TRITON_AVAILABLE, _kernels_initialized, _kernel_cache
+    
+    if _kernels_initialized or not _TRITON_IMPORT_SUCCESS:
+        return
+    
+    _kernels_initialized = True
+    
+    try:
+        # Ensure CUDA is initialized
+        if torch.cuda.is_available():
+            # This will initialize CUDA context if not already done
+            _ = torch.cuda.current_device()
+            
+            # Now define kernels
+            _define_kernels()
+            _TRITON_AVAILABLE = True
+            logger.debug("Triton kernels initialized successfully")
+    except Exception as e:
+        logger.warning(f"Failed to initialize Triton kernels: {e}")
+        _TRITON_AVAILABLE = False
 
+
+def _define_kernels():
+    """Define Triton kernels - only called after CUDA context is available."""
+    global _kernel_cache
+    
     @triton.autotune(
         configs=[
             triton.Config({"BLOCK_D": 32}),
@@ -84,132 +133,72 @@ if _TRITON_AVAILABLE:
         tl.store(out_info_ptr + offs, out_val, mask=mask)
         tl.store(out_mask_ptr + offs, out_mask, mask=mask)
 
-    def _launch_fwd(
-        info1: torch.Tensor,
-        info2: torch.Tensor,
-        mask1: torch.Tensor,
-        mask2: torch.Tensor,
-        choose_orig: torch.Tensor,
-        choose_partner: torch.Tensor,
-        chunk_of_dim: torch.Tensor,
-    ) -> tuple[torch.Tensor, torch.Tensor]:
-        """Launch forward kernel."""
-        B, D = info1.shape
-        C = choose_orig.shape[1]
+    _kernel_cache['hard_pick_chunks_kernel'] = hard_pick_chunks_kernel
 
-        # Allocate output tensors
-        out_info = torch.empty_like(info1)
-        out_mask = torch.empty_like(mask1)
 
-        # Launch grid
-        grid = (B, triton.cdiv(D, 128))  # 128 will be overridden by autotune
-
-        hard_pick_chunks_kernel[grid](
-            info1, info2, mask1, mask2, out_info, out_mask, choose_orig, choose_partner, chunk_of_dim, B=B, D=D, C=C
+def selective_mix_chunks_triton(
+    info1: torch.Tensor,
+    info2: torch.Tensor,
+    mask1: torch.Tensor,
+    mask2: torch.Tensor,
+    choose_orig: torch.Tensor,
+    choose_partner: torch.Tensor,
+    chunk_of_dim: torch.Tensor,
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """
+    Triton-accelerated selective mixing of metadata chunks.
+    
+    Falls back to PyTorch implementation if Triton is not available.
+    """
+    if not triton_is_available():
+        # Fall back to PyTorch implementation
+        return _pytorch_selective_mix_chunks(
+            info1, info2, mask1, mask2, choose_orig, choose_partner, chunk_of_dim
         )
+    
+    # Use Triton kernel
+    B, D = info1.shape
+    C = choose_orig.shape[1]
 
-        return out_info, out_mask
+    # Allocate output tensors
+    out_info = torch.empty_like(info1)
+    out_mask = torch.empty_like(mask1)
 
-    def _launch_bwd(
-        grad_output: torch.Tensor, choose_orig: torch.Tensor, choose_partner: torch.Tensor, chunk_of_dim: torch.Tensor
-    ) -> tuple[torch.Tensor, torch.Tensor]:
-        """Launch backward kernel (same pattern as forward)."""
-        B, D = grad_output.shape
-        C = choose_orig.shape[1]
+    # Launch kernel
+    kernel = _kernel_cache['hard_pick_chunks_kernel']
+    grid = lambda meta: (B, triton.cdiv(D, meta["BLOCK_D"]))
+    kernel[grid](
+        info1, info2, mask1, mask2,
+        out_info, out_mask,
+        choose_orig, choose_partner, chunk_of_dim,
+        B, D, C,
+    )
 
-        # Allocate gradient tensors
-        grad_info1 = torch.zeros_like(grad_output)
-        grad_info2 = torch.zeros_like(grad_output)
+    return out_info, out_mask
 
-        # Create dummy masks for backward (not used but kernel expects them)
-        dummy_mask = torch.zeros(B, D, dtype=torch.int8, device=grad_output.device)
-        dummy_out_mask = torch.empty_like(dummy_mask)
 
-        # Launch grid
-        grid = (B, triton.cdiv(D, 128))
-
-        # Use same kernel but with swapped roles
-        hard_pick_chunks_kernel[grid](
-            grad_output,
-            grad_output,
-            dummy_mask,
-            dummy_mask,
-            grad_info1,
-            dummy_out_mask,
-            choose_orig,
-            choose_partner,
-            chunk_of_dim,
-            B=B,
-            D=D,
-            C=C,
-        )
-
-        # For grad_info2, we need the opposite selection
-        hard_pick_chunks_kernel[grid](
-            grad_output,
-            grad_output,
-            dummy_mask,
-            dummy_mask,
-            grad_info2,
-            dummy_out_mask,
-            choose_partner,
-            choose_orig,  # Swapped!
-            chunk_of_dim,
-            B=B,
-            D=D,
-            C=C,
-        )
-
-        return grad_info1, grad_info2
-
-    class _SelectiveMixChunksFn(torch.autograd.Function):
-        """
-        Autograd function for Triton-based selective mixing.
-        """
-
-        @staticmethod
-        def forward(ctx, info1, info2, mask1, mask2, choose_orig, choose_partner, chunk_of_dim):
-            out_info, out_mask = _launch_fwd(info1, info2, mask1, mask2, choose_orig, choose_partner, chunk_of_dim)
-            ctx.save_for_backward(choose_orig, choose_partner, chunk_of_dim)
-            return out_info, out_mask
-
-        @staticmethod
-        def backward(ctx, grad_out_info, grad_out_mask):
-            choose_orig, choose_partner, chunk_of_dim = ctx.saved_tensors
-
-            if grad_out_info is None:
-                return None, None, None, None, None, None, None
-
-            grad_info1, grad_info2 = _launch_bwd(grad_out_info, choose_orig, choose_partner, chunk_of_dim)
-
-            # Return gradients in same order as forward arguments
-            # (info1, info2, mask1, mask2, choose_orig, choose_partner, chunk_of_dim)
-            return grad_info1, grad_info2, None, None, None, None, None
-
-    def selective_mix_chunks_triton(
-        info1: torch.Tensor,
-        info2: torch.Tensor,
-        mask1: torch.Tensor,
-        mask2: torch.Tensor,
-        choose_orig: torch.Tensor,
-        choose_partner: torch.Tensor,
-        chunk_of_dim: torch.Tensor,
-    ) -> tuple[torch.Tensor, torch.Tensor]:
-        """
-        Public interface for Triton-based selective mixing.
-
-        Args:
-            info1, info2: [B, D] metadata tensors
-            mask1, mask2: [B, D] validity masks
-            choose_orig, choose_partner: [B, C] chunk-level decisions
-            chunk_of_dim: [D] mapping from dimension to chunk index
-
-        Returns:
-            Tuple of (mixed_info, mixed_mask)
-        """
-        return _SelectiveMixChunksFn.apply(info1, info2, mask1, mask2, choose_orig, choose_partner, chunk_of_dim)
-
-else:
-    # Triton not available - provide stub functions
-    def selective_mix_chunks_triton(*args, **kwargs):
-        raise RuntimeError("Triton is not available. Install with: pip install triton>=2.1.0")
+def _pytorch_selective_mix_chunks(
+    info1: torch.Tensor,
+    info2: torch.Tensor,
+    mask1: torch.Tensor,
+    mask2: torch.Tensor,
+    choose_orig: torch.Tensor,
+    choose_partner: torch.Tensor,
+    chunk_of_dim: torch.Tensor,
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """PyTorch fallback implementation of selective mixing."""
+    B, D = info1.shape
+    
+    # Expand decisions to match dimension shape
+    chunk_decisions_orig = choose_orig.gather(1, chunk_of_dim.unsqueeze(0).expand(B, -1))
+    chunk_decisions_part = choose_partner.gather(1, chunk_of_dim.unsqueeze(0).expand(B, -1))
+    
+    # Apply decisions
+    out_info = torch.where(chunk_decisions_orig, info1, 
+                          torch.where(chunk_decisions_part, info2, 
+                                    torch.zeros_like(info1)))
+    out_mask = torch.where(chunk_decisions_orig, mask1,
+                          torch.where(chunk_decisions_part, mask2,
+                                    torch.zeros_like(mask1)))
+    
+    return out_info, out_mask
