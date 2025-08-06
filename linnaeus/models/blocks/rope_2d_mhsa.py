@@ -588,7 +588,7 @@ class RoPE2DMHSABlock(nn.Module):
             else:
                 attn_output = self._attn_impl(x_norm1, H, W)
 
-        with prof("rope_block/residual_attn", level=3):
+        with prof("rope/residual_add_attn", level=3):
             x = identity + self.drop_path(attn_output)
 
         # --- MLP + Residual ---
@@ -602,7 +602,7 @@ class RoPE2DMHSABlock(nn.Module):
             else:
                 mlp_output = self._mlp_impl(x_norm2)
 
-        with prof("rope_block/residual_mlp", level=3):
+        with prof("rope/residual_add_mlp", level=3):
             x = identity_mlp + self.drop_path(mlp_output)
 
         return x
