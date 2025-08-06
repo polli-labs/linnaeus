@@ -80,7 +80,7 @@ class ConvNeXtBlock(nn.Module):
         with prof("convnext/nhwc_to_nchw", level=3):
             x = x.permute(0, 3, 1, 2)  # (N, H, W, C) -> (N, C, H, W)
 
-        with prof("convnext/residual", level=3):
+        with prof("convnext/residual_add", level=3):
             x = input_tensor + self.drop_path(x)
         return x
 
