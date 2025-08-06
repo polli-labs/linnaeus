@@ -3,7 +3,7 @@
 ## [Unreleased]
 
 ### Fixed
-- **Critical Segfault in Docker**: Fixed a persistent segmentation fault (exit code 139) that occurred in Docker environments when profiling was enabled. The issue was traced to an unstable interaction between the PyTorch profiler's C++ backend and the containerized CUDA environment, specifically in the Level 3 per-module profiling hooks. The problematic L3 automatic hook registration has been removed. Level 2 component-level profiling remains the recommended, stable method for performance analysis. This fix is consistent with the v0.3.4 resolution of similar DDP profiling hook issues.
+- **Critical Segfault in Docker**: Fixed a persistent segmentation fault (exit code 139) that occurred in Docker environments. The root cause was premature CUDA operations during model initialization, specifically `torch.cuda.get_device_capability()` calls in `RoPE2DAttention.__init__`, which created an unstable CUDA context before the model was moved to GPU via `model.cuda()`. The fix defers Flash Attention capability checks from `__init__` to the first `forward` pass when the model is guaranteed to be on the correct device. This issue became pronounced after v0.3.0's Triton kernel integration and was exacerbated by the `expandable_segments:true` memory allocator setting. Additionally, the unstable Level 3 per-module profiling hooks were removed as they contributed to instability through unsafe manual context manager handling.
 
 ## [0.3.5] - 2025-08-04
 

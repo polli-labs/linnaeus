@@ -237,44 +237,10 @@ class RoPE2DAttention(nn.Module):
         self.extra_token_num = extra_token_num
         self.rope_mixed = rope_mixed
 
-        # Flash Attention setup
+        # Flash Attention setup - defer actual capability check to forward pass
         self.use_flash_attn = use_flash_attn
-        self.use_flash_attn_impl = False
+        self.use_flash_attn_impl = None  # Will be determined on first forward pass
         self.using_fa_version = None  # To store "v2" or "v3"
-        if self.use_flash_attn:  # If user configured RoPE2DAttention to use flash attention
-            if _is_flash_attn_v2_plus_available and _flash_attn_func_impl is not None:
-                try:
-                    if not (hasattr(torch, "cuda") and torch.cuda.is_available()):
-                        self.logger.warning("Flash Attention selected but CUDA not available. Falling back.")
-                    else:
-                        device_cap = torch.cuda.get_device_capability()
-
-                        # Check if FA3 was selected by the import logic above
-                        # is_flash_attn3_available() was the condition for importing varlen funcs.
-                        if is_flash_attn3_available():  # This confirms FA3 setup conditions were met
-                            if device_cap[0] >= 9:  # Ensure current runtime matches
-                                self.use_flash_attn_impl = True
-                                self.using_fa_version = "v3"
-                                self.logger.info(f"Using Flash Attention v3 for RoPE2DAttention with {self.num_heads} heads.")
-                            else:
-                                self.logger.warning(
-                                    f"FA3 was selected by import logic, but current device SM {device_cap} < 9.0. Fallback needed or error in setup."
-                                )
-                        # Else, FA2 was selected (if _is_flash_attn_v2_plus_available is true)
-                        elif device_cap[0] >= 8:  # FA2 requires SM 8.0+
-                            self.use_flash_attn_impl = True
-                            self.using_fa_version = "v2"
-                            self.logger.info(f"Using Flash Attention v2 for RoPE2DAttention with {self.num_heads} heads.")
-                        else:
-                            self.logger.warning(f"Flash Attention available (likely v2), but device SM {device_cap} < 8.0. Falling back.")
-                except Exception as e:
-                    self.logger.warning(
-                        f"Error verifying CUDA for Flash Attention (Is CUDA installed correctly? Error: {e}). Falling back."
-                    )
-            else:
-                self.logger.warning(
-                    "Flash Attention requested in config, but no suitable FlashAttention library (v2 or v3) was found/selected by rope_2d_mhsa. Falling back."
-                )
 
         self.qkv = nn.Linear(dim, dim * 3, bias=qkv_bias)
         self.attn_drop = nn.Dropout(attn_drop)
@@ -373,12 +339,43 @@ class RoPE2DAttention(nn.Module):
                 else:
                     return self.freqs_cis.to(device)
 
+    def _initialize_flash_attn(self, device: torch.device):
+        """One-time initialization of Flash Attention implementation choice."""
+        if self.use_flash_attn_impl is not None:  # Already initialized
+            return
+            
+        self.use_flash_attn_impl = False  # Default to False
+        if self.use_flash_attn and _is_flash_attn_v2_plus_available and _flash_attn_func_impl is not None:
+            try:
+                if device.type == 'cuda':
+                    device_cap = torch.cuda.get_device_capability(device)
+                    if is_flash_attn3_available() and device_cap[0] >= 9:
+                        self.use_flash_attn_impl = True
+                        self.using_fa_version = "v3"
+                        self.logger.info(f"Using Flash Attention v3 for RoPE2DAttention with {self.num_heads} heads.")
+                    elif device_cap[0] >= 8:
+                        self.use_flash_attn_impl = True
+                        self.using_fa_version = "v2"
+                        self.logger.info(f"Using Flash Attention v2 for RoPE2DAttention with {self.num_heads} heads.")
+                    else:
+                        self.logger.warning(f"Flash Attention available, but device SM {device_cap} not supported. Falling back.")
+                else:
+                    self.logger.warning("Flash Attention requested but not on CUDA device. Falling back.")
+            except Exception as e:
+                self.logger.warning(f"Error checking CUDA for Flash Attention: {e}. Falling back.")
+        elif self.use_flash_attn:
+            self.logger.warning("Flash Attention requested but not available. Falling back.")
+
     def forward(self, x: torch.Tensor, H: int, W: int) -> torch.Tensor:
         """Forward pass of RoPE attention."""
         B, N, C = x.shape
         N_img = H * W
         N_extra = self.extra_token_num
         assert N == N_img + N_extra, f"Input sequence length {N} != H*W+extra {N_img + N_extra}"
+        
+        # Lazy initialization of Flash Attention implementation choice
+        if self.use_flash_attn_impl is None:
+            self._initialize_flash_attn(x.device)
 
         # QKV projection
         with prof("rope/qkv_projection", level=3):
