@@ -127,6 +127,22 @@ def train_one_epoch(
             # The checkpoint flag for the forward pass is set *before* the loop
             # And reset *after* the loop in finally block.
             # For GradNorm re-forwards, its specific flag is passed directly.
+            
+            # Prepare batch RNG for optimized drop path if available
+            try:
+                from linnaeus.models.blocks.drop_path_optimized import DropPathOptimized, get_batch_rng
+                if idx == 0 or bsz != get_batch_rng().batch_size:
+                    # Reset batch RNG at start of epoch or if batch size changes
+                    DropPathOptimized.prepare_batch_rng(
+                        model=model,
+                        batch_size=bsz,
+                        shape_template=(bsz, 1, 1, 1),  # Template for 4D tensors
+                        dtype=images.dtype,
+                        device=images.device
+                    )
+            except ImportError:
+                pass  # Optimized drop path not available
+            
             with torch.cuda.amp.autocast(enabled=(config.TRAIN.AMP_OPT_LEVEL != "O0")):
                 with prof("forward_pass", level=1):
                     outputs = model(images, aux_info)  # GradNorm flag not needed here for normal fwd
