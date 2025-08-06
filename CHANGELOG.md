@@ -2,6 +2,22 @@
 
 ## [Unreleased]
 
+### Added
+- **Enhanced L3 Profiling Instrumentation**: Added comprehensive L3-level profiling hooks for residual addition operations in ConvNeXt and RoPE modules to enable fine-grained drop path performance analysis:
+  - ConvNeXt residual additions: `convnext/residual_add` profiling hooks
+  - RoPE attention residual additions: `rope/residual_add_attn` profiling hooks  
+  - RoPE MLP residual additions: `rope/residual_add_mlp` profiling hooks
+  - Enables detailed analysis of drop path overhead at 15.1% baseline measurement
+
+### Fixed
+- **Critical Docker Container User Permissions**: Fixed Docker containers running as root which prevented proper GPU process cleanup during trial timeouts:
+  - Added `user: "${UID:-1000}:${GID:-1000}"` directive to Docker compose templates
+  - Enhanced concurrent executor to pass UID/GID environment variables to docker compose
+  - Implemented force cleanup mechanism for timeout scenarios with explicit GPU process termination
+  - Ensures GPU processes are owned by current user, enabling proper timeout handling and resource cleanup
+- **PYTORCH_CUDA_ALLOC_CONF Configuration**: Removed invalid `rounding:32m` parameter, now uses only `expandable_segments:True` to prevent parsing errors
+- **Flash Attention Initialization**: Deferred CUDA capability checks to prevent Docker segmentation faults during container startup
+
 ## [0.3.5] - 2025-08-04
 
 ### Added
