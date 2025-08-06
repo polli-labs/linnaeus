@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Fixed
+- **Critical Segfault in Docker**: Fixed a persistent segmentation fault (exit code 139) that occurred in Docker environments when profiling was enabled. The issue was traced to an unstable interaction between the PyTorch profiler's C++ backend and the containerized CUDA environment, specifically in the Level 3 per-module profiling hooks. The problematic L3 automatic hook registration has been removed. Level 2 component-level profiling remains the recommended, stable method for performance analysis. This fix is consistent with the v0.3.4 resolution of similar DDP profiling hook issues.
+
 ## [0.3.5] - 2025-08-04
 
 ### Added

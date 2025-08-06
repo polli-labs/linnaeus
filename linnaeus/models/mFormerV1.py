@@ -337,10 +337,6 @@ class mFormerV1(BaseModel):
         self.apply(self._init_weights)
         logger.info(f"[mFormerV1] Model built. Total Params: {sum(p.numel() for p in self.parameters()):,}")
 
-        # --- Level 3 Profiling Hooks ---
-        if config.DEBUG.PROFILER.ENABLED and config.DEBUG.PROFILER.LEVEL >= 3:
-            self._register_profiling_hooks()
-
     def _init_weights(self, m):
         """Initialize weights like ConvNeXt and ViT."""
         if isinstance(m, nn.Conv2d | nn.Linear):
@@ -351,42 +347,6 @@ class mFormerV1(BaseModel):
             nn.init.constant_(m.bias, 0)
             nn.init.constant_(m.weight, 1.0)
 
-    def _register_profiling_hooks(self):
-        """Dynamically registers profiling hooks on all submodules for L3 profiling."""
-        from linnaeus.utils.profiling_helpers import is_profiling_active
-        import torch
-
-        logger.info("[L3 Profile] Registering per-module forward profiling hooks...")
-
-        for name, module in self.named_modules():
-            if name:  # Skip root module
-                # Create a closure for each module with its name
-                def make_pre_hook(module_name):
-                    def pre_hook(m, inputs):
-                        # Only record if profiling is active
-                        if is_profiling_active(level=3):
-                            # Use torch.profiler directly to avoid context manager issues
-                            handle = torch.profiler.record_function(f"module/{module_name}")
-                            handle.__enter__()
-                            # Store the handle so we can exit it later
-                            if not hasattr(m, "_profiler_handles"):
-                                m._profiler_handles = []
-                            m._profiler_handles.append(handle)
-                    return pre_hook
-
-                def make_post_hook(module_name):
-                    def post_hook(m, inputs, outputs):
-                        # Exit the profiler context if we have one
-                        if hasattr(m, "_profiler_handles") and m._profiler_handles:
-                            try:
-                                handle = m._profiler_handles.pop()
-                                handle.__exit__(None, None, None)
-                            except Exception as e:
-                                logger.warning(f"[L3 Profile] Error exiting profiler context for {module_name}: {e}")
-                    return post_hook
-
-                module.register_forward_pre_hook(make_pre_hook(name))
-                module.register_forward_hook(make_post_hook(name))
 
     @property
     def parameter_groups_metadata(self) -> dict[str, Any]:
