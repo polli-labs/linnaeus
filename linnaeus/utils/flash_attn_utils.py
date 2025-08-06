@@ -14,6 +14,10 @@ def is_flash_attn3_available() -> bool:
     3. The 'flash_attn' package is installed.
     4. The installed 'flash_attn' package version is 3.x.x.
     5. Key FlashAttention ops are registered with PyTorch.
+    
+    NOTE: This function performs CUDA operations and should only be called
+    when a model is already on a CUDA device to avoid premature CUDA context
+    initialization.
     """
 
     # 1. Check CUDA availability
@@ -68,3 +72,37 @@ def is_flash_attn3_available() -> bool:
         return False
 
     return True
+
+
+def is_flash_attn3_available_safe(device: torch.device = None) -> bool:
+    """
+    Safely checks if FlashAttention v3 is available without premature CUDA operations.
+    
+    Args:
+        device: The device to check. If None, only checks package availability.
+    
+    Returns:
+        bool: True if FA3 is available for the given device.
+    """
+    # First check if flash_attn package exists and is v3
+    if importlib.util.find_spec("flash_attn") is None:
+        return False
+        
+    try:
+        import flash_attn
+        version = getattr(flash_attn, "__version__", "0.0.0")
+        if not version.startswith("3."):
+            return False
+    except ImportError:
+        return False
+    
+    # If no device specified or not CUDA, we can't check capability
+    if device is None or device.type != 'cuda':
+        return False
+        
+    # Only now check CUDA capability
+    try:
+        device_capability = torch.cuda.get_device_capability(device)
+        return device_capability[0] >= 9
+    except RuntimeError:
+        return False

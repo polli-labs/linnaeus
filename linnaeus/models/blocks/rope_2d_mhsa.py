@@ -13,39 +13,59 @@ import torch.utils.checkpoint
 # Internal imports from linnaeus structure
 from linnaeus.models.blocks.drop_path import DropPath  # E402: moved to top
 from linnaeus.models.blocks.mlp import Mlp  # E402: moved to top
-from linnaeus.utils.flash_attn_utils import is_flash_attn3_available  # E402: moved to top
 from linnaeus.utils.profiling_helpers import prof
 
+# Lazy-loaded Flash Attention implementation
 _flash_attn_func_impl = None
-_flash_attn_qkvpacked_func_impl = None  # For completeness if other code uses it
-_is_flash_attn_v2_plus_available = False  # True if any FA (v2 or v3) is usable
+_flash_attn_initialized = False
+_is_flash_attn_v2_plus_available = False
 
-try:
-    if is_flash_attn3_available():
-        # FA3 is available (implies Hopper SM>=9, and flash_attn v3.x is installed)
-        from flash_attn import flash_attn_varlen_func, flash_attn_varlen_qkvpacked_func
+def _lazy_init_flash_attn():
+    """Lazily initialize Flash Attention on first use to avoid premature CUDA operations."""
+    global _flash_attn_func_impl, _flash_attn_initialized, _is_flash_attn_v2_plus_available
+    
+    if _flash_attn_initialized:
+        return
+    
+    _flash_attn_initialized = True
+    
+    try:
+        # First just check if flash_attn package exists
+        import importlib.util
+        if importlib.util.find_spec("flash_attn") is None:
+            print("INFO: No FlashAttention library found. Standard attention will be used.")
+            return
+            
+        # Import flash_attn but don't do CUDA checks yet
+        import flash_attn
+        version = getattr(flash_attn, "__version__", "0.0.0")
+        
+        if version.startswith("3."):
+            # FA3 package is installed, we'll check device capability later
+            from flash_attn import flash_attn_varlen_func
+            _flash_attn_func_impl = flash_attn_varlen_func
+            _is_flash_attn_v2_plus_available = True
+            print("INFO: FlashAttention v3 package found.")
+        else:
+            # FA2 package
+            from flash_attn import flash_attn_func as _fa2_func
+            _flash_attn_func_impl = _fa2_func
+            _is_flash_attn_v2_plus_available = True  
+            print("INFO: FlashAttention v2 package found.")
+    except ImportError as e:
+        print(f"INFO: Error importing FlashAttention: {e}. Standard attention will be used.")
+        # _flash_attn_func_impl remains None, _is_flash_attn_v2_plus_available remains False
 
-        _flash_attn_func_impl = flash_attn_varlen_func
-        _flash_attn_qkvpacked_func_impl = flash_attn_varlen_qkvpacked_func
-        _is_flash_attn_v2_plus_available = True
-        print("INFO: FlashAttention v3 (varlen funcs) selected by rope_2d_mhsa.")
-    else:
-        # Attempt to import FA2 if FA3 is not available/selected
-        # This will be used on Ampere (SM>=8) or if FA3 specific checks fail
-        from flash_attn import flash_attn_func as _fa2_func
-        from flash_attn import flash_attn_qkvpacked_func as _fa2_qkvpacked_func
+# Lazy getters for compatibility
+@property
+def FLASH_ATTENTION_AVAILABLE():
+    _lazy_init_flash_attn()
+    return _is_flash_attn_v2_plus_available
 
-        _flash_attn_func_impl = _fa2_func
-        _flash_attn_qkvpacked_func_impl = _fa2_qkvpacked_func
-        _is_flash_attn_v2_plus_available = True
-        print("INFO: FlashAttention v2 (standard funcs) selected by rope_2d_mhsa.")
-except ImportError:
-    print("INFO: No version of FlashAttention library found by rope_2d_mhsa. Standard attention will be used.")
-    # _flash_attn_func_impl remains None, _is_flash_attn_v2_plus_available remains False
-
-# For potential compatibility if other parts of the file use these global names directly
-FLASH_ATTENTION_AVAILABLE = _is_flash_attn_v2_plus_available
-flash_attn_func = _flash_attn_func_impl
+@property  
+def flash_attn_func():
+    _lazy_init_flash_attn()
+    return _flash_attn_func_impl
 
 # --- RoPE Helper Functions (Adapted from rope-vit/models/vit_rope.py) ---
 
@@ -344,12 +364,18 @@ class RoPE2DAttention(nn.Module):
         if self.use_flash_attn_impl is not None:  # Already initialized
             return
             
+        # Ensure Flash Attention is initialized
+        _lazy_init_flash_attn()
+        
         self.use_flash_attn_impl = False  # Default to False
         if self.use_flash_attn and _is_flash_attn_v2_plus_available and _flash_attn_func_impl is not None:
             try:
                 if device.type == 'cuda':
                     device_cap = torch.cuda.get_device_capability(device)
-                    if is_flash_attn3_available() and device_cap[0] >= 9:
+                    # Check if we have FA3 and the device supports it
+                    import flash_attn
+                    version = getattr(flash_attn, "__version__", "0.0.0")
+                    if version.startswith("3.") and device_cap[0] >= 9:
                         self.use_flash_attn_impl = True
                         self.using_fa_version = "v3"
                         self.logger.info(f"Using Flash Attention v3 for RoPE2DAttention with {self.num_heads} heads.")
@@ -427,7 +453,7 @@ class RoPE2DAttention(nn.Module):
 
                 # Call flash_attn_func with casted tensors
                 # No need for autocast(enabled=False) context here
-                context = flash_attn_func(
+                context = _flash_attn_func_impl(
                     q_fa,
                     k_fa,
                     v_fa,
