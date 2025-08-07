@@ -40,15 +40,17 @@ class DropPathBatchRNG:
             num_blocks: Total number of blocks that will use drop path
             batch_size: Batch size
             drop_probs: List of drop probabilities for each block
-            shape_template: Template shape for masks (excluding batch dim)
+            shape_template: Template shape for masks (including batch dim)
             dtype: Data type for masks
             device: Device to generate masks on
         """
         with prof("drop_path/batch_rng_generate", level=3):
             self.masks = []
             # Generate all random values in one call
+            # shape_template should already include batch_size as first dim
+            # We just need to add num_blocks dimension
             all_random = torch.rand(
-                (num_blocks, batch_size, *shape_template[1:]), 
+                (num_blocks, *shape_template), 
                 dtype=dtype, 
                 device=device
             )
@@ -123,6 +125,21 @@ def drop_path_optimized(
         mask = _batch_rng.get_next_mask()
         if mask is not None:
             with prof("drop_path/apply_batch_mask", level=3):
+                # Reshape mask to match input tensor dimensions
+                # Original mask shape is (batch_size, 1, 1, 1) for 4D
+                # We need to match the actual tensor dimensions
+                if mask.ndim != x.ndim:
+                    # Adjust mask dimensions to match input
+                    target_shape = (x.shape[0],) + (1,) * (x.ndim - 1)
+                    if mask.ndim > len(target_shape):
+                        # Squeeze extra dimensions
+                        while mask.ndim > len(target_shape):
+                            mask = mask.squeeze(-1)
+                    elif mask.ndim < len(target_shape):
+                        # Add dimensions
+                        while mask.ndim < len(target_shape):
+                            mask = mask.unsqueeze(-1)
+                
                 output = x.div(keep_prob) * mask
                 if torch.isnan(output).any():
                     logger.warning("drop_path_optimized resulted in NaN values.")
