@@ -11,7 +11,7 @@ import torch.nn.functional as F
 import torch.utils.checkpoint
 
 # Internal imports from linnaeus structure
-from linnaeus.models.blocks.drop_path import DropPath  # E402: moved to top
+from linnaeus.models.blocks.drop_path_optimized import DropPathOptimized as DropPath  # E402: moved to top
 from linnaeus.models.blocks.mlp import Mlp  # E402: moved to top
 from linnaeus.utils.flash_attn_utils import is_flash_attn3_available  # E402: moved to top
 from linnaeus.utils.profiling_helpers import prof

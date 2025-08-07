@@ -9,10 +9,15 @@ from linnaeus.utils.logging.logger import get_main_logger
 
 # Triton kernel imports (with graceful fallback)
 try:
+    # Check for Triton disable environment variable
+    import os
+    if os.environ.get('TRITON_DISABLE', '').lower() in ('1', 'true', 'yes'):
+        raise ImportError("Triton disabled by environment variable")
+    
     from linnaeus.aug.gpu.triton_kernels import selective_mix_chunks_triton, triton_is_available
 
     _TRITON_AVAILABLE = triton_is_available()
-except ImportError:
+except (ImportError, RuntimeError):
     _TRITON_AVAILABLE = False
     selective_mix_chunks_triton = None
 
