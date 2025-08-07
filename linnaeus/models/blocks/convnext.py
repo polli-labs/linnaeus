@@ -12,7 +12,7 @@ import torch.nn as nn
 import torch.utils.checkpoint
 
 # Assuming these utilities are available
-from linnaeus.models.blocks.drop_path import DropPath
+from linnaeus.models.blocks.drop_path_triton import DropPath
 from linnaeus.utils.logging.logger import get_main_logger
 from linnaeus.utils.profiling_helpers import prof
 

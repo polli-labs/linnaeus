@@ -23,7 +23,7 @@ import torch.nn.functional as F
 # ---> ADD THIS IMPORT <---
 import torch.utils.checkpoint
 
-from linnaeus.models.blocks.drop_path import DropPath
+from linnaeus.models.blocks.drop_path_triton import DropPath
 from linnaeus.models.blocks.mlp import Mlp
 from linnaeus.models.utils.conversion import to_2tuple
 from linnaeus.models.utils.initialization import trunc_normal_
