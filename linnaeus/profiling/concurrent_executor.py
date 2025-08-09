@@ -135,14 +135,21 @@ class ConcurrentTrialExecutor:
                 '--timeout', str(timeout)
             ]
             
-            # Execute trial
+            # Execute trial with proper UID/GID
             logger.info(f"Starting trial {trial_name} on GPU {gpu_id}")
+            
+            # Set environment with current user's UID/GID
+            env = os.environ.copy()
+            env['UID'] = str(os.getuid())
+            env['GID'] = str(os.getgid())
+            
             process = subprocess.Popen(
                 docker_cmd,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
-                cwd=output_dir
+                cwd=output_dir,
+                env=env
             )
             
             # Track active process
@@ -172,8 +179,20 @@ class ConcurrentTrialExecutor:
                 result['debug_log'] = self._capture_debug_log(trial, output_dir)
                 
         except subprocess.TimeoutExpired:
-            process.kill()
-            process.wait()  # Ensure process is fully terminated
+            logger.warning(f"Trial {trial_name} exceeded timeout of {timeout}s, terminating...")
+            
+            # Try graceful termination first
+            process.terminate()
+            try:
+                process.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                # Force kill if graceful termination fails
+                process.kill()
+                process.wait()
+            
+            # Clean up Docker containers explicitly
+            self._force_cleanup_docker(trial_name, gpu_id, output_dir)
+            
             result = {
                 'name': trial_name,
                 'status': 'timeout',
@@ -322,6 +341,48 @@ class ConcurrentTrialExecutor:
             )
         except:
             pass  # Best effort cleanup
+            
+    def _force_cleanup_docker(self, trial_name: str, gpu_id: int, output_dir: str) -> None:
+        """
+        Force cleanup Docker containers and GPU processes.
+        
+        Args:
+            trial_name: Name of trial
+            gpu_id: GPU ID used
+            output_dir: Output directory (for compose project name)
+        """
+        try:
+            # Get project name from output dir
+            project_name = os.path.basename(output_dir)
+            
+            # Force stop all containers for this project
+            subprocess.run(
+                ['docker', 'compose', '-p', project_name, 'down', '--timeout', '5'],
+                capture_output=True,
+                timeout=10
+            )
+            
+            # Kill any remaining GPU processes on this GPU
+            # Get processes using this GPU
+            result = subprocess.run(
+                ['nvidia-smi', '--query-compute-apps=pid', '--format=csv,noheader', f'-i', str(gpu_id)],
+                capture_output=True,
+                text=True,
+                timeout=5
+            )
+            
+            if result.returncode == 0 and result.stdout:
+                pids = result.stdout.strip().split('\n')
+                for pid in pids:
+                    if pid:
+                        try:
+                            # Only kill if we own the process
+                            subprocess.run(['kill', '-9', pid], capture_output=True, timeout=2)
+                        except:
+                            logger.warning(f"Could not kill GPU process {pid} on GPU {gpu_id}")
+                            
+        except Exception as e:
+            logger.error(f"Error during force cleanup: {e}")
             
     def shutdown(self) -> None:
         """Shutdown the executor and clean up resources."""

@@ -12,7 +12,7 @@ import torch.nn as nn
 import torch.utils.checkpoint
 
 # Assuming these utilities are available
-from linnaeus.models.blocks.drop_path import DropPath
+from linnaeus.models.blocks.drop_path_optimized import DropPathOptimized as DropPath
 from linnaeus.utils.logging.logger import get_main_logger
 from linnaeus.utils.profiling_helpers import prof
 
@@ -80,7 +80,7 @@ class ConvNeXtBlock(nn.Module):
         with prof("convnext/nhwc_to_nchw", level=3):
             x = x.permute(0, 3, 1, 2)  # (N, H, W, C) -> (N, C, H, W)
 
-        with prof("convnext/residual", level=3):
+        with prof("convnext/residual_add", level=3):
             x = input_tensor + self.drop_path(x)
         return x
 

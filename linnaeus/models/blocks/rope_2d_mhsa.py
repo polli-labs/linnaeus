@@ -11,7 +11,7 @@ import torch.nn.functional as F
 import torch.utils.checkpoint
 
 # Internal imports from linnaeus structure
-from linnaeus.models.blocks.drop_path import DropPath  # E402: moved to top
+from linnaeus.models.blocks.drop_path_optimized import DropPathOptimized as DropPath  # E402: moved to top
 from linnaeus.models.blocks.mlp import Mlp  # E402: moved to top
 from linnaeus.utils.flash_attn_utils import is_flash_attn3_available  # E402: moved to top
 from linnaeus.utils.profiling_helpers import prof
@@ -588,7 +588,7 @@ class RoPE2DMHSABlock(nn.Module):
             else:
                 attn_output = self._attn_impl(x_norm1, H, W)
 
-        with prof("rope_block/residual_attn", level=3):
+        with prof("rope/residual_add_attn", level=3):
             x = identity + self.drop_path(attn_output)
 
         # --- MLP + Residual ---
@@ -602,7 +602,7 @@ class RoPE2DMHSABlock(nn.Module):
             else:
                 mlp_output = self._mlp_impl(x_norm2)
 
-        with prof("rope_block/residual_mlp", level=3):
+        with prof("rope/residual_add_mlp", level=3):
             x = identity_mlp + self.drop_path(mlp_output)
 
         return x
