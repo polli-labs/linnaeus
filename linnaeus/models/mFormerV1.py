@@ -357,13 +357,15 @@ class mFormerV1(BaseModel):
         }
         
         # RoPE stages are at indices 2 and 3 in self.stages
-        rope_stage_indices = [2, 3]  # Stage 3 and Stage 4 are RoPE stages
-        stages_to_compile = config.MODEL.ROPE_COMPILE.STAGES
+        # Config specifies which RoPE stages to compile (0=first RoPE, 1=second RoPE)
+        rope_stage_indices = [2, 3]  # Absolute indices in self.stages
+        stages_to_compile = config.MODEL.ROPE_COMPILE.STAGES  # Relative RoPE indices [0, 1]
         blocks_per_stage = config.MODEL.ROPE_COMPILE.BLOCKS_PER_STAGE
         
         compiled_count = 0
-        for stage_idx, actual_idx in enumerate(rope_stage_indices):
-            if stage_idx in stages_to_compile:
+        for rope_idx in stages_to_compile:
+            if rope_idx < len(rope_stage_indices):
+                actual_idx = rope_stage_indices[rope_idx]
                 stage_blocks = self.stages[actual_idx]
                 blocks_to_compile = len(stage_blocks) if blocks_per_stage == 0 else min(blocks_per_stage, len(stage_blocks))
                 
@@ -374,9 +376,9 @@ class mFormerV1(BaseModel):
                         compiled_block = torch.compile(original_block, **compile_config)
                         stage_blocks[block_idx] = compiled_block
                         compiled_count += 1
-                        logger.info(f"[RoPE Compile] Compiled RoPE stage {stage_idx}, block {block_idx}")
+                        logger.info(f"[RoPE Compile] Compiled RoPE stage {rope_idx}, block {block_idx}")
                     except Exception as e:
-                        logger.warning(f"Failed to compile RoPE stage {stage_idx}, block {block_idx}: {e}")
+                        logger.warning(f"Failed to compile RoPE stage {rope_idx}, block {block_idx}: {e}")
                         
         if compiled_count > 0:
             logger.info(f"[RoPE Compile] Successfully compiled {compiled_count} RoPE blocks with mode='{config.MODEL.ROPE_COMPILE.MODE}'")
