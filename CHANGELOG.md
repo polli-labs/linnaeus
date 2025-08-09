@@ -9,6 +9,14 @@
   - RoPE MLP residual additions: `rope/residual_add_mlp` profiling hooks
   - Enables detailed analysis of drop path overhead at 15.1% baseline measurement
 
+### Performance
+- **Batch RNG Drop Path Optimization**: Implemented optimized drop path that generates random masks in batches, reducing RNG kernel launches by 97% (36→1 per forward pass):
+  - New `DropPathOptimized` module with batch mask generation and caching
+  - Intelligent tensor shape handling for both 3D (RoPE attention) and 4D (ConvNeXt) tensors
+  - Integration with training loop for automatic batch preparation
+  - Measured ~6% performance improvement per sample in profiling trials
+  - Fallback to standard drop path when batch RNG not available
+
 ### Fixed
 - **Critical Docker Container User Permissions**: Fixed Docker containers running as root which prevented proper GPU process cleanup during trial timeouts:
   - Added `user: "${UID:-1000}:${GID:-1000}"` directive to Docker compose templates
