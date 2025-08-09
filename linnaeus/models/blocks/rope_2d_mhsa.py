@@ -283,6 +283,10 @@ class RoPE2DAttention(nn.Module):
             self.register_buffer("t_y_ref", t_y, persistent=False)
 
         self.softmax = nn.Softmax(dim=-1)
+        
+        # Frequency caching for optimization
+        self.enable_freq_cache = False  # Will be set by mFormerV1 if ROPE_COMPILE.CACHE_FREQUENCIES is True
+        self._freq_cache = {}  # Cache for computed frequencies
 
     def _precompute_axial_freqs_cis(self, theta: float) -> torch.Tensor:
         """Precomputes fixed axial RoPE frequencies."""
@@ -342,12 +346,18 @@ class RoPE2DAttention(nn.Module):
     def _get_current_freqs_cis(self, H: int, W: int, device: torch.device) -> torch.Tensor:
         """Gets or recomputes freqs_cis based on current grid size."""
         with prof("rope/get_current_freqs_cis", level=3):
+            # Check cache if enabled
+            if self.enable_freq_cache:
+                cache_key = (H, W, device.index if device.type == 'cuda' else -1)
+                if cache_key in self._freq_cache:
+                    return self._freq_cache[cache_key]
+            
             N_img = H * W
             if self.rope_mixed:
                 # Needs coordinates for the current size
                 t_x, t_y = init_t_xy(W, H, device=device)
                 freqs_cis = compute_mixed_cis(self.freqs.to(device), t_x, t_y)  # Compute complex
-                return freqs_cis.to(torch.complex64)
+                result = freqs_cis.to(torch.complex64)
             else:
                 # Axial: Check if precomputed size matches
                 if N_img != self.freqs_cis.shape[0]:
@@ -355,9 +365,15 @@ class RoPE2DAttention(nn.Module):
                     # Recompute and update buffer (this might be slow if called often)
                     new_freqs_cis = self._precompute_axial_freqs_cis(10000.0).to(device)
                     self.register_buffer("freqs_cis", new_freqs_cis, persistent=False)
-                    return new_freqs_cis
+                    result = new_freqs_cis
                 else:
-                    return self.freqs_cis.to(device)
+                    result = self.freqs_cis.to(device)
+            
+            # Cache the result if enabled
+            if self.enable_freq_cache:
+                self._freq_cache[cache_key] = result
+                
+            return result
 
     def _initialize_flash_attn(self, device: torch.device):
         """One-time initialization of Flash Attention implementation choice."""

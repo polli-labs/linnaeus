@@ -483,6 +483,15 @@ _C.MODEL.ROPE_STAGES.ROPE_THETA = 10000.0  # RoPE base frequency
 _C.MODEL.ROPE_STAGES.ROPE_MIXED = True  # Use mixed RoPE (interleaved vs block)
 _C.MODEL.ROPE_STAGES.USE_FLASH_ATTN = True  # Enable Flash Attention if available in environment
 
+# torch.compile optimization for RoPE stages
+_C.MODEL.ROPE_COMPILE = CN()
+_C.MODEL.ROPE_COMPILE.ENABLED = False  # Enable torch.compile on RoPE blocks
+_C.MODEL.ROPE_COMPILE.MODE = "max-autotune"  # Compilation mode: 'default', 'reduce-overhead', 'max-autotune'
+_C.MODEL.ROPE_COMPILE.STAGES = [0, 1]  # Which RoPE stages to compile (by index)
+_C.MODEL.ROPE_COMPILE.BLOCKS_PER_STAGE = 2  # How many blocks per stage to compile (0 = all)
+_C.MODEL.ROPE_COMPILE.BF16_AUTOCAST = False  # Enable bf16 mixed precision in RoPE blocks
+_C.MODEL.ROPE_COMPILE.CACHE_FREQUENCIES = False  # Cache frequency computations
+
 # Feature Resolver Subconfig (e.g. LearnedProjection)
 _C.MODEL.FEATURE_RESOLVER = CN()
 _C.MODEL.FEATURE_RESOLVER.TYPE = "LearnedProjection"  # e.g. 'AdaptivePooling', 'Concatenation', 'Identity'

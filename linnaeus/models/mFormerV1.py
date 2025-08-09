@@ -333,9 +333,94 @@ class mFormerV1(BaseModel):
             taxonomy_tree=taxonomy_tree,
         )
 
+        # Apply torch.compile optimization to RoPE stages if configured
+        self._apply_rope_compile_optimization(config)
+        
         # Apply weight initialization
         self.apply(self._init_weights)
         logger.info(f"[mFormerV1] Model built. Total Params: {sum(p.numel() for p in self.parameters()):,}")
+
+    def _apply_rope_compile_optimization(self, config):
+        """Apply torch.compile optimization to RoPE stages if configured."""
+        if not config.MODEL.ROPE_COMPILE.ENABLED:
+            return
+            
+        if not hasattr(torch, 'compile'):
+            logger.warning("torch.compile not available in this PyTorch version")
+            return
+            
+        compile_config = {
+            'backend': 'inductor',
+            'mode': config.MODEL.ROPE_COMPILE.MODE,
+            'fullgraph': False,  # Allow graph breaks for stability
+            'dynamic': False,    # Static shapes for better optimization
+        }
+        
+        # RoPE stages are at indices 2 and 3 in self.stages
+        rope_stage_indices = [2, 3]  # Stage 3 and Stage 4 are RoPE stages
+        stages_to_compile = config.MODEL.ROPE_COMPILE.STAGES
+        blocks_per_stage = config.MODEL.ROPE_COMPILE.BLOCKS_PER_STAGE
+        
+        compiled_count = 0
+        for stage_idx, actual_idx in enumerate(rope_stage_indices):
+            if stage_idx in stages_to_compile:
+                stage_blocks = self.stages[actual_idx]
+                blocks_to_compile = len(stage_blocks) if blocks_per_stage == 0 else min(blocks_per_stage, len(stage_blocks))
+                
+                for block_idx in range(blocks_to_compile):
+                    try:
+                        # Compile the block
+                        original_block = stage_blocks[block_idx]
+                        compiled_block = torch.compile(original_block, **compile_config)
+                        stage_blocks[block_idx] = compiled_block
+                        compiled_count += 1
+                        logger.info(f"[RoPE Compile] Compiled RoPE stage {stage_idx}, block {block_idx}")
+                    except Exception as e:
+                        logger.warning(f"Failed to compile RoPE stage {stage_idx}, block {block_idx}: {e}")
+                        
+        if compiled_count > 0:
+            logger.info(f"[RoPE Compile] Successfully compiled {compiled_count} RoPE blocks with mode='{config.MODEL.ROPE_COMPILE.MODE}'")
+        
+        # Apply BF16 autocast if configured
+        if config.MODEL.ROPE_COMPILE.BF16_AUTOCAST:
+            self._wrap_rope_bf16_autocast(rope_stage_indices, stages_to_compile)
+            
+        # Enable frequency caching if configured
+        if config.MODEL.ROPE_COMPILE.CACHE_FREQUENCIES:
+            self._enable_rope_freq_caching(rope_stage_indices)
+            
+    def _wrap_rope_bf16_autocast(self, rope_stage_indices, stages_to_compile):
+        """Wrap RoPE forward passes with bf16 autocast."""
+        for stage_idx, actual_idx in enumerate(rope_stage_indices):
+            if stage_idx in stages_to_compile:
+                stage_blocks = self.stages[actual_idx]
+                for block in stage_blocks:
+                    # Store original forward
+                    original_forward = block.forward
+                    
+                    # Create wrapped forward with bf16 autocast
+                    def wrapped_forward(self, *args, **kwargs):
+                        with torch.cuda.amp.autocast(dtype=torch.bfloat16):
+                            return original_forward(*args, **kwargs)
+                    
+                    # Replace forward method
+                    block.forward = wrapped_forward.__get__(block, block.__class__)
+                    
+        logger.info("[RoPE Compile] Applied BF16 autocast to RoPE blocks")
+        
+    def _enable_rope_freq_caching(self, rope_stage_indices):
+        """Enable frequency caching in RoPE attention modules."""
+        cache_count = 0
+        for actual_idx in rope_stage_indices:
+            stage_blocks = self.stages[actual_idx]
+            for block in stage_blocks:
+                # Access the attention module within the block
+                if hasattr(block, 'attn'):
+                    block.attn.enable_freq_cache = True
+                    cache_count += 1
+                    
+        if cache_count > 0:
+            logger.info(f"[RoPE Compile] Enabled frequency caching for {cache_count} RoPE attention modules")
 
     def _init_weights(self, m):
         """Initialize weights like ConvNeXt and ViT."""
