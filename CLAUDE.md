@@ -158,6 +158,191 @@ We use a fully reproducible, high-observability job+runner model for development
    /file_issue bug P0 "Config breaks" "YACS inheritance issue"
    ```
 
+## YAML Frontmatter Enforcement (MANDATORY)
+
+### Policy
+**ALL** working markdown documents in linnaeus MUST include valid YAML frontmatter conforming to the appropriate DocType schema. This includes all files in:
+- `work/` (specs, issues, state, outcomes, etc.)
+- `docs/dev/` and `docs/profiling/` (documentation pages)
+- Any markdown files tracking progress, issues, or project state
+
+### Required Behavior
+1. **On Create**: Insert full frontmatter template for the inferred DocType
+2. **On Edit**: Preserve `created` timestamp, update `updated` to current UTC
+3. **On Save**: Validate frontmatter; block save if invalid and propose fix
+4. **Always**: Use UTC ISO-8601 format (YYYY-MM-DDTHH:MM:SSZ) for timestamps
+
+### DocType Schemas
+
+#### 1. SprintGoals
+```yaml
+---
+title: "Sprint Goals: Week of Aug 4, 2025"
+doc_type: sprint_goals
+project: linnaeus
+sprint: "2025-WeekAug4"
+status: active|closed
+objective: "Complete drop path optimization"
+deadline: 2025-08-09
+version_target: "v0.4.0"
+created: 2025-08-04T09:00:00Z
+updated: 2025-08-04T17:00:00Z
+tags: [sprint, goals]
+x:
+  repo: linnaeus
+  worktree: main
+  canonical: work/sprints/2025-WeekAug4.md
+  related: []
+---
+```
+
+#### 2. Standup
+```yaml
+---
+title: "Daily Standup – 2025-08-06"
+doc_type: standup
+project: linnaeus
+date: 2025-08-06
+sprint: "2025-WeekAug4"
+status: logged|amended
+created: 2025-08-06T09:05:00Z
+updated: 2025-08-06T17:40:00Z
+tags: [standup]
+x:
+  blockers: []
+  links: []
+---
+```
+
+#### 3. Spec
+```yaml
+---
+title: "Drop Path Optimization Spec"
+doc_type: spec
+project: linnaeus
+status: draft|review|approved|superseded
+owners: ["caleb"]
+reviewers: []
+version: "0.1"
+created: 2025-08-06T18:00:00Z
+updated: 2025-08-07T02:40:00Z
+tags: [spec, optimization]
+x:
+  decision_log: []
+  risks: []
+  related: []
+---
+```
+
+#### 4. Outcome/Report
+```yaml
+---
+title: "Drop Path Optimization Results"
+doc_type: outcome
+project: linnaeus
+status: final|interim
+created: 2025-08-07T03:00:00Z
+updated: 2025-08-07T03:20:00Z
+tags: [results, report, optimization]
+x:
+  sources: ["work/active/mFormerV1-droppath/results/"]
+  metrics: {improvement: "6%", method: "batch_rng"}
+  decisions: []
+  next_steps: []
+---
+```
+
+#### 5. State/Progress
+```yaml
+---
+title: "Current Project State – 2025-08-07"
+doc_type: state
+project: linnaeus
+status: active
+period: "Day 3 of 5"
+created: 2025-08-07T01:00:00Z
+updated: 2025-08-07T19:30:00Z
+tags: [status]
+x:
+  summary: "Batch RNG optimization complete, Triton blocked"
+  risks: []
+  todos: []
+---
+```
+
+#### 6. Issue
+```yaml
+---
+title: "[P2][bug] Triton segfaults with L3 profiling"
+doc_type: issue
+project: linnaeus
+type: bug|feature|enhancement|task
+priority: P0|P1|P2|P3
+status: open|in_progress|blocked|done
+component: profiling
+created: 2025-08-04T10:00:00Z
+updated: 2025-08-05T14:11:00Z
+tags: [issue, P2, triton]
+x:
+  id: "triton-l3-segfault"
+  related: ["v0.3.4-segfault"]
+  version: "v0.4.0-dev"
+---
+```
+
+#### 7. LogExcerpt
+```yaml
+---
+title: "Training Log Excerpt – drop_path_trial"
+doc_type: log_excerpt
+project: linnaeus
+status: captured
+created: 2025-08-06T22:10:00Z
+updated: 2025-08-06T22:10:00Z
+tags: [logs, profiling]
+x:
+  source_path: "/datasets/modelWorkshop/logs/trial.log"
+  time_range: "2025-08-06T20:00Z..2025-08-06T22:00Z"
+  grep: 'rg -n --context 5 "(ERROR|SIGSEGV)"'
+  error_signatures: ["SIGSEGV", "exit code 139"]
+---
+```
+
+#### 8. DocsPage (for MkDocs)
+```yaml
+---
+title: "Profiling Workflow Guide"
+summary: "How to run profiling trials with concurrent execution"
+tags: [docs, profiling]
+date: 2025-08-07
+lastmod: 2025-08-07
+x:
+  project: linnaeus
+  doc_type: docs_page
+---
+```
+
+### Template Selection Heuristics
+- `work/active/*/spec.md` → spec
+- `work/bugs/**/*.md` → issue  
+- `work/sprints/*.md` → sprint_goals
+- `work/standups/*.md` → standup
+- `work/outcomes/*.md` → outcome
+- `work/state/*.md` → state
+- `docs/**/*.md` → docs_page
+- Files with "log" or "excerpt" → log_excerpt
+
+### Frontmatter Commands
+- `/frontmatter-new <DocType> [title]` - Create new doc with template
+- `/frontmatter-repair` - Fix current file's frontmatter
+- `/frontmatter-sync [path]` - Batch repair directory tree
+
+### Validation
+The `validate_frontmatter.py` script runs automatically before saves. If validation fails:
+1. The save is blocked
+2. You'll be prompted to run `/frontmatter-repair`
+3. The repair will preserve `created` and update `updated`
+
 ### 2  Common Local Commands
 
 #### 2.1  Environment

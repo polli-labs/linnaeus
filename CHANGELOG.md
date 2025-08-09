@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [0.3.6] - 2025-08-08
 
 ### Added
 - **Enhanced L3 Profiling Instrumentation**: Added comprehensive L3-level profiling hooks for residual addition operations in ConvNeXt and RoPE modules to enable fine-grained drop path performance analysis:
