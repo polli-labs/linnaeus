@@ -526,6 +526,11 @@ _C.MODEL.OTHER_COMPONENTS.DOWNSAMPLE_LAYERS = False
 _C.LOSS = CN()
 _C.LOSS.FROM = ""
 
+# Loss optimization flags
+_C.LOSS.USE_OPTIMIZED_PATH = False  # Use vectorized masking and weighting
+_C.LOSS.USE_TORCH_COMPILE = False  # Apply torch.compile to loss functions
+_C.LOSS.COMPILE_MODE = "default"  # torch.compile mode: default, reduce-overhead, max-autotune
+
 # Task-specific subconfig: merges older approach where we default to CrossEntropy
 _C.LOSS.TASK_SPECIFIC = CN()
 _C.LOSS.TASK_SPECIFIC.TRAIN = CN()
