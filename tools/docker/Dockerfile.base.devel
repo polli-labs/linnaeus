@@ -1,0 +1,91 @@
+# Dockerfile.base.devel - Full devel base image with CUDA tools for Triton/torch.compile support
+# This image includes all CUDA development tools needed for JIT compilation
+# Larger than standard base image but supports all optimization features
+
+ARG NVIDIA_CUDA_TAG="12.6.2-cudnn9-devel-ubuntu22.04"
+FROM nvidia/cuda:${NVIDIA_CUDA_TAG}
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV PIP_NO_CACHE_DIR=1
+ENV PYTHONPATH="/opt/venv/lib/python3.11/site-packages"
+ENV PATH="/opt/venv/bin:$PATH"
+
+# Ensure CUDA tools are in PATH for Triton compilation
+ENV PATH="/usr/local/cuda/bin:$PATH"
+ENV LD_LIBRARY_PATH="/usr/local/cuda/lib64:$LD_LIBRARY_PATH"
+ENV CUDA_HOME="/usr/local/cuda"
+
+# Install system dependencies and Python 3.11
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        python3.11 \
+        python3.11-dev \
+        python3.11-venv \
+        python3-pip \
+        build-essential \
+        git \
+        curl \
+        wget \
+        libglib2.0-0 \
+        libsm6 \
+        libxext6 \
+        libfontconfig1 \
+        libxrender1 \
+        libgl1-mesa-glx \
+        htop \
+        nvtop \
+        nano \
+        rclone \
+        tini && \
+    rm -rf /var/lib/apt/lists/*
+
+# Create and activate virtual environment
+RUN python3.11 -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+
+# Install uv for fast package management
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh
+ENV PATH="/root/.local/bin:$PATH"
+
+# Upgrade pip and install base packages
+RUN uv pip install --system --upgrade pip setuptools wheel
+
+# Install PyTorch with CUDA support
+RUN uv pip install --system torch==2.5.1 torchvision==0.20.1 --index-url https://download.pytorch.org/whl/cu124
+
+# Install Triton with explicit version for compatibility
+RUN uv pip install --system triton==3.1.0
+
+# Install other ML dependencies
+RUN uv pip install --system \
+    numpy \
+    scipy \
+    matplotlib \
+    pandas \
+    scikit-learn \
+    opencv-python-headless \
+    h5py \
+    Pillow \
+    pyyaml \
+    yacs \
+    tqdm \
+    tensorboard \
+    wandb \
+    einops \
+    timm \
+    transformers \
+    flash-attn \
+    --index-url https://download.pytorch.org/whl/cu124
+
+# Verify CUDA tools are available
+RUN which ptxas && which nvcc && echo "CUDA tools verified"
+
+# Verify Triton can compile
+RUN python -c "import triton; import torch; print('Triton and PyTorch imported successfully')"
+
+# Verify torch.compile works
+RUN python -c "import torch; torch.compile(lambda x: x + 1)(torch.tensor(1.0)); print('torch.compile verified')"
+
+# Use tini as entrypoint for proper signal handling
+ENTRYPOINT ["/usr/bin/tini", "--"]
+CMD ["/bin/bash"]

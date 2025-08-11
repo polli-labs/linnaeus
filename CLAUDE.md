@@ -445,12 +445,10 @@ linnaeus-prof-run \
 
 **IMPORTANT**: Always use concurrent execution for ~2x speedup on our dual-GPU system.
 
-```bash
-# From linnaeus repo
-cd /home/caleb/repo/linnaeus
-source .venv/bin/activate
+**⚠️ TRITON/DOCKER ISSUE**: Standard CI/CD images lack CUDA tools for Triton. Use local profiling image for any trials involving Triton kernels or torch.compile:
 
-# Run trials concurrently on 2 GPUs (default)
+```bash
+# For trials WITHOUT Triton/torch.compile (standard images)
 linnaeus-prof-run \
   --trial-params-file /home/caleb/repo/linnaeus-deployment/linnaeus_deploy/configs/experiments/tests/v040/feature-name/trials.jsonl \
   --output-dir /home/caleb/repo/linnaeus/work/active/feature-name/results \
@@ -458,8 +456,23 @@ linnaeus-prof-run \
   --timeout 600 \
   --max-concurrent 2 \
   --gpu-assignment auto \
-  --stagger-delay 10 \
   --capture-debug-logs
+
+# For trials WITH Triton/torch.compile (local profiling image)
+linnaeus-prof-run \
+  --trial-params-file /home/caleb/repo/linnaeus-deployment/linnaeus_deploy/configs/experiments/tests/v040/feature-name/trials.jsonl \
+  --output-dir /home/caleb/repo/linnaeus/work/active/feature-name/results \
+  --compose-template /home/caleb/repo/linnaeus-deployment/linnaeus_deploy/docker/runtime/profiling/blade/templates/docker-compose-local-image.template.yml \
+  --timeout 600 \
+  --max-concurrent 2 \
+  --gpu-assignment auto \
+  --capture-debug-logs
+```
+
+**Building Local Profiling Image** (if needed):
+```bash
+cd /home/caleb/repo/linnaeus
+./tools/docker/build_profiling.sh ampere main
 ```
 
 ### Manual Trial Setup Process (if not using /prof_impl):

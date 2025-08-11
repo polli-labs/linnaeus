@@ -1,0 +1,33 @@
+# Dockerfile.runtime.devel - Full runtime image with CUDA devel tools
+# Based on devel base image to support Triton and torch.compile
+# For production deployments that need JIT compilation support
+
+ARG BASE_TAG=ampere-cu126-devel
+ARG LINNAEUS_REF=main
+
+FROM frontierkodiak/linnaeus-base:${BASE_TAG}
+
+ENV PYTHONPATH="/app/linnaeus"
+ENV PIP_NO_CACHE_DIR=1
+
+# Ensure CUDA tools remain in PATH
+ENV PATH="/usr/local/cuda/bin:$PATH"
+ENV LD_LIBRARY_PATH="/usr/local/cuda/lib64:$LD_LIBRARY_PATH"
+ENV CUDA_HOME="/usr/local/cuda"
+
+WORKDIR /app
+
+# Clone Linnaeus repository at specified ref
+RUN git clone --depth 1 --branch ${LINNAEUS_REF} https://github.com/polli-labs/linnaeus.git linnaeus
+
+WORKDIR /app/linnaeus
+
+# Install Linnaeus package
+RUN uv pip install --system --no-deps -e . && \
+    rm -rf /root/.cache/uv
+
+# Verify Triton still works
+RUN python -c "import triton; import torch; print('Triton verified in runtime image')"
+
+# Default command
+CMD ["python", "-m", "linnaeus.main"]
