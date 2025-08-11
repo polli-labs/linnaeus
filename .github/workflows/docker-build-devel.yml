@@ -1,0 +1,171 @@
+name: Docker Build Devel (Manual)
+
+# Manual trigger only - these images are too large for automatic builds
+on:
+  workflow_dispatch:
+    inputs:
+      base_version:
+        description: 'Base version tag (e.g., v0.4.0-devel)'
+        required: true
+        type: string
+      runtime_version:
+        description: 'Runtime version tag (e.g., v0.4.0-devel)'
+        required: true
+        type: string
+      push_to_registry:
+        description: 'Push images to Docker Hub'
+        required: true
+        type: boolean
+        default: false
+
+jobs:
+  build-base-devel:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        arch: [ampere, turing, hopper]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Docker Hub
+        if: ${{ github.event.inputs.push_to_registry == 'true' }}
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Set CUDA version based on architecture
+        id: cuda_version
+        run: |
+          if [ "${{ matrix.arch }}" = "hopper" ]; then
+            echo "cuda_tag=12.8.0-cudnn-devel-ubuntu22.04" >> $GITHUB_OUTPUT
+          else
+            echo "cuda_tag=12.6.2-cudnn9-devel-ubuntu22.04" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Build base devel image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./tools/docker/Dockerfile.base.devel
+          platforms: linux/amd64
+          push: ${{ github.event.inputs.push_to_registry == 'true' }}
+          tags: |
+            frontierkodiak/linnaeus-base:${{ matrix.arch }}-cu126-devel
+            frontierkodiak/linnaeus-base:${{ matrix.arch }}-${{ github.event.inputs.base_version }}
+          build-args: |
+            NVIDIA_CUDA_TAG=${{ steps.cuda_version.outputs.cuda_tag }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  build-runtime-devel:
+    needs: build-base-devel
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        arch: [ampere, turing, hopper]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Docker Hub
+        if: ${{ github.event.inputs.push_to_registry == 'true' }}
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Get current git ref
+        id: git_ref
+        run: |
+          echo "ref=$(git rev-parse --abbrev-ref HEAD)" >> $GITHUB_OUTPUT
+          echo "sha=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+
+      - name: Build runtime devel image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./tools/docker/Dockerfile.runtime.devel
+          platforms: linux/amd64
+          push: ${{ github.event.inputs.push_to_registry == 'true' }}
+          tags: |
+            frontierkodiak/linnaeus-dev:${{ matrix.arch }}-cu126-devel
+            frontierkodiak/linnaeus-dev:${{ matrix.arch }}-${{ github.event.inputs.runtime_version }}
+          build-args: |
+            BASE_TAG=${{ matrix.arch }}-cu126-devel
+            LINNAEUS_REF=${{ steps.git_ref.outputs.ref }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  build-profiling:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        arch: [ampere, turing, hopper]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Docker Hub
+        if: ${{ github.event.inputs.push_to_registry == 'true' }}
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Set CUDA version based on architecture
+        id: cuda_version
+        run: |
+          if [ "${{ matrix.arch }}" = "hopper" ]; then
+            echo "cuda_tag=12.8.0-cudnn-devel-ubuntu22.04" >> $GITHUB_OUTPUT
+            echo "base_tag=hopper-cu128-nightly" >> $GITHUB_OUTPUT
+          else
+            echo "cuda_tag=12.6.2-cudnn9-devel-ubuntu22.04" >> $GITHUB_OUTPUT
+            echo "base_tag=${{ matrix.arch }}-cu126" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Get current git ref
+        id: git_ref
+        run: |
+          echo "ref=$(git rev-parse --abbrev-ref HEAD)" >> $GITHUB_OUTPUT
+          echo "sha=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+
+      - name: Build profiling image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./tools/docker/Dockerfile.profiling
+          platforms: linux/amd64
+          push: ${{ github.event.inputs.push_to_registry == 'true' }}
+          tags: |
+            frontierkodiak/linnaeus-profiling:${{ matrix.arch }}-latest
+            frontierkodiak/linnaeus-profiling:${{ matrix.arch }}-${{ steps.git_ref.outputs.sha }}
+          build-args: |
+            BASE_TAG=${{ steps.cuda_version.outputs.base_tag }}
+            NVIDIA_CUDA_TAG=${{ steps.cuda_version.outputs.cuda_tag }}
+            LINNAEUS_REF=${{ steps.git_ref.outputs.ref }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  test-images:
+    needs: [build-base-devel, build-runtime-devel, build-profiling]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Test note
+        run: |
+          echo "Images built successfully!"
+          echo "Note: These images may be too large for GitHub Actions runners."
+          echo "If this workflow fails due to disk space, we'll need to use paid runners."
+          echo ""
+          echo "To test locally, run:"
+          echo "  ./tools/docker/build_profiling.sh ampere main"

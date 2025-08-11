@@ -1,0 +1,88 @@
+# Dockerfile.profiling - Full-featured profiling image with Triton support
+# This image keeps the CUDA devel base for JIT compilation support
+# Not intended for CI - for local profiling only
+
+ARG BASE_TAG=ampere-cu126
+ARG NVIDIA_CUDA_TAG="12.8.0-cudnn-devel-ubuntu22.04"
+
+# First stage: import the pre-built base image to copy from
+FROM frontierkodiak/linnaeus-base:${BASE_TAG} AS base-import
+
+# Use the full devel base image (not runtime) to keep CUDA tools
+FROM nvidia/cuda:${NVIDIA_CUDA_TAG} AS profiling-base
+
+# Copy the virtual environment from the pre-built base image
+# This avoids rebuilding all Python dependencies
+COPY --from=base-import /opt/venv /opt/venv
+
+# Set up environment
+ENV PATH="/opt/venv/bin:$PATH"
+ENV PYTHONPATH="/opt/venv/lib/python3.11/site-packages"
+ENV CC=gcc
+ENV CXX=g++
+
+# Ensure CUDA tools are in PATH
+ENV PATH="/usr/local/cuda/bin:$PATH"
+ENV LD_LIBRARY_PATH="/usr/local/cuda/lib64:$LD_LIBRARY_PATH"
+
+# Install runtime dependencies (same as Dockerfile.base but for devel image)
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        python3.11 \
+        python3.11-dev \
+        git \
+        curl \
+        libglib2.0-0 \
+        libsm6 \
+        libxext6 \
+        libfontconfig1 \
+        libxrender1 \
+        libgl1-mesa-glx \
+        htop \
+        nvtop \
+        nano \
+        rclone \
+        tini \
+        gcc \
+        g++ \
+        libc6-dev && \
+    rm -rf /var/lib/apt/lists/*
+
+# Link python
+RUN ln -sf /usr/bin/python3.11 /usr/bin/python3 && \
+    ln -sf /usr/bin/python3 /usr/bin/python
+
+# Install uv
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh
+ENV PATH="/root/.local/bin:$PATH"
+
+# Verify CUDA tools are available
+RUN which ptxas && which nvcc && echo "CUDA tools verified"
+
+# Verify Triton can compile
+RUN python -c "import triton; import torch; print('Triton import successful')"
+
+# Use tini as entrypoint
+ENTRYPOINT ["/usr/bin/tini", "--"]
+CMD ["/bin/bash"]
+
+# Runtime stage for profiling with Linnaeus
+FROM profiling-base AS profiling
+
+ARG LINNAEUS_REF=main
+
+ENV PYTHONPATH="/app/linnaeus"
+ENV PIP_NO_CACHE_DIR=1
+
+WORKDIR /app
+
+# Clone Linnaeus repository
+RUN git clone --depth 1 --branch ${LINNAEUS_REF} https://github.com/polli-labs/linnaeus.git linnaeus
+
+WORKDIR /app/linnaeus
+
+# Install Linnaeus
+RUN uv pip install --system --no-deps -e .[dev] && \
+    rm -rf /root/.cache/uv
+
+CMD ["/bin/bash"]

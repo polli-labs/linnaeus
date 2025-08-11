@@ -31,10 +31,11 @@ class DropPathBatchRNG:
         drop_probs: list[float],
         shape_template: tuple,
         dtype: torch.dtype,
-        device: torch.device
+        device: torch.device,
+        accumulation_steps: int = 1
     ):
         """
-        Pre-generate all masks for a forward pass.
+        Pre-generate all masks for multiple forward passes (accounting for gradient accumulation).
         
         Args:
             num_blocks: Total number of blocks that will use drop path
@@ -43,25 +44,27 @@ class DropPathBatchRNG:
             shape_template: Template shape for masks (including batch dim)
             dtype: Data type for masks
             device: Device to generate masks on
+            accumulation_steps: Number of gradient accumulation steps (forward passes)
         """
         with prof("drop_path/batch_rng_generate", level=3):
             self.masks = []
-            # Generate all random values in one call
-            # shape_template should already include batch_size as first dim
-            # We just need to add num_blocks dimension
-            all_random = torch.rand(
-                (num_blocks, *shape_template), 
-                dtype=dtype, 
-                device=device
-            )
-            
-            for i, drop_prob in enumerate(drop_probs):
-                if drop_prob > 0:
-                    keep_prob = 1 - drop_prob
-                    mask = (all_random[i] + keep_prob).floor()
-                    self.masks.append(mask)
-                else:
-                    self.masks.append(None)
+            # Generate masks for all accumulation steps at once
+            # We need num_blocks * accumulation_steps total masks
+            for _ in range(accumulation_steps):
+                # Generate all random values for this accumulation step
+                all_random = torch.rand(
+                    (num_blocks, *shape_template), 
+                    dtype=dtype, 
+                    device=device
+                )
+                
+                for i, drop_prob in enumerate(drop_probs):
+                    if drop_prob > 0:
+                        keep_prob = 1 - drop_prob
+                        mask = (all_random[i] + keep_prob).floor()
+                        self.masks.append(mask)
+                    else:
+                        self.masks.append(None)
             
             self.index = 0
             self.enabled = True
@@ -185,7 +188,8 @@ class DropPathOptimized(nn.Module):
         batch_size: int,
         shape_template: tuple,
         dtype: torch.dtype,
-        device: torch.device
+        device: torch.device,
+        accumulation_steps: int = 1
     ):
         """
         Prepare batch RNG for all DropPathOptimized modules in a model.
@@ -196,6 +200,7 @@ class DropPathOptimized(nn.Module):
             shape_template: Template shape for masks
             dtype: Data type
             device: Device
+            accumulation_steps: Number of gradient accumulation steps
         """
         # Collect all drop path modules and their probabilities
         drop_modules = []
@@ -213,7 +218,8 @@ class DropPathOptimized(nn.Module):
                 drop_probs=drop_probs,
                 shape_template=shape_template,
                 dtype=dtype,
-                device=device
+                device=device,
+                accumulation_steps=accumulation_steps
             )
 
 

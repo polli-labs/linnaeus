@@ -229,17 +229,34 @@ def weighted_hierarchical_loss(
                         f"[PHASE1_MASK_LOSS] Applying SCHEDULED null loss masking at step {current_step} (is_validation={is_validation})."
                     )
 
-                # Standard path - use apply_loss_masking
-                masked_losses, null_stats = apply_loss_masking(
-                    per_task_losses,
-                    targets,
-                    ops_schedule,
-                    current_step,
-                    task_weighting.class_weights,
-                    is_validation,
-                    logger=log,
-                    config=config,
-                )
+                # Check if optimized path is enabled
+                use_optimized = getattr(config.LOSS, "USE_OPTIMIZED_PATH", False)
+                
+                if use_optimized:
+                    # Use hybrid approach: original null masking + optimized class weighting
+                    from linnaeus.loss.masking_hybrid import apply_loss_masking_hybrid
+                    masked_losses, null_stats = apply_loss_masking_hybrid(
+                        per_task_losses,
+                        targets,
+                        ops_schedule,
+                        current_step,
+                        task_weighting.class_weights,
+                        is_validation,
+                        logger=log,
+                        config=config,
+                    )
+                else:
+                    # Standard path - use apply_loss_masking
+                    masked_losses, null_stats = apply_loss_masking(
+                        per_task_losses,
+                        targets,
+                        ops_schedule,
+                        current_step,
+                        task_weighting.class_weights,
+                        is_validation,
+                        logger=log,
+                        config=config,
+                    )
                 # REMOVED: null_stats["phase1_active"] = False
 
             # ---> ADD: Set the correct phase1_active status AFTER getting null_stats <---
@@ -254,28 +271,13 @@ def weighted_hierarchical_loss(
                         f"mean={loss.mean().item():.4f}, min={loss.min().item():.4f}, max={loss.max().item():.4f}"
                     )
 
-            # Apply class weighting if provided (after null masking)
-            losses_after_cw = masked_losses  # Default: no class weighting
-
-            if task_weighting.class_weights:  # Check if class weights are actually defined
-                # Check if class weighting should be applied for this phase (train/val)
-                try:
-                    apply_cw = config.LOSS.GRAD_WEIGHTING.CLASS.TRAIN if not is_validation else config.LOSS.GRAD_WEIGHTING.CLASS.VAL
-                except AttributeError:  # More specific exception
-                    apply_cw = True  # Default to applying class weighting if config not found
-
-                if apply_cw:
-                    if rank == 0 and debug_null_masking:
-                        log.debug("[PHASE1_MASK_LOSS] Applying class weighting.")
-
-                    from linnaeus.loss.masking import apply_class_weighting
-
-                    losses_after_cw = apply_class_weighting(masked_losses, targets, task_weighting.class_weights)
-                else:
-                    if rank == 0 and debug_null_masking:
-                        log.debug(f"[PHASE1_MASK_LOSS] Skipping class weighting for this phase (is_validation={is_validation}).")
-            elif rank == 0 and debug_null_masking:
-                log.debug("[PHASE1_MASK_LOSS] No class weights configured.")
+            # Class weighting is now handled inside the masking functions
+            # The hybrid approach applies optimized class weighting if enabled
+            losses_after_cw = masked_losses  # Already includes class weighting if applicable
+            
+            # Log if we used the optimized path
+            if getattr(config.LOSS, "USE_OPTIMIZED_PATH", False) and rank == 0 and debug_null_masking:
+                log.debug("[PHASE1_MASK_LOSS] Used hybrid approach with optimized class weighting.")
 
         # 3. Apply task-level weighting
         if rank == 0 and verbose_logging:

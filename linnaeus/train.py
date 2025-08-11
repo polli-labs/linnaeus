@@ -133,12 +133,14 @@ def train_one_epoch(
                 from linnaeus.models.blocks.drop_path_optimized import DropPathOptimized, get_batch_rng
                 if idx == 0 or bsz != get_batch_rng().batch_size:
                     # Reset batch RNG at start of epoch or if batch size changes
+                    # Account for gradient accumulation steps to avoid exhaustion
                     DropPathOptimized.prepare_batch_rng(
                         model=model,
                         batch_size=bsz,
                         shape_template=(bsz, 1, 1, 1),  # Template for 4D tensors
                         dtype=images.dtype,
-                        device=images.device
+                        device=images.device,
+                        accumulation_steps=accumulation_steps
                     )
             except ImportError:
                 pass  # Optimized drop path not available

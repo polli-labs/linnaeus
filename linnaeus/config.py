@@ -526,6 +526,11 @@ _C.MODEL.OTHER_COMPONENTS.DOWNSAMPLE_LAYERS = False
 _C.LOSS = CN()
 _C.LOSS.FROM = ""
 
+# Loss optimization flags
+_C.LOSS.USE_OPTIMIZED_PATH = False  # Use vectorized masking and weighting
+_C.LOSS.USE_TORCH_COMPILE = False  # Apply torch.compile to loss functions
+_C.LOSS.COMPILE_MODE = "default"  # torch.compile mode: default, reduce-overhead, max-autotune
+
 # Task-specific subconfig: merges older approach where we default to CrossEntropy
 _C.LOSS.TASK_SPECIFIC = CN()
 _C.LOSS.TASK_SPECIFIC.TRAIN = CN()
@@ -777,11 +782,12 @@ _C.SCHEDULE.NULL_MASKING.END_FRACTION = None  # Alternative: fraction of total s
 # Mix schedule (formerly Mixup)
 _C.SCHEDULE.MIX = CN()
 # Group level parameters (shared between mixup and cutmix)
-_C.SCHEDULE.MIX.GROUP_LEVELS = ["taxa_L40", "taxa_L30", "taxa_L20", "taxa_L10"]  # Available group levels
+_C.SCHEDULE.MIX.GROUP_LEVELS = ["taxa_L10"]  # switching group levels disabled, use most-granular task
 _C.SCHEDULE.MIX.LEVEL_SWITCH_EPOCHS = []  # Epochs at which to switch group levels (epoch-based only)
 _C.SCHEDULE.MIX.LEVEL_SWITCH_STEPS = []  # Steps at which to check if we should switch group levels
 # (will only take effect at epoch boundaries)
 ## NOTE: Switching group levels is currently disabled. See docs/dev/99_design_decisions.md `Schedule Initialization and Dataloader Length Calculation`.
+## NOTE: When multiple group levels are configured, only the first level is used due to disabled switching
 
 # Probability parameters (shared schedule for when to apply any mixing)
 _C.SCHEDULE.MIX.PROB = CN()
