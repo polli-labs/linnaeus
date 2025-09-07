@@ -95,3 +95,8 @@ docker_test_notes.md
 docker-compose.yml
 
 ENV_VARS.txt
+dev/
+.env*
+AGENTS.md.bak
+AGENTS.md
+CLAUDE.md
