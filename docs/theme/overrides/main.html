@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block header_title %}
+  <a class="md-header__button md-logo" href="{{ config.site_url or base_url }}" data-polli-logo-swap>
+    <span data-polli-wide class="polli-cobrand">
+      <img src="https://assets.polli.ai/docs-brand/v1.0.3/wordmarks/polli.svg" alt="Polli" aria-hidden="true" />
+      <img src="https://assets.polli.ai/docs-brand/v1.0.3/wordmarks/linnaeus.svg" alt="Linnaeus" />
+    </span>
+    <span data-polli-narrow>
+      <img src="https://assets.polli.ai/docs-brand/v1.0.3/wordmarks/linnaeus.svg" alt="Linnaeus" />
+    </span>
+  </a>
+{% endblock %}
+
