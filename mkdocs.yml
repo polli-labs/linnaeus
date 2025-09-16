@@ -10,12 +10,12 @@ theme:
     - navigation.tabs
     - navigation.top
     - search.suggest
-  logo: https://assets.polli.ai/docs-brand/v1.0.3/wordmarks/linnaeus.svg
-  logo_dark: https://assets.polli.ai/docs-brand/v1.0.3/wordmarks/linnaeus.svg
+  logo: https://assets.polli.ai/docs-brand/latest/wordmarks/linnaeus.svg
+  logo_dark: https://assets.polli.ai/docs-brand/latest/wordmarks/linnaeus.svg
 extra_css:
-  - https://assets.polli.ai/docs-brand/v1.0.3/polli-brand.css
+  - https://assets.polli.ai/docs-brand/latest/polli-brand.css
 extra_javascript:
-  - https://assets.polli.ai/docs-brand/v1.0.3/polli-brand.js
+  - https://assets.polli.ai/docs-brand/latest/polli-brand.js
 
 nav:
   - Home: index.md
