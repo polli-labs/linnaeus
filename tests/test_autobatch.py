@@ -63,6 +63,9 @@ def make_cfg():
     cfg.DATA.TASK_KEYS_H5 = ["t"]
     cfg.DATA.META = CN()
     cfg.DATA.META.ACTIVE = False
+    cfg.DATA.SAMPLER = CN()
+    cfg.DATA.SAMPLER.TYPE = "standard"
+    cfg.DATA.SAMPLER.GROUPED_MODE = "strict-group"
     cfg.MODEL = CN()
     cfg.MODEL.IN_CHANS = 3
     cfg.MODEL.NUM_CLASSES = {"t": 2}
@@ -225,6 +228,102 @@ def test_binary_search_and_broadcast():
 
     assert bs == 10
     assert dist_mock.broadcast.called
+
+
+def test_even_only_search_terminates_with_odd_max():
+    cfg = make_cfg()
+    cfg.DATA.SAMPLER.TYPE = "grouped"
+    cfg.DATA.SAMPLER.GROUPED_MODE = "mixed-pairs"
+    device_prop = SimpleNamespace(total_memory=2 << 30)
+
+    def fake_run_trial(**_kwargs):
+        return 0.1
+
+    with patch.object(autobatch.torch.cuda, "get_device_properties", return_value=device_prop), patch.object(
+        autobatch, "_run_trial", side_effect=fake_run_trial
+    ), patch.object(
+        autobatch, "next", return_value=fake_param()
+    ):
+        best = autobatch._binary_search_for_batch_size(
+            model=DummyModel(),
+            config=cfg,
+            mode="train",
+            optimizer_main=None,
+            criteria_train=None,
+            grad_weighting_main=None,
+            scaler_main=None,
+            criteria_val=None,
+            target_memory_fraction=0.5,
+            max_batch_size=85,
+            min_batch_size=2,
+            steps_per_trial=1,
+            logger_autobatch=logging.getLogger("test"),
+        )
+
+    assert best == 84
+
+
+def test_non_even_search_allows_odd_max():
+    cfg = make_cfg()
+    device_prop = SimpleNamespace(total_memory=2 << 30)
+
+    def fake_run_trial(**_kwargs):
+        return 0.1
+
+    with patch.object(autobatch.torch.cuda, "get_device_properties", return_value=device_prop), patch.object(
+        autobatch, "_run_trial", side_effect=fake_run_trial
+    ), patch.object(
+        autobatch, "next", return_value=fake_param()
+    ):
+        best = autobatch._binary_search_for_batch_size(
+            model=DummyModel(),
+            config=cfg,
+            mode="train",
+            optimizer_main=None,
+            criteria_train=None,
+            grad_weighting_main=None,
+            scaler_main=None,
+            criteria_val=None,
+            target_memory_fraction=0.5,
+            max_batch_size=85,
+            min_batch_size=1,
+            steps_per_trial=1,
+            logger_autobatch=logging.getLogger("test"),
+        )
+
+    assert best == 85
+
+
+def test_ddp_non_rank0_uses_broadcast_value():
+    cfg = make_cfg()
+
+    def fake_broadcast(tensor, _src):
+        tensor.fill_(7)
+
+    dist_mock = SimpleNamespace(
+        is_available=lambda: True,
+        is_initialized=lambda: True,
+        get_rank=lambda: 1,
+        broadcast=fake_broadcast,
+    )
+
+    with patch.object(autobatch, "dist", dist_mock), patch.object(
+        autobatch, "_binary_search_for_batch_size", side_effect=AssertionError("rank 0 only")
+    ):
+        bs = autobatch.auto_find_batch_size(
+            model=DummyModel(),
+            config=cfg,
+            mode="train",
+            optimizer_main=None,
+            criteria_train=None,
+            grad_weighting_main=None,
+            scaler_main=None,
+            criteria_val=None,
+            target_memory_fraction=0.5,
+            max_batch_size=16,
+        )
+
+    assert bs == 7
 
 
 @patch.object(autobatch, "_create_temporary_optimizer")
