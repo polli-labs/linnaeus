@@ -5,7 +5,7 @@ The `linnaeus-prof-run` command orchestrates multiple training trials with diffe
 ## Installation
 
 ```bash
-pip install -e ".[profiling]"
+uv pip install -e ".[profiling]"
 linnaeus-prof-run --help
 ```
 
@@ -24,7 +24,8 @@ linnaeus-prof-run --help
 services:
   linnaeus-training:
     image: frontierkodiak/linnaeus-dev:{{LINNAEUS_TAG}}
-    container_name: linnaeus-{{TRIAL_NAME}}
+    # NOTE: Avoid hard-coding `container_name` if you want concurrent trials.
+    # Compose project names provide isolation; explicit container names can collide.
     volumes:
       - /datasets:/datasets:ro
     environment:
@@ -116,10 +117,13 @@ Trials distributed evenly across GPUs.
 ### Using Scenario Files
 
 ```jsonl
-{"name": "single_gpu", "env_yaml": "configs/env_vars/single_gpu.yaml"}
-{"name": "multi_gpu", "env_yaml": "configs/env_vars/multi_gpu.yaml"}
+{"name": "single_gpu", "env_yaml": "configs/env_vars/single_gpu_workstation.yaml"}
+{"name": "multi_gpu", "env_yaml": "configs/env_vars/multi_gpu_workstation.yaml"}
 {"name": "dgx_h100", "env_yaml": "configs/env_vars/dgx_h100.yaml"}
 ```
+
+Note:
+- `env_yaml` is read and flattened into individual `KEY=VALUE` environment entries in the compose service (it is not passed through as a docker `env_file`).
 
 ### Direct Overrides
 
@@ -220,11 +224,6 @@ Concurrent Execution:
   --max-concurrent N        Max concurrent trials (default: 1)
   --gpu-assignment MODE     GPU assignment: auto|round-robin|manual
   --stagger-delay SECONDS   Delay between trial starts (default: 5)
-  --gpu-timeout SECONDS     GPU acquisition timeout (default: 3600)
-
-Docker:
-  --docker-command CMD      Docker command (default: auto-detect)
-  --keep-containers        Don't remove containers after trials
 ```
 
 ## Troubleshooting
@@ -247,8 +246,8 @@ sudo usermod -aG docker $USER
 
 **Problem**: GPU allocation timeout
 ```bash
-# Solution: Reduce concurrency or increase timeout
---max-concurrent 1 --gpu-timeout 7200
+# Solution: Reduce concurrency or ensure GPUs are free
+--max-concurrent 1
 ```
 
 **Problem**: CUDA out of memory

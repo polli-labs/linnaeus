@@ -71,16 +71,16 @@ def parse_args():
 Example Usage:
   # Sequential execution (default)
   python -m linnaeus.tools.profiling.run_profiling_trials \\
-    --trial-params-file work/fixtures/trials.jsonl \\
-    --output-dir work/profiling_results/v014e \\
-    --compose-template work/fixtures/docker-compose.template.yml \\
+    --trial-params-file path/to/trials.jsonl \\
+    --output-dir path/to/results \\
+    --compose-template path/to/docker-compose.template.yml \\
     --timeout 300
 
   # Concurrent execution on 2 GPUs
   python -m linnaeus.tools.profiling.run_profiling_trials \\
-    --trial-params-file work/fixtures/trials.jsonl \\
-    --output-dir work/profiling_results/v014e \\
-    --compose-template work/fixtures/docker-compose.template.yml \\
+    --trial-params-file path/to/trials.jsonl \\
+    --output-dir path/to/results \\
+    --compose-template path/to/docker-compose.template.yml \\
     --timeout 300 \\
     --max-concurrent 2 \\
     --gpu-assignment auto \\
@@ -90,6 +90,8 @@ Trial JSONL format:
   {"name": "baseline", "git_ref": "main", "config_file": "configs/exp.yaml", "opts": ["TRAIN.EPOCHS", "10"]}
   {"name": "optimized", "git_ref": "feature-branch", "config_file": "configs/exp.yaml", "env_yaml": "configs/env_vars/dgx_h100.yaml"}
   {"name": "manual_gpu", "git_ref": "main", "config_file": "configs/exp.yaml", "gpu_rank": 1}  # Manual GPU assignment
+
+Tip: a local `work/` directory is a convenient place to keep trial JSONLs, compose templates, and results (it is typically gitignored).
 """,
     )
     parser.add_argument("--trial-params-file", required=True, type=Path, help="Path to the JSONL file defining trials.")
@@ -401,8 +403,11 @@ def run_trials_concurrent(
     # 'auto' uses pool-based dynamic assignment
     
     # Define compose modification function
-    def modify_compose_fn(template: Dict[str, Any], trial: Dict[str, Any]) -> Dict[str, Any]:
-        return modify_compose_file(template, trial, str(output_dir))
+    def modify_compose_fn(
+        template: Dict[str, Any], trial: Dict[str, Any], output_dir_for_trial: Path | None = None
+    ) -> Dict[str, Any]:
+        resolved_output_dir = output_dir_for_trial if output_dir_for_trial is not None else output_dir
+        return modify_compose_file(template, trial, str(resolved_output_dir))
     
     # Run trials concurrently
     results = executor.run_trials_concurrent(
@@ -419,10 +424,25 @@ def run_trials_concurrent(
     
     # Process results to match expected format
     for result in results:
+        status = result.get("status")
+        returncode = result.get("returncode")
+
         if 'elapsed_time' not in result:
             result['elapsed_time'] = 0.0
         if 'status' not in result:
             result['status'] = 'error'
+
+        # Normalize ConcurrentTrialExecutor status values to match sequential runner.
+        # Sequential mode uses: success | timeout | failure
+        if status == "completed" and returncode == 0:
+            result["status"] = "success"
+        elif status == "timeout":
+            result["status"] = "timeout"
+        elif status in ("completed", "error"):
+            result["status"] = "success" if returncode == 0 else "failure"
+        else:
+            # Unknown status: treat non-zero as failure.
+            result["status"] = "success" if returncode == 0 else "failure"
             
     return results
 

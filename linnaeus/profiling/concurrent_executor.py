@@ -6,20 +6,100 @@ isolation, error handling, and resource management.
 """
 
 import concurrent.futures
+import copy
+import datetime
+import hashlib
+import inspect
+import re
 import subprocess
-import tempfile
-import json
 import os
 import time
 import logging
 import yaml
 from typing import List, Dict, Any, Optional
 from pathlib import Path
-import shutil
 
 from .gpu_pool import GPUPoolManager
 
 logger = logging.getLogger(__name__)
+
+
+_DOCKER_SERVICE_NAME = "linnaeus-training"
+
+
+def _sanitize_identifier(value: str, *, fallback: str) -> str:
+    """
+    Sanitize a string to a conservative identifier:
+    - lowercase
+    - only [a-z0-9_-]
+    - collapse invalid spans to single '-'
+    """
+    if not value:
+        return fallback
+    lowered = value.lower()
+    lowered = re.sub(r"[^a-z0-9_-]+", "-", lowered)
+    lowered = lowered.strip("-_")
+    return lowered or fallback
+
+
+def _make_compose_project_name(*, trial_name: str, gpu_id: int) -> str:
+    """
+    Create a docker-compose safe project name.
+
+    Requirements:
+    - filesystem + docker safe: [a-z0-9_-]
+    - unique across concurrent trials
+    - stable within a single trial run
+    - short-ish (keep under typical docker limits)
+    """
+    safe_trial = _sanitize_identifier(trial_name, fallback="trial")
+    timestamp = datetime.datetime.now(tz=datetime.timezone.utc).strftime("%Y%m%d%H%M%S")
+    digest = hashlib.sha1(f"{trial_name}|{gpu_id}|{time.time_ns()}".encode("utf-8")).hexdigest()[:8]
+
+    prefix = "linprof"
+    suffix = f"gpu{gpu_id}_{timestamp}_{digest}"
+
+    # Keep under typical limits (docker frequently truncates around 63 chars).
+    max_trial_len = max(8, 63 - (len(prefix) + 1 + len(suffix) + 1))
+    safe_trial = safe_trial[:max_trial_len]
+    return f"{prefix}_{safe_trial}_{suffix}"
+
+
+def _normalize_environment_for_gpu(environment: Any, *, gpu_id: int) -> Any:
+    """
+    Normalize a docker-compose service 'environment' entry to ensure:
+    - exactly one CUDA_VISIBLE_DEVICES=<gpu_id>
+    - if NVIDIA_VISIBLE_DEVICES is already present, update it to match
+    - supports list[str] and dict[str, str] representations
+    """
+    if environment is None:
+        environment = []
+
+    if isinstance(environment, dict):
+        env_dict = dict(environment)
+        env_dict["CUDA_VISIBLE_DEVICES"] = str(gpu_id)
+        if "NVIDIA_VISIBLE_DEVICES" in env_dict:
+            env_dict["NVIDIA_VISIBLE_DEVICES"] = str(gpu_id)
+        return env_dict
+
+    if isinstance(environment, list):
+        cleaned: list[Any] = []
+        saw_nvidia = False
+        for item in environment:
+            if isinstance(item, str) and item.startswith("CUDA_VISIBLE_DEVICES="):
+                continue
+            if isinstance(item, str) and item.startswith("NVIDIA_VISIBLE_DEVICES="):
+                saw_nvidia = True
+                continue
+            cleaned.append(item)
+
+        cleaned.append(f"CUDA_VISIBLE_DEVICES={gpu_id}")
+        if saw_nvidia:
+            cleaned.append(f"NVIDIA_VISIBLE_DEVICES={gpu_id}")
+        return cleaned
+
+    # Unknown type: coerce to list and apply conservatively.
+    return [f"CUDA_VISIBLE_DEVICES={gpu_id}"]
 
 
 class ConcurrentTrialExecutor:
@@ -77,8 +157,14 @@ class ConcurrentTrialExecutor:
         Returns:
             Result dictionary with status, timing, and output paths
         """
-        trial_name = trial['name']
+        trial_name = trial["name"]
         start_time = time.time()
+
+        process = None
+        compose_project_name: str | None = None
+        compose_path: Path | None = None
+        trial_output_dir: Path | None = None
+        result: Dict[str, Any] | None = None
         
         # Acquire GPU if not specified
         acquired_gpu = False
@@ -93,46 +179,66 @@ class ConcurrentTrialExecutor:
             acquired_gpu = True
             
         try:
-            # Modify compose data for this trial
+            # Create per-trial output directory for artifacts (compose file, logs, etc.)
+            output_root = Path(output_dir).resolve()
+            trial_dir_name = _sanitize_identifier(trial_name, fallback="trial")
+            trial_output_dir = output_root / trial_dir_name
+            trial_output_dir.mkdir(parents=True, exist_ok=True)
+
+            # Unique compose project name to avoid cross-trial collisions under concurrency.
+            compose_project_name = _make_compose_project_name(trial_name=trial_name, gpu_id=gpu_id)
+
+            # Ensure templating sees the selected GPU without mutating shared trial data.
+            trial_for_compose = dict(trial)
+            trial_for_compose["gpu_rank"] = gpu_id
+
+            # Modify compose data for this trial without cross-thread mutation.
             if modify_compose_fn:
-                logger.info(f"Calling modify_compose_fn for trial: {trial}")
-                compose_data = modify_compose_fn(template_data, trial)
+                logger.info(f"Calling modify_compose_fn for trial: {trial_for_compose}")
+                template_copy = copy.deepcopy(template_data)
+                try:
+                    sig = inspect.signature(modify_compose_fn)
+                    params = list(sig.parameters.values())
+                    accepts_varargs = any(p.kind == inspect.Parameter.VAR_POSITIONAL for p in params)
+                    positional = [
+                        p
+                        for p in params
+                        if p.kind in (inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD)
+                    ]
+                    if accepts_varargs or len(positional) >= 3:
+                        compose_data = modify_compose_fn(template_copy, trial_for_compose, trial_output_dir)
+                    else:
+                        compose_data = modify_compose_fn(template_copy, trial_for_compose)
+                except (TypeError, ValueError):
+                    compose_data = modify_compose_fn(template_copy, trial_for_compose)
             else:
-                compose_data = template_data.copy()
-            
-            # Update docker-compose data with GPU assignment
-            service = compose_data['services'].get('linnaeus-training', {})
-            if 'environment' not in service:
-                service['environment'] = []
-            
-            # Ensure GPU assignment in environment
-            gpu_env_set = False
-            for i, env in enumerate(service.get('environment', [])):
-                if isinstance(env, str) and env.startswith('CUDA_VISIBLE_DEVICES='):
-                    service['environment'][i] = f'CUDA_VISIBLE_DEVICES={gpu_id}'
-                    gpu_env_set = True
-                    break
-            if not gpu_env_set:
-                service['environment'].append(f'CUDA_VISIBLE_DEVICES={gpu_id}')
-            
-            # Write compose file to temp location
-            compose_file = tempfile.NamedTemporaryFile(
-                mode='w',
-                suffix=f'_{trial_name}_gpu{gpu_id}.yml',
-                prefix='docker-compose-',
-                dir='/tmp',
-                delete=False
+                compose_data = copy.deepcopy(template_data)
+
+            # Update docker-compose data with GPU assignment.
+            services = compose_data.setdefault("services", {})
+            service = services.setdefault(_DOCKER_SERVICE_NAME, {})
+            service["environment"] = _normalize_environment_for_gpu(
+                service.get("environment"),
+                gpu_id=gpu_id,
             )
-            yaml.dump(compose_data, compose_file)
-            compose_file.close()
-            
-            # Build docker command
+
+            # Write compose file to per-trial output dir so cleanup can always target the right project.
+            compose_path = trial_output_dir / f"docker-compose.{compose_project_name}.yml"
+            with open(compose_path, "w") as f:
+                yaml.safe_dump(compose_data, f, default_flow_style=False)
+
+            # Build docker command.
             docker_cmd = [
-                'docker', 'compose',
-                '-f', compose_file.name,
-                'up',
-                '--abort-on-container-exit',
-                '--timeout', str(timeout)
+                "docker",
+                "compose",
+                "--project-name",
+                compose_project_name,
+                "-f",
+                str(compose_path),
+                "up",
+                "--abort-on-container-exit",
+                "--timeout",
+                str(timeout),
             ]
             
             # Execute trial with proper UID/GID
@@ -142,13 +248,14 @@ class ConcurrentTrialExecutor:
             env = os.environ.copy()
             env['UID'] = str(os.getuid())
             env['GID'] = str(os.getgid())
+            env['CUDA_VISIBLE_DEVICES'] = str(gpu_id)
             
             process = subprocess.Popen(
                 docker_cmd,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
-                cwd=output_dir,
+                cwd=str(trial_output_dir),
                 env=env
             )
             
@@ -156,6 +263,8 @@ class ConcurrentTrialExecutor:
             self.active_trials[trial_name] = {
                 'process': process,
                 'gpu_id': gpu_id,
+                'compose_project_name': compose_project_name,
+                'compose_file': str(compose_path),
                 'start_time': start_time
             }
             
@@ -182,16 +291,14 @@ class ConcurrentTrialExecutor:
             logger.warning(f"Trial {trial_name} exceeded timeout of {timeout}s, terminating...")
             
             # Try graceful termination first
-            process.terminate()
-            try:
-                process.wait(timeout=10)
-            except subprocess.TimeoutExpired:
-                # Force kill if graceful termination fails
-                process.kill()
-                process.wait()
-            
-            # Clean up Docker containers explicitly
-            self._force_cleanup_docker(trial_name, gpu_id, output_dir)
+            if process is not None:
+                process.terminate()
+                try:
+                    process.wait(timeout=10)
+                except subprocess.TimeoutExpired:
+                    # Force kill if graceful termination fails
+                    process.kill()
+                    process.wait()
             
             result = {
                 'name': trial_name,
@@ -223,16 +330,26 @@ class ConcurrentTrialExecutor:
             if trial_name in self.active_trials:
                 del self.active_trials[trial_name]
                 
-            # Clean up compose file
-            if 'compose_file' in locals():
-                try:
-                    os.unlink(compose_file.name)
-                except:
-                    pass
-                    
-            # Docker cleanup
-            self._cleanup_docker(trial_name, gpu_id)
+            # docker compose cleanup (best-effort), using the same project name + compose file used for 'up'.
+            if compose_project_name and compose_path and compose_path.exists():
+                self._cleanup_docker(compose_project_name, compose_path)
+
+                # Keep compose file on failures for debugging; remove it on success.
+                if result and result.get("status") == "completed" and result.get("returncode") == 0:
+                    try:
+                        compose_path.unlink()
+                    except Exception:
+                        pass
             
+        if result is None:
+            return {
+                "name": trial_name,
+                "status": "error",
+                "gpu_id": gpu_id,
+                "elapsed_time": time.time() - start_time,
+                "error": "Unknown error (no result produced)",
+            }
+
         return result
         
     def run_trials_concurrent(self,
@@ -318,69 +435,43 @@ class ConcurrentTrialExecutor:
         # For now, return placeholder
         return "Debug log capture not implemented"
         
-    def _cleanup_docker(self, trial_name: str, gpu_id: int) -> None:
+    def _cleanup_docker(self, compose_project_name: str, compose_path: Path) -> None:
         """
-        Clean up Docker containers and resources.
-        
+        Clean up docker-compose resources for a trial.
+
         Args:
-            trial_name: Name of trial
-            gpu_id: GPU ID used
+            compose_project_name: docker compose project name (must match the 'up' invocation)
+            compose_path: compose file path (must match the 'up' invocation)
         """
         try:
-            # Stop and remove containers
-            container_name = f"linnaeus-training-{trial_name}-gpu{gpu_id}"
             subprocess.run(
-                ['docker', 'stop', container_name],
+                [
+                    "docker",
+                    "compose",
+                    "--project-name",
+                    compose_project_name,
+                    "-f",
+                    str(compose_path),
+                    "down",
+                    "--remove-orphans",
+                    "--timeout",
+                    "5",
+                ],
                 capture_output=True,
-                timeout=10
+                timeout=10,
             )
-            subprocess.run(
-                ['docker', 'rm', container_name],
-                capture_output=True,
-                timeout=10
-            )
-        except:
+        except Exception:
             pass  # Best effort cleanup
-            
-    def _force_cleanup_docker(self, trial_name: str, gpu_id: int, output_dir: str) -> None:
+
+    def _force_cleanup_docker(self, compose_project_name: str, compose_path: Path) -> None:
         """
-        Force cleanup Docker containers and GPU processes.
-        
-        Args:
-            trial_name: Name of trial
-            gpu_id: GPU ID used
-            output_dir: Output directory (for compose project name)
+        Force cleanup docker-compose resources for a trial (best-effort).
+
+        This intentionally avoids killing arbitrary host PIDs. Any such behavior
+        must be explicitly added behind a very strict guard.
         """
         try:
-            # Get project name from output dir
-            project_name = os.path.basename(output_dir)
-            
-            # Force stop all containers for this project
-            subprocess.run(
-                ['docker', 'compose', '-p', project_name, 'down', '--timeout', '5'],
-                capture_output=True,
-                timeout=10
-            )
-            
-            # Kill any remaining GPU processes on this GPU
-            # Get processes using this GPU
-            result = subprocess.run(
-                ['nvidia-smi', '--query-compute-apps=pid', '--format=csv,noheader', f'-i', str(gpu_id)],
-                capture_output=True,
-                text=True,
-                timeout=5
-            )
-            
-            if result.returncode == 0 and result.stdout:
-                pids = result.stdout.strip().split('\n')
-                for pid in pids:
-                    if pid:
-                        try:
-                            # Only kill if we own the process
-                            subprocess.run(['kill', '-9', pid], capture_output=True, timeout=2)
-                        except:
-                            logger.warning(f"Could not kill GPU process {pid} on GPU {gpu_id}")
-                            
+            self._cleanup_docker(compose_project_name, compose_path)
         except Exception as e:
             logger.error(f"Error during force cleanup: {e}")
             

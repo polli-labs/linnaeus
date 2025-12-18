@@ -4,7 +4,11 @@ This page documents current limitations and known issues in Polli Linnaeus, alon
 
 ## AutoBatch with Multi-GPU (DDP) Training
 
-**Issue**: When using autobatch in a multi-GPU distributed training setup (DDP), the current implementation may cause NCCL timeout errors on non-rank-0 processes. While autobatch is designed to run only on rank 0 with other ranks waiting at a barrier, the current behavior can result in timeouts.
+**Issue**: AutoBatch is not currently safe to enable in multi-GPU distributed (DDP) runs.
+
+Observed failure modes include:
+- **DDP hang / NCCL timeout** if distributed collectives are not entered consistently by all ranks.
+- **Even-batch-size search stalling** in some configurations (e.g., when restricting candidates to even batch sizes).
 
 **Impact**: Autobatch cannot be used directly in production multi-rank training runs. Single-rank training is unaffected.
 
@@ -35,8 +39,7 @@ This page documents current limitations and known issues in Polli Linnaeus, alon
    torchrun --nproc_per_node=4 -m linnaeus.main --cfg my_exp.yaml
    ```
 
-**Status**: This is a known limitation that will be addressed in a future release. The issue stems from the interaction between the autobatch memory profiling operations and NCCL synchronization primitives.
-> DEV: See work/bugs/inbox/autobatch for details.
+**Status**: Tracked internally as `POL-223` (AutoBatch: DDP hang + even-batch-size search loop).
 
 ## Mid-Epoch Early Exit Not Supported
 
@@ -56,6 +59,19 @@ Example:
 ```
 
 **Note**: This limitation affects both debug and production early exit mechanisms. Mid-epoch exit support requires refactoring the training loop architecture.
+
+**Status**: Tracked internally as `POL-224` (mid-epoch hard step caps).
+
+## Concurrent Profiling (Experimental)
+
+**Issue**: Running profiling trials concurrently (e.g. `linnaeus-prof-run --max-concurrent 2`) can be sensitive to Docker Compose template details and may fail if templates introduce cross-trial collisions.
+
+**Common footguns**:
+- Avoid hard-coding `container_name` in compose templates; explicit container names can collide even when Compose projects differ.
+- Avoid **shared writable code mounts** when running multiple trials: if containers run `git checkout` inside a host-mounted repo, concurrent trials can corrupt the working tree (use per-trial clones or per-trial mounts instead).
+- Ensure any host-mounted output paths are isolated per-trial (avoid two trials writing to the same host directory).
+
+**Status**: Tracked internally as `POL-225` (concurrent trial Docker isolation + GPU assignment).
 
 ## Contributing
 
