@@ -68,7 +68,7 @@ def make_cfg():
     cfg.DATA.SAMPLER.GROUPED_MODE = "strict-group"
     cfg.MODEL = CN()
     cfg.MODEL.IN_CHANS = 3
-    cfg.MODEL.NUM_CLASSES = {"t": 2}
+    cfg.MODEL.NUM_CLASSES = 2
     cfg.TRAIN = CN()
     cfg.TRAIN.AMP_OPT_LEVEL = "O0"
     cfg.TRAIN.GRADIENT_CHECKPOINTING = CN()
@@ -100,7 +100,6 @@ def test_run_trial_train_and_val(
     reset_mock,
     mem_mock,
     loss_mock,
-    scaler_patch,
     opt_patch,
 ):
     cfg = make_cfg()
@@ -160,7 +159,6 @@ def test_gradnorm_toggle(
     reset_mock,
     mem_mock,
     loss_mock,
-    scaler_patch,
     opt_patch,
 ):
     cfg = make_cfg()
@@ -189,7 +187,7 @@ def test_gradnorm_toggle(
     assert model.use_checkpoint is False
 
 
-def test_binary_search_and_broadcast():
+def test_binary_search_finds_best_batch_size():
     cfg = make_cfg()
     device_prop = SimpleNamespace(total_memory=2 << 30)
 
@@ -197,24 +195,43 @@ def test_binary_search_and_broadcast():
         bs = kwargs["batch_size"]
         return bs * 0.1
 
+    with patch.object(autobatch.torch.cuda, "get_device_properties", return_value=device_prop), patch.object(
+        autobatch, "_run_trial", side_effect=fake_run_trial
+    ), patch.object(autobatch, "next", return_value=fake_param()):
+        bs = autobatch._binary_search_for_batch_size(
+            model=DummyModel(),
+            config=cfg,
+            mode="train",
+            optimizer_main=None,
+            criteria_train={"t": torch.nn.CrossEntropyLoss()},
+            grad_weighting_main=None,
+            scaler_main=None,
+            criteria_val=None,
+            target_memory_fraction=0.5,
+            max_batch_size=16,
+            min_batch_size=1,
+            steps_per_trial=1,
+            logger_autobatch=logging.getLogger("test"),
+        )
+
+    assert bs == 10
+
+
+def test_auto_find_batch_size_rank0_broadcasts_result():
+    cfg = make_cfg()
+
     dist_mock = SimpleNamespace(
         is_available=lambda: True,
         is_initialized=lambda: True,
-        get_world_size=lambda: 2,
         get_rank=lambda: 0,
         broadcast=MagicMock(),
     )
 
-    model = DummyModel()
     with patch.object(autobatch, "dist", dist_mock), patch.object(
-        autobatch.torch.cuda, "get_device_properties", return_value=device_prop
-    ), patch.object(
-        autobatch, "_run_trial", side_effect=fake_run_trial
-    ), patch.object(
-        autobatch, "next", return_value=fake_param()
+        autobatch, "_binary_search_for_batch_size", return_value=10
     ):
         bs = autobatch.auto_find_batch_size(
-            model=model,
+            model=DummyModel(),
             config=cfg,
             mode="train",
             optimizer_main=None,
@@ -297,7 +314,7 @@ def test_non_even_search_allows_odd_max():
 def test_ddp_non_rank0_uses_broadcast_value():
     cfg = make_cfg()
 
-    def fake_broadcast(tensor, _src):
+    def fake_broadcast(tensor, *_, **__):
         tensor.fill_(7)
 
     dist_mock = SimpleNamespace(
