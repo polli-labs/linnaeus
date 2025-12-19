@@ -62,10 +62,12 @@ def test_modify_compose_file_with_env_yaml():
     
     result = modify_compose_file(template_data, trial)
     
-    # Check that env_file was added
+    # Check that env_yaml was loaded and flattened into environment entries
     service = result["services"]["linnaeus-training"]
-    assert "env_file" in service
-    assert "configs/env_vars/dgx_h100.yaml" in service["env_file"]
+    assert "environment" in service
+    env_vars = service["environment"]
+    assert "OMP_NUM_THREADS=4" in env_vars
+    assert "TORCH_COMPILE_DISABLE=0" in env_vars
 
 
 def test_modify_compose_file_with_env_overrides():
@@ -161,9 +163,7 @@ def test_smoke_runner_import():
     """Smoke test to ensure runner can be imported without errors."""
     from linnaeus.tools.profiling import run_profiling_trials
     
-    # Should be able to access main function
-    assert hasattr(run_profiling_trials, 'main')
-    assert callable(run_profiling_trials.main)
+    assert callable(run_profiling_trials)
 
 
 def test_create_dummy_compose_template():

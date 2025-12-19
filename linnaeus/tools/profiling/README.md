@@ -19,18 +19,18 @@ The `run_profiling_trials.py` script orchestrates a "round" of trials defined in
 - Python 3.10+
 - Docker and Docker Compose
 - A configured `docker-compose.yml` template for `linnaeus-training`
-- Python dependencies: `pip install pyyaml rich` (or use the optional `[profiling]` extras)
+- Python dependencies: install via `uv` (recommended) and/or the optional `[profiling]` extras
 
 ## Installation
 
 If Linnaeus is installed with profiling extras:
 ```bash
-pip install -e ".[profiling]"
+uv pip install -e ".[profiling]"
 ```
 
 Or install dependencies manually:
 ```bash
-pip install pyyaml rich
+uv pip install pyyaml rich
 ```
 
 ## Usage
@@ -54,16 +54,20 @@ The template should use placeholders that will be replaced:
 - `{{CONFIG_FILE}}` - Path to config file
 - `{{OPTS_STRING}}` - Additional --opts parameters
 
-See `work/fixtures/docker-compose.template.yml` for an example.
+See `docs/profiling/prof-run.md` for an example template and end-to-end workflow. A common pattern is to keep trial JSONL files and compose templates under a local `work/` directory (gitignored).
+
+Notes for concurrent runs:
+- Avoid hard-coding `container_name` in templates; explicit container names can collide even when Compose projects differ.
+- If your template uses `{{OUTPUT_DIR}}`, ensure each trial gets an isolated output dir (the concurrent executor can pass a per-trial output dir into templating when supported).
 
 ### 3. Run the Profiling Trials
 
 Execute from the command line:
 ```bash
 python -m linnaeus.tools.profiling.run_profiling_trials \
-    --trial-params-file work/fixtures/trials.jsonl \
-    --output-dir work/profiling_results/experiment1 \
-    --compose-template work/fixtures/docker-compose.template.yml \
+    --trial-params-file path/to/trials.jsonl \
+    --output-dir path/to/results \
+    --compose-template path/to/docker-compose.template.yml \
     --timeout 300 \
     --capture-debug-logs
 ```
@@ -71,9 +75,9 @@ python -m linnaeus.tools.profiling.run_profiling_trials \
 Or using the CLI if installed:
 ```bash
 linnaeus-prof-run \
-    --trial-params-file work/fixtures/trials.jsonl \
-    --output-dir work/profiling_results/experiment1 \
-    --compose-template work/fixtures/docker-compose.template.yml \
+    --trial-params-file path/to/trials.jsonl \
+    --output-dir path/to/results \
+    --compose-template path/to/docker-compose.template.yml \
     --timeout 300
 ```
 
@@ -98,6 +102,9 @@ Each trial in the JSONL file can specify:
 - `env_yaml`: Path to environment variables YAML file
 - `env`: Dictionary of environment variable overrides
 - `extra_deps`: List of additional pip packages to install
+
+`env_yaml` note:
+- The runner reads the YAML file, flattens nested sections, and injects the values into the service `environment` (it does not pass the file through as a docker `env_file`).
 
 **Example with all options:**
 ```json

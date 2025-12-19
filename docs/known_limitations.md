@@ -38,6 +38,19 @@ Example:
 
 **Note**: This limitation affects both debug and production early exit mechanisms. Mid-epoch exit support requires refactoring the training loop architecture.
 
+**Status**: Tracked internally as `POL-224` (mid-epoch hard step caps).
+
+## Concurrent Profiling (Experimental)
+
+**Issue**: Running profiling trials concurrently (e.g. `linnaeus-prof-run --max-concurrent 2`) can be sensitive to Docker Compose template details and may fail if templates introduce cross-trial collisions.
+
+**Common footguns**:
+- Avoid hard-coding `container_name` in compose templates; explicit container names can collide even when Compose projects differ.
+- Avoid **shared writable code mounts** when running multiple trials: if containers run `git checkout` inside a host-mounted repo, concurrent trials can corrupt the working tree (use per-trial clones or per-trial mounts instead).
+- Ensure any host-mounted output paths are isolated per-trial (avoid two trials writing to the same host directory).
+
+**Status**: Tracked internally as `POL-225` (concurrent trial Docker isolation + GPU assignment).
+
 ## Contributing
 
 If you encounter other limitations or issues not documented here, please [open an issue](https://github.com/polli-labs/linnaeus/issues) on our GitHub repository.
