@@ -973,25 +973,20 @@ def main(config, args=None, resolved_env=None):
     # Possibly do autobatch for training and validation now that optimizer,
     # loss functions, grad weighting, and scaler are available
     if config.DATA.AUTOBATCH.ENABLED:
-        best_bs = None
         if rank == 0:
             logger.info("[Autobatch] Searching for best train batch size...")
-            best_bs = auto_find_batch_size(
-                model=model,
-                config=config,
-                mode="train",
-                optimizer_main=optimizer,
-                criteria_train=criteria_train,
-                grad_weighting_main=grad_weighting,
-                scaler_main=scaler,
-                target_memory_fraction=config.DATA.AUTOBATCH.TARGET_MEMORY_FRACTION,
-                max_batch_size=config.DATA.AUTOBATCH.MAX_BATCH_SIZE,
-                log_level="DEBUG" if config.EXPERIMENT.LOG_LEVEL_MAIN == "DEBUG" else "INFO",
-            )
-        if dist.is_initialized():
-            best_bs_t = torch.tensor(best_bs if best_bs else 0, dtype=torch.int32, device="cuda")
-            dist.broadcast(best_bs_t, src=0)
-            best_bs = int(best_bs_t.item())
+        best_bs = auto_find_batch_size(
+            model=model,
+            config=config,
+            mode="train",
+            optimizer_main=optimizer,
+            criteria_train=criteria_train,
+            grad_weighting_main=grad_weighting,
+            scaler_main=scaler,
+            target_memory_fraction=config.DATA.AUTOBATCH.TARGET_MEMORY_FRACTION,
+            max_batch_size=config.DATA.AUTOBATCH.MAX_BATCH_SIZE,
+            log_level="DEBUG" if config.EXPERIMENT.LOG_LEVEL_MAIN == "DEBUG" else "INFO",
+        )
         if best_bs < 1:
             best_bs = 16
             if rank == 0:
@@ -1003,25 +998,20 @@ def main(config, args=None, resolved_env=None):
             logger.info(f"[Autobatch] Using train BATCH_SIZE={best_bs}")
 
     if config.DATA.AUTOBATCH.ENABLED_VAL:
-        best_val_bs = None
         if rank == 0:
             logger.info("[Autobatch] Searching for best val batch size...")
-            best_val_bs = auto_find_batch_size(
-                model=model,
-                config=config,
-                mode="val",
-                optimizer_main=optimizer,
-                criteria_val=criteria_val,
-                grad_weighting_main=grad_weighting,
-                scaler_main=scaler,
-                target_memory_fraction=config.DATA.AUTOBATCH.TARGET_MEMORY_FRACTION_VAL,
-                max_batch_size=config.DATA.AUTOBATCH.MAX_BATCH_SIZE_VAL,
-                log_level="DEBUG" if config.EXPERIMENT.LOG_LEVEL_MAIN == "DEBUG" else "INFO",
-            )
-        if dist.is_initialized():
-            best_val_bs_t = torch.tensor(best_val_bs if best_val_bs else 0, dtype=torch.int32, device="cuda")
-            dist.broadcast(best_val_bs_t, src=0)
-            best_val_bs = int(best_val_bs_t.item())
+        best_val_bs = auto_find_batch_size(
+            model=model,
+            config=config,
+            mode="val",
+            optimizer_main=optimizer,
+            criteria_val=criteria_val,
+            grad_weighting_main=grad_weighting,
+            scaler_main=scaler,
+            target_memory_fraction=config.DATA.AUTOBATCH.TARGET_MEMORY_FRACTION_VAL,
+            max_batch_size=config.DATA.AUTOBATCH.MAX_BATCH_SIZE_VAL,
+            log_level="DEBUG" if config.EXPERIMENT.LOG_LEVEL_MAIN == "DEBUG" else "INFO",
+        )
         if best_val_bs < 1:
             best_val_bs = config.DATA.BATCH_SIZE_VAL
             if rank == 0:

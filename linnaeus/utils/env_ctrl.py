@@ -32,7 +32,8 @@ LINNAEUS_SAFE_DEFAULT_ENV = {
     # PyTorch CPU side
     "TORCH_INTRAOP_NUM_THREADS": "2",
     "TORCH_INTEROP_NUM_THREADS": "1",
-    "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:true,rounding:32m",
+    # Keep this minimal + forward-compatible. Torch parses this at CUDA init.
+    "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True",
     "TORCH_COMPILE_DISABLE": "1",
     # NCCL (single-node, PCIe only)
     "NCCL_IB_DISABLE": "1",
@@ -43,8 +44,8 @@ LINNAEUS_SAFE_DEFAULT_ENV = {
     "NCCL_MIN_NCHANNELS": "4",
     "NCCL_MAX_NCHANNELS": "4",
     "NCCL_TOPO_DUMP_FILE": "/tmp/nccl_graph.xml",
-    # Optional debug
-    "TORCH_DISTRIBUTED_DEBUG": "WARN",
+    # Torch >=2.0 expects OFF|INFO|DETAIL (invalid values can break torch import)
+    "TORCH_DISTRIBUTED_DEBUG": "OFF",
 }
 
 # High-end defaults for DGX H100
@@ -58,7 +59,8 @@ LINNAEUS_DGX_H100_ENV = {
     "HDF5_USE_THREADS": "0",
     "TORCH_INTRAOP_NUM_THREADS": "8",
     "TORCH_INTEROP_NUM_THREADS": "4",
-    "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:true,rounding:64m",
+    # Keep this minimal + forward-compatible. Torch parses this at CUDA init.
+    "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True",
     "TORCH_COMPILE_DISABLE": "0",
     # NCCL - tuned for NVLink-Switch & InfiniBand
     "NCCL_IB_DISABLE": "0",

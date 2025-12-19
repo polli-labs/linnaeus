@@ -4,42 +4,20 @@ This page documents current limitations and known issues in Polli Linnaeus, alon
 
 ## AutoBatch with Multi-GPU (DDP) Training
 
-**Issue**: AutoBatch is not currently safe to enable in multi-GPU distributed (DDP) runs.
+**Status**: Supported (requires all ranks to participate).
 
-Observed failure modes include:
-- **DDP hang / NCCL timeout** if distributed collectives are not entered consistently by all ranks.
-- **Even-batch-size search stalling** in some configurations (e.g., when restricting candidates to even batch sizes).
+**Gotcha**: In DDP, **every rank must call** `auto_find_batch_size()` so that rank 0 can compute the result and broadcast it to all ranks. If only rank 0 calls, you can get collective mismatches / timeouts.
 
-**Impact**: Autobatch cannot be used directly in production multi-rank training runs. Single-rank training is unaffected.
+**Recommended usage**:
 
-**Workaround**:
-1. Use autobatch to determine optimal batch sizes in a single-GPU environment:
-   ```bash
-   # Option 1: Use the standalone analysis tool
-   python tools/analyze_batch_sizes.py --cfg my_exp.yaml --fractions 0.8 --modes train,val
-   
-   # Option 2: Run training with autobatch enabled on a single GPU
-   python -m linnaeus.main --cfg my_exp.yaml --opts DATA.AUTOBATCH.ENABLED True
-   ```
+- If you're using `python -m linnaeus.main`, no special handling is required: the training entrypoint calls autobatch on all ranks and uses a single internal broadcast to synchronize the discovered batch size.
+- If you're calling `auto_find_batch_size()` directly in custom code, do **not** wrap it in `if rank == 0:`. Let rank 0 compute and all ranks receive via broadcast.
 
-2. Note the discovered batch sizes from the logs
+**Note (even batch sizes)**: If you're training with the grouped sampler in `mixed-pairs` mode, batch size must be even. AutoBatch will restrict the search to even candidates for training mode in that configuration.
 
-3. Update your experiment configuration with the discovered values:
-   ```yaml
-   DATA:
-     BATCH_SIZE: 64  # Use discovered training batch size
-     BATCH_SIZE_VAL: 128  # Use discovered validation batch size
-     AUTOBATCH:
-       ENABLED: False  # Disable autobatch for multi-GPU run
-       ENABLED_VAL: False
-   ```
-
-4. Run your multi-GPU training with the manually configured batch sizes:
-   ```bash
-   torchrun --nproc_per_node=4 -m linnaeus.main --cfg my_exp.yaml
-   ```
-
-**Status**: Tracked internally as `POL-223` (AutoBatch: DDP hang + even-batch-size search loop).
+**Optional workflow** (still useful for expensive runs):
+1. Run AutoBatch once (single GPU or DDP) to discover good train/val batch sizes.
+2. Copy the discovered values into config and disable autobatch to avoid paying the search cost on every run.
 
 ## Mid-Epoch Early Exit Not Supported
 
