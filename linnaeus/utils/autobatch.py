@@ -28,27 +28,11 @@ IMPORTANT NOTES ON MEMORY ESTIMATION ACCURACY:
    - Validation mode requires providing criteria_val to accurately simulate the memory
      requirements of loss calculation.
 
-KNOWN LIMITATION - DDP (DISTRIBUTED) TRAINING:
-----------------------------------------------
-When using autobatch in a multi-GPU distributed training setup (DDP), the current
-implementation may cause NCCL timeout errors on non-rank-0 processes. While the
-intention is for rank 0 to perform the search while other ranks wait at a barrier,
-the current behavior can result in timeouts.
-
-**Workaround**: Use autobatch to determine optimal batch sizes in a single-GPU
-environment (or using the standalone analyze_batch_sizes.py tool), then manually
-configure the discovered batch sizes in your experiment config and disable autobatch
-for the actual multi-GPU training run.
-
-Example workflow:
-1. Run autobatch on a single GPU to find optimal batch sizes
-2. Note the discovered train/val batch sizes
-3. Update your config:
-   DATA.BATCH_SIZE: <discovered_train_bs>
-   DATA.BATCH_SIZE_VAL: <discovered_val_bs>
-   DATA.AUTOBATCH.ENABLED: False
-   DATA.AUTOBATCH.ENABLED_VAL: False
-4. Run your multi-GPU training with the manually configured batch sizes
+DDP (DISTRIBUTED) TRAINING:
+---------------------------
+When running in DDP, all ranks must call `auto_find_batch_size()`. Rank 0 performs
+the search and the result is broadcast to all ranks so everyone uses the same
+per-GPU batch size. This avoids collective mismatches and NCCL timeouts.
 
 Typical usage in a training script:
 -----------------------------------
@@ -152,7 +136,8 @@ def auto_find_batch_size(
     logger_autobatch.setLevel(log_level)
 
     rank = 0
-    if dist is not None and dist.is_available() and dist.is_initialized():
+    distributed = dist is not None and dist.is_available() and dist.is_initialized()
+    if distributed:
         rank = dist.get_rank()
 
     best_bs = None
@@ -173,8 +158,12 @@ def auto_find_batch_size(
             logger_autobatch=logger_autobatch,
         )
 
-    if dist is not None and dist.is_available() and dist.is_initialized():
-        best_bs_tensor = torch.tensor(best_bs if best_bs is not None else 0, device="cuda", dtype=torch.int32)
+    if distributed:
+        try:
+            model_device = next(model.parameters()).device
+        except StopIteration:  # pragma: no cover - model without params is unexpected
+            model_device = torch.device("cpu")
+        best_bs_tensor = torch.tensor(best_bs if best_bs is not None else 0, device=model_device, dtype=torch.int32)
         dist.broadcast(best_bs_tensor, src=0)
         best_bs = int(best_bs_tensor.item())
 
@@ -226,17 +215,30 @@ def _binary_search_for_batch_size(
         total_gb,
     )
 
-    low, high = min_batch_size, max_batch_size
-    best_bs = min_batch_size
+    requires_even = _requires_even_batch_size(config, mode)
+    if requires_even:
+        even_min = min_batch_size if min_batch_size % 2 == 0 else min_batch_size + 1
+        even_max = max_batch_size if max_batch_size % 2 == 0 else max_batch_size - 1
+        if even_min > even_max:
+            logger_autobatch.warning(
+                "AutoBatch requires even batch sizes but range [%s-%s] has no even candidates; returning min_batch_size=%s",
+                min_batch_size,
+                max_batch_size,
+                min_batch_size,
+            )
+            return min_batch_size
+        low_idx, high_idx = 0, (even_max - even_min) // 2
+        best_bs = even_min
+    else:
+        low_idx, high_idx = min_batch_size, max_batch_size
+        best_bs = min_batch_size
 
-    while low <= high:
-        mid = (low + high) // 2
-        # Ensure mid is even and not below min_batch_size
-        if mid % 2 != 0 and mid > min_batch_size:
-            mid -= 1
-
-        if mid < min_batch_size:  # Check if mid fell below min_batch_size after adjustment
-            break
+    while low_idx <= high_idx:
+        if requires_even:
+            mid_idx = (low_idx + high_idx) // 2
+            mid = even_min + 2 * mid_idx
+        else:
+            mid = (low_idx + high_idx) // 2
 
         usage_gb = _run_trial(
             model_for_trial=model_for_trial_unwrapped,  # Pass unwrapped model
@@ -253,18 +255,64 @@ def _binary_search_for_batch_size(
         )
 
         if usage_gb is None:
-            high = mid - 1
-            logger_autobatch.info("BS=%s => OOM. range=(%s,%s)", mid, low, high)
+            if requires_even:
+                high_idx = mid_idx - 1
+                logger_autobatch.info("BS=%s => OOM. range=(%s,%s)", mid, even_min + 2 * low_idx, even_min + 2 * high_idx)
+            else:
+                high_idx = mid - 1
+                logger_autobatch.info("BS=%s => OOM. range=(%s,%s)", mid, low_idx, high_idx)
         else:
             if usage_gb <= target_gb:
                 best_bs = mid
-                low = mid + 1
-                logger_autobatch.info("BS=%s => %.2fGB <= %.2fGB OK; new best=%s range=(%s,%s)", mid, usage_gb, target_gb, mid, low, high)
+                if requires_even:
+                    low_idx = mid_idx + 1
+                    logger_autobatch.info(
+                        "BS=%s => %.2fGB <= %.2fGB OK; new best=%s range=(%s,%s)",
+                        mid,
+                        usage_gb,
+                        target_gb,
+                        mid,
+                        even_min + 2 * low_idx,
+                        even_min + 2 * high_idx,
+                    )
+                else:
+                    low_idx = mid + 1
+                    logger_autobatch.info(
+                        "BS=%s => %.2fGB <= %.2fGB OK; new best=%s range=(%s,%s)",
+                        mid,
+                        usage_gb,
+                        target_gb,
+                        mid,
+                        low_idx,
+                        high_idx,
+                    )
             else:
-                high = mid - 1
-                logger_autobatch.info("BS=%s => %.2fGB > %.2fGB; range=(%s,%s)", mid, usage_gb, target_gb, low, high)
+                if requires_even:
+                    high_idx = mid_idx - 1
+                    logger_autobatch.info(
+                        "BS=%s => %.2fGB > %.2fGB; range=(%s,%s)",
+                        mid,
+                        usage_gb,
+                        target_gb,
+                        even_min + 2 * low_idx,
+                        even_min + 2 * high_idx,
+                    )
+                else:
+                    high_idx = mid - 1
+                    logger_autobatch.info("BS=%s => %.2fGB > %.2fGB; range=(%s,%s)", mid, usage_gb, target_gb, low_idx, high_idx)
 
     return best_bs
+
+
+def _requires_even_batch_size(config: CN, mode: str) -> bool:
+    if mode.lower() != "train":
+        return False
+    sampler_cfg = getattr(config.DATA, "SAMPLER", None)
+    if sampler_cfg is None:
+        return False
+    sampler_type = str(getattr(sampler_cfg, "TYPE", "")).lower()
+    grouped_mode = str(getattr(sampler_cfg, "GROUPED_MODE", "")).lower()
+    return sampler_type == "grouped" and grouped_mode == "mixed-pairs"
 
 
 def _run_trial(

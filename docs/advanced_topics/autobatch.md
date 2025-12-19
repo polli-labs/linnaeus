@@ -3,32 +3,25 @@
 Linnaeus can automatically search for a memory-safe per-GPU batch size before training.
 The search uses a binary strategy implemented in `linnaeus.utils.autobatch.auto_find_batch_size`.
 
-## Known Limitation - Multi-GPU (DDP) Training
+## Multi-GPU (DDP) Training
 
-⚠️ **Important**: When using autobatch in a multi-GPU distributed training setup (DDP), the current implementation may cause NCCL timeout errors on non-rank-0 processes. While autobatch is designed to run only on rank 0 with other ranks waiting, the current behavior can result in timeouts.
+AutoBatch can be used in DDP runs, but **all ranks must participate**.
 
-### Recommended Workflow for Multi-GPU Training
+- Rank 0 performs the search.
+- The discovered batch size is broadcast to all other ranks so everyone uses the same per-GPU batch size.
 
-1. **Discovery Phase** (Single GPU):
-   ```bash
-   # Use the standalone tool or run with single GPU
-   python tools/analyze_batch_sizes.py --cfg my_exp.yaml --fractions 0.8 --modes train,val
-   ```
+If you're using the standard entrypoint (`python -m linnaeus.main`), this is handled for you. If you're calling `auto_find_batch_size()` directly, do not wrap it in `if rank == 0:` — call it on all ranks.
 
-2. **Configure Discovered Batch Sizes**:
-   ```yaml
-   DATA:
-     BATCH_SIZE: 64  # Use discovered training batch size
-     BATCH_SIZE_VAL: 128  # Use discovered validation batch size
-     AUTOBATCH:
-       ENABLED: False  # Disable autobatch for multi-GPU run
-       ENABLED_VAL: False
-   ```
+### Even-only batch sizes (grouped + mixed-pairs)
 
-3. **Run Multi-GPU Training**:
-   ```bash
-   torchrun --nproc_per_node=4 -m linnaeus.main --cfg my_exp.yaml
-   ```
+When training with the grouped sampler in `mixed-pairs` mode, batch size must be even (pairs). AutoBatch will restrict the **training** search to even candidates in this configuration to avoid stalls and prevent odd batch sizes from being selected.
+
+### Optional workflow for expensive runs
+
+Even when DDP AutoBatch is working, it can still be a good idea to:
+1. Run AutoBatch once to discover batch sizes.
+2. Copy the discovered values into your experiment config.
+3. Disable AutoBatch for long / expensive training runs so you don’t pay the search overhead every time.
 
 ## Configuration
 
