@@ -1386,6 +1386,7 @@ def main(config, args=None, resolved_env=None):
         profiler.__enter__()  # Start profiler
         logger.info(f"PyTorch Profiler enabled at level {config.DEBUG.PROFILER.LEVEL}. Traces will be saved to: {profiler_output_dir}")
 
+    unexpected_exception: Exception | None = None
     try:
         # Use current_epoch from training_progress for the loop start
         for epoch in range(training_progress.current_epoch, estimated_max_epochs):
@@ -1921,9 +1922,9 @@ def main(config, args=None, resolved_env=None):
         logger.warning("Training interrupted by user (KeyboardInterrupt).")
         # Intentionally let the finally block handle cleanup
     except Exception as e:
+        unexpected_exception = e
         logger.error(f"Caught unexpected exception during training: {str(e)}", exc_info=True)
-        # Let our cleanup system handle resource cleanup
-        # The finally block will handle dataset.close() and other cleanup
+        # Let the finally block handle cleanup, then propagate non-zero exit.
     finally:
         # Add synchronization before starting cleanup
         if dist.is_available() and dist.is_initialized():
@@ -1951,6 +1952,8 @@ def main(config, args=None, resolved_env=None):
         if _shutdown_in_progress:
             if logger:  # Ensure logger exists before using
                 logger.info("[main] Emergency shutdown already in progress, skipping normal cleanup in finally")
+            if unexpected_exception is not None:
+                raise unexpected_exception
             return  # Exit finally block if emergency shutdown handled it
 
         if logger:  # Ensure logger exists
@@ -2009,6 +2012,8 @@ def main(config, args=None, resolved_env=None):
                 logger.error(f"[main] Error closing validation dataset: {str(e)}")
 
         logger.info("[main] Normal cleanup complete")
+        if unexpected_exception is not None:
+            raise unexpected_exception
 
 
 # train_one_epoch has been moved to linnaeus/train.py
