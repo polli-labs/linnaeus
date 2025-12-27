@@ -1526,7 +1526,11 @@ def main(config, args=None, resolved_env=None):
                     debug_metrics(metrics_tracker, phase_name="val")
 
                 try:
+                    phase_name = "val"
+
                     # Start validation timing
+                    if torch.cuda.is_available():
+                        torch.cuda.synchronize()
                     val_start_time = time.time()
 
                     # Use criteria_val for validation
@@ -1544,18 +1548,25 @@ def main(config, args=None, resolved_env=None):
                     )
 
                     # Calculate validation stats
-                    val_duration = time.time() - val_start_time
-                    val_samples_processed = len(data_loader_val.dataset)
-                    val_throughput = (val_samples_processed * world_size) / val_duration if val_duration > 0 else 0
+                    if torch.cuda.is_available():
+                        torch.cuda.synchronize()
+                    val_duration_local = time.time() - val_start_time
+                    val_samples_processed_local = metrics_tracker.chain_total[phase_name]
+
+                    samples_tensor = torch.tensor(float(val_samples_processed_local), device=stats_device)
+                    duration_tensor = torch.tensor(float(val_duration_local), device=stats_device)
+
+                    val_samples_processed = int(distributed_allreduce_sum(samples_tensor).item())
+                    val_duration = distributed_allreduce_max(duration_tensor).item()
+                    val_throughput = val_samples_processed / val_duration if val_duration > 0 else 0
 
                     # Record metrics
-                    phase_name = "val"
                     metrics_tracker._ensure_phase_exists(phase_name)
                     metrics_tracker.phase_metrics[phase_name]["epoch_duration_sec"].update(val_duration, epoch)
                     metrics_tracker.phase_metrics[phase_name]["avg_samples_per_sec"].update(val_throughput, epoch)
 
                     logger.info(
-                        f"[main] Validation (normal): {val_samples_processed * world_size} samples, "
+                        f"[main] Validation (normal): {val_samples_processed} samples, "
                         f"{val_duration:.2f} seconds, {val_throughput:.2f} samples/sec"
                     )
                     # validate_one_pass now handles finalization internally
@@ -1616,7 +1627,11 @@ def main(config, args=None, resolved_env=None):
                     debug_metrics(metrics_tracker, phase_name="val_mask_meta")
 
                 try:
+                    phase_name = "val_mask_meta"
+
                     # Start validation timing
+                    if torch.cuda.is_available():
+                        torch.cuda.synchronize()
                     val_mask_start_time = time.time()
 
                     # Use criteria_val for validation
@@ -1634,18 +1649,25 @@ def main(config, args=None, resolved_env=None):
                     )
 
                     # Calculate validation stats
-                    val_mask_duration = time.time() - val_mask_start_time
-                    val_samples_processed = len(data_loader_val.dataset)
-                    val_mask_throughput = (val_samples_processed * world_size) / val_mask_duration if val_mask_duration > 0 else 0
+                    if torch.cuda.is_available():
+                        torch.cuda.synchronize()
+                    val_mask_duration_local = time.time() - val_mask_start_time
+                    val_samples_processed_local = metrics_tracker.chain_total[phase_name]
+
+                    samples_tensor = torch.tensor(float(val_samples_processed_local), device=stats_device)
+                    duration_tensor = torch.tensor(float(val_mask_duration_local), device=stats_device)
+
+                    val_samples_processed = int(distributed_allreduce_sum(samples_tensor).item())
+                    val_mask_duration = distributed_allreduce_max(duration_tensor).item()
+                    val_mask_throughput = val_samples_processed / val_mask_duration if val_mask_duration > 0 else 0
 
                     # Record metrics
-                    phase_name = "val_mask_meta"
                     metrics_tracker._ensure_phase_exists(phase_name)
                     metrics_tracker.phase_metrics[phase_name]["epoch_duration_sec"].update(val_mask_duration, epoch)
                     metrics_tracker.phase_metrics[phase_name]["avg_samples_per_sec"].update(val_mask_throughput, epoch)
 
                     logger.info(
-                        f"[main] Validation (mask-meta): {val_samples_processed * world_size} samples, "
+                        f"[main] Validation (mask-meta): {val_samples_processed} samples, "
                         f"{val_mask_duration:.2f} seconds, {val_mask_throughput:.2f} samples/sec"
                     )
                     # validate_one_pass now handles finalization internally
@@ -1798,6 +1820,8 @@ def main(config, args=None, resolved_env=None):
                                     debug_metrics(metrics_tracker, phase_name=phase_name)
 
                                 # Start validation timing
+                                if torch.cuda.is_available():
+                                    torch.cuda.synchronize()
                                 val_partial_start_time = time.time()
 
                                 validate_with_partial_mask(
@@ -1814,11 +1838,17 @@ def main(config, args=None, resolved_env=None):
                                 )
 
                                 # Calculate validation stats
-                                val_partial_duration = time.time() - val_partial_start_time
-                                val_samples_processed = len(data_loader_val.dataset)
-                                val_partial_throughput = (
-                                    (val_samples_processed * world_size) / val_partial_duration if val_partial_duration > 0 else 0
-                                )
+                                if torch.cuda.is_available():
+                                    torch.cuda.synchronize()
+                                val_partial_duration_local = time.time() - val_partial_start_time
+                                val_samples_processed_local = metrics_tracker.chain_total[phase_name]
+
+                                samples_tensor = torch.tensor(float(val_samples_processed_local), device=stats_device)
+                                duration_tensor = torch.tensor(float(val_partial_duration_local), device=stats_device)
+
+                                val_samples_processed = int(distributed_allreduce_sum(samples_tensor).item())
+                                val_partial_duration = distributed_allreduce_max(duration_tensor).item()
+                                val_partial_throughput = val_samples_processed / val_partial_duration if val_partial_duration > 0 else 0
 
                                 # Record metrics - make sure phase exists
                                 metrics_tracker._ensure_phase_exists(phase_name)
@@ -1826,7 +1856,7 @@ def main(config, args=None, resolved_env=None):
                                 metrics_tracker.phase_metrics[phase_name]["avg_samples_per_sec"].update(val_partial_throughput, epoch)
 
                                 logger.info(
-                                    f"[main] Validation (partial mask {combo_list}): {val_samples_processed * world_size} samples, "
+                                    f"[main] Validation (partial mask {combo_list}): {val_samples_processed} samples, "
                                     f"{val_partial_duration:.2f} seconds, {val_partial_throughput:.2f} samples/sec"
                                 )
                                 # validate_with_partial_mask now handles finalization internally
