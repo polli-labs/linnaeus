@@ -523,7 +523,11 @@ class RoPE2DMHSABlock(nn.Module):
         )
 
         # DropPath
-        self.drop_path = DropPath(drop_path) if drop_path > 0.0 else nn.Identity()
+        # Note: this block applies stochastic depth twice (attn residual + mlp residual).
+        # Use two DropPath modules so the batch RNG pre-generation can correctly account
+        # for both call sites without exhausting masks mid-step.
+        self.drop_path_attn = DropPath(drop_path) if drop_path > 0.0 else nn.Identity()
+        self.drop_path_mlp = DropPath(drop_path) if drop_path > 0.0 else nn.Identity()
 
         # MLP
         mlp_hidden_dim = int(dim * mlp_ratio)
@@ -589,7 +593,7 @@ class RoPE2DMHSABlock(nn.Module):
                 attn_output = self._attn_impl(x_norm1, H, W)
 
         with prof("rope/residual_add_attn", level=3):
-            x = identity + self.drop_path(attn_output)
+            x = identity + self.drop_path_attn(attn_output)
 
         # --- MLP + Residual ---
         identity_mlp = x  # Store identity for the MLP residual
@@ -603,6 +607,6 @@ class RoPE2DMHSABlock(nn.Module):
                 mlp_output = self._mlp_impl(x_norm2)
 
         with prof("rope/residual_add_mlp", level=3):
-            x = identity_mlp + self.drop_path(mlp_output)
+            x = identity_mlp + self.drop_path_mlp(mlp_output)
 
         return x

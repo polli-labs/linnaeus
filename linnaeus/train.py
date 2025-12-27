@@ -141,9 +141,10 @@ def train_one_epoch(
             # Prepare batch RNG for optimized drop path if available
             try:
                 from linnaeus.models.blocks.drop_path_optimized import DropPathOptimized, get_batch_rng
-                if idx == 0 or bsz != get_batch_rng().batch_size:
-                    # Reset batch RNG at start of epoch or if batch size changes
-                    # Account for gradient accumulation steps to avoid exhaustion
+                accumulation_window = max(1, int(accumulation_steps))
+                if (idx % accumulation_window == 0) or (bsz != get_batch_rng().batch_size):
+                    # Regenerate batch RNG at the start of each accumulation window (and if batch size changes).
+                    # This avoids exhausting the pre-generated masks mid-epoch when accumulation_steps > 1.
                     DropPathOptimized.prepare_batch_rng(
                         model=model,
                         batch_size=bsz,
