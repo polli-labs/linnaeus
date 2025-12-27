@@ -220,6 +220,42 @@ def distributed_allreduce_mean(tensor: torch.Tensor) -> torch.Tensor:
     return tensor_clone
 
 
+def distributed_allreduce_sum(tensor: torch.Tensor) -> torch.Tensor:
+    """
+    All-reduce a tensor and compute the sum across processes.
+
+    Args:
+        tensor: The tensor to reduce
+
+    Returns:
+        Tensor containing the summed value across all processes
+    """
+    if not is_distributed_and_initialized():
+        return tensor
+
+    tensor_clone = tensor.clone().detach()
+    dist.all_reduce(tensor_clone, op=dist.ReduceOp.SUM)
+    return tensor_clone
+
+
+def distributed_allreduce_max(tensor: torch.Tensor) -> torch.Tensor:
+    """
+    All-reduce a tensor and compute the max across processes.
+
+    Args:
+        tensor: The tensor to reduce
+
+    Returns:
+        Tensor containing the max value across all processes
+    """
+    if not is_distributed_and_initialized():
+        return tensor
+
+    tensor_clone = tensor.clone().detach()
+    dist.all_reduce(tensor_clone, op=dist.ReduceOp.MAX)
+    return tensor_clone
+
+
 def all_gather_tensor(tensor: torch.Tensor) -> list[torch.Tensor]:
     """
     Gather tensors from all processes.
