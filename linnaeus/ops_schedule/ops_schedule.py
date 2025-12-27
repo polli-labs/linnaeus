@@ -26,6 +26,7 @@ from yacs.config import CfgNode as CN
 from linnaeus.ops_schedule.early_stop_state import EarlyStopState
 from linnaeus.utils.debug_utils import check_debug_flag
 from linnaeus.utils.logging.logger import get_main_logger
+from linnaeus.utils.metrics.metric_ref import parse_metric_ref
 
 from .training_progress import TrainingProgress
 
@@ -198,7 +199,8 @@ class OpsSchedule:
         if self.early_stop_state and self.early_stop_config["patience_steps"] is not None:
             # Get the metric from the metrics_tracker
             chosen_metric = self.early_stop_config["metric"]
-            current_val = self.metrics_tracker.get_metric(*chosen_metric.split("/", 1))
+            phase, metric_name = parse_metric_ref(chosen_metric)
+            current_val = self.metrics_tracker.get_metric(phase, metric_name)
             old_no_improve = self.early_stop_state.steps_no_improve
             old_best = self.early_stop_state.best_metric_value
 
@@ -223,11 +225,12 @@ class OpsSchedule:
         max_loss = self.early_stop_config["max_loss"]
         if max_loss is not None:
             # if the chosen metric is a loss metric => we can compare
-            chosen_metric = self.early_stop_config["metric"].lower()
-            if "loss" in chosen_metric:
-                current_val = self.metrics_tracker.get_metric(*chosen_metric.split("/", 1))
+            chosen_metric = self.early_stop_config["metric"]
+            phase, metric_name = parse_metric_ref(chosen_metric)
+            if "loss" in metric_name.lower():
+                current_val = self.metrics_tracker.get_metric(phase, metric_name)
                 if current_val > max_loss:
-                    logger.info(f"Early stop: {chosen_metric}={current_val:.4f} exceeded max_loss={max_loss}")
+                    logger.info(f"Early stop: {phase}/{metric_name}={current_val:.4f} exceeded max_loss={max_loss}")
                     return True
 
         #    (b) min_lr

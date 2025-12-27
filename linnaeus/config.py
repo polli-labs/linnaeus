@@ -647,7 +647,9 @@ _C.TRAIN.AMP_OPT_LEVEL = "O1"  # Default to mixed precision training
 ## FUTURE: PATIENCE_EPOCHS, PATIENCE_FRACTION (in addition to PATIENCE_STEPS)
 _C.TRAIN.EARLY_STOP = CN()
 _C.TRAIN.EARLY_STOP.ACTIVE = False
-_C.TRAIN.EARLY_STOP.METRIC = "val_loss"
+# Preferred explicit form is "<phase>/<metric_name>" (e.g. "val/loss").
+# Backwards-compatible shorthands like "val_loss" are still accepted.
+_C.TRAIN.EARLY_STOP.METRIC = "val/loss"
 _C.TRAIN.EARLY_STOP.MAX_STEPS = None  # Maximum steps before stopping
 _C.TRAIN.EARLY_STOP.PATIENCE_STEPS = 2000  # Patience in steps before stopping (will only take effect at epoch boundaries)
 _C.TRAIN.EARLY_STOP.MIN_DELTA = None
