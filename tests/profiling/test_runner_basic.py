@@ -16,6 +16,7 @@ from linnaeus.tools.profiling.run_profiling_trials import (
     extract_experiment_path,
     run_docker_compose_up,
     DOCKER_SERVICE_NAME,
+    TIMEOUT_EXIT_CODE,
 )
 
 
@@ -214,6 +215,21 @@ def test_run_docker_compose_up_exit_code_and_cleanup():
 def test_classify_trial_status_exit_code_wins_over_log_strings():
     status = classify_trial_status(0, ["Failure condition found!", "Traceback (most recent call last): boom"])
     assert status == "success"
+
+
+def test_classify_trial_status_uses_service_exit_code_when_present():
+    status = classify_trial_status(2, ["linnaeus-training-1 exited with code 0"])
+    assert status == "success"
+
+
+def test_classify_trial_status_does_not_misclassify_exit_code_1_as_timeout():
+    status = classify_trial_status(1, ["linnaeus-training-1 exited with code 1"])
+    assert status == "failure"
+
+
+def test_classify_trial_status_timeout_sentinel():
+    status = classify_trial_status(TIMEOUT_EXIT_CODE, [])
+    assert status == "timeout"
 
 
 def test_smoke_runner_import():

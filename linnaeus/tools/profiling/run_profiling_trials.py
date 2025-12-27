@@ -64,21 +64,47 @@ logger = logging.getLogger(__name__)
 SUCCESS_STRING = "DEBUG: Early exiting main training loop"
 LOG_CAPTURE_LINES = 300
 DOCKER_SERVICE_NAME = "linnaeus-training"
+TIMEOUT_EXIT_CODE = 124
+RUNNER_ERROR_EXIT_CODE = 125
+
+_SERVICE_EXIT_CODE_RE = re.compile(
+    rf"{re.escape(DOCKER_SERVICE_NAME)}(?:-\d+)? exited with code (\d+)"
+)
+
+
+def _extract_service_exit_code(log_lines: Optional[List[str]]) -> Optional[int]:
+    if not log_lines:
+        return None
+    # Usually near the end, so iterate backwards.
+    for line in reversed(log_lines):
+        match = _SERVICE_EXIT_CODE_RE.search(line)
+        if match:
+            try:
+                return int(match.group(1))
+            except ValueError:
+                return None
+    return None
 
 
 def classify_trial_status(returncode: int, log_lines: Optional[List[str]] = None) -> str:
-    """Classify trial status based on exit code only.
+    """Classify trial status.
 
-    log_lines is accepted for future precision checks, but success is always
-    tied to returncode == 0 to avoid soft-failure misclassification.
+    Prefer container/service exit codes when present in logs to avoid "soft
+    failure" misclassification where docker compose returns non-zero even
+    though the training service exited cleanly.
     """
+    if returncode == TIMEOUT_EXIT_CODE:
+        return "timeout"
+
+    service_exit_code = _extract_service_exit_code(log_lines)
+    if service_exit_code is not None:
+        return "success" if service_exit_code == 0 else "failure"
+
     if returncode == 0:
         return "success"
-    if returncode == 1:
-        return "timeout"
-    if returncode == 2:
-        return "failure"
-    return "error"
+    if returncode == RUNNER_ERROR_EXIT_CODE:
+        return "error"
+    return "failure"
 
 
 def parse_args():
@@ -307,7 +333,7 @@ def run_docker_compose_up(compose_file: Path, timeout: int) -> tuple[int, deque,
                 console.print(f"[red]Timeout reached ({timeout}s)[/red]")
                 process.terminate()
                 process.wait(timeout=10)
-                return 1, log_buffer
+                return TIMEOUT_EXIT_CODE, log_buffer, init_marker_lines
 
             line = process.stdout.readline()
             if not line and process.poll() is not None:
@@ -333,7 +359,7 @@ def run_docker_compose_up(compose_file: Path, timeout: int) -> tuple[int, deque,
         console.print(f"[red]Error during execution: {e}[/red]")
         process.terminate()
         process.wait(timeout=10)
-        return 3, log_buffer, init_marker_lines
+        return RUNNER_ERROR_EXIT_CODE, log_buffer, init_marker_lines
     finally:
         # Cleanup
         cleanup_cmd = base_cmd + ["down", "-v"]
@@ -452,7 +478,8 @@ def run_trials_concurrent(
         if status == "timeout":
             result["status"] = "timeout"
         elif returncode is not None:
-            result["status"] = classify_trial_status(returncode)
+            stdout_lines = result.get("stdout", "").splitlines() if result.get("stdout") else None
+            result["status"] = classify_trial_status(returncode, stdout_lines)
         else:
             result["status"] = "error"
             
