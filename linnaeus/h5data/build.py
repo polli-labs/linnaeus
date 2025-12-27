@@ -93,6 +93,8 @@ from yacs.config import CfgNode as CN
 # Aug pipeline factory
 from linnaeus.aug.factory import AugmentationPipelineFactory
 from linnaeus.utils.debug_utils import check_debug_flag
+from linnaeus.utils.distributed import get_rank_safely
+from linnaeus.utils.init_timing import emit_init_timing
 from linnaeus.utils.logging.logger import get_h5data_logger
 from linnaeus.utils.taxonomy.taxonomy_tree import TaxonomyTree
 
@@ -161,6 +163,10 @@ def build_datasets(
     main_logger = get_h5data_logger()
     main_logger.info("Starting dataset building process (with multi-rank group IDs).")
     h5data_logger.info("Initializing H5Data processing")
+
+    def _emit_init(stage: str) -> None:
+        if get_rank_safely() == 0:
+            emit_init_timing(stage, logger_override=main_logger)
 
     if check_debug_flag(config, "DEBUG.DATALOADER"):
         main_logger.debug("[build_datasets] Using configuration params:")
@@ -305,7 +311,9 @@ def build_datasets(
         and not single_file_hybrid
     ):
         main_logger.info("Scenario A: separate train+val HDF5 files detected.")
+        _emit_init("dataset_processor_start")
         results = processor.process_datasets(single_file_mode=False)
+        _emit_init("dataset_processor_end")
         (
             class_to_idx,
             task_label_density,
@@ -346,7 +354,9 @@ def build_datasets(
     # Scenario B: single-file pure-HDF5 usage.
     elif single_file_pure:
         main_logger.info("Scenario B: single-file pure-HDF5 usage.")
+        _emit_init("dataset_processor_start")
         results = processor.process_datasets(single_file_mode=True)
+        _emit_init("dataset_processor_end")
         (
             class_to_idx,
             task_label_density,
@@ -413,7 +423,9 @@ def build_datasets(
     # Scenario B-H: single-file Hybrid usage.
     elif single_file_hybrid:
         main_logger.info("Scenario B-H: single-file Hybrid usage.")
+        _emit_init("dataset_processor_start")
         results = processor.process_datasets(single_file_mode=True)
+        _emit_init("dataset_processor_end")
         (
             class_to_idx,
             task_label_density,
@@ -481,7 +493,9 @@ def build_datasets(
             and config.DATA.H5.VAL_IMAGES_PATH is None
         ):
             main_logger.info("Scenario C: train-only usage.")
+            _emit_init("dataset_processor_start")
             results = processor.process_datasets(single_file_mode=False)
+            _emit_init("dataset_processor_end")
             (
                 class_to_idx,
                 task_label_density,
@@ -813,6 +827,9 @@ def build_loaders(
         if is_distributed:
             main_logger.debug(f"  - World size: {dist.get_world_size()}")
             main_logger.debug(f"  - Rank: {dist.get_rank()}")
+
+    if get_rank_safely() == 0:
+        emit_init_timing("dataloader_ready", logger_override=main_logger)
 
     return data_loader_train, data_loader_val
 

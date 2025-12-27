@@ -7,6 +7,7 @@ from linnaeus.loss.gradient_weighting import log_memory_usage
 from linnaeus.loss.hierarchical_loss import weighted_hierarchical_loss
 from linnaeus.utils.debug_utils import check_debug_flag
 from linnaeus.utils.distributed import get_rank_safely
+from linnaeus.utils.init_timing import emit_init_timing
 from linnaeus.utils.metrics.step_metrics_logger import StepMetricsLogger
 from linnaeus.utils.profiling_helpers import prof, update_profiler_config
 
@@ -67,6 +68,11 @@ def train_one_epoch(
         logger.debug(f"[train_one_epoch] Starting epoch {epoch} training loop")
         logger.debug(f"[train_one_epoch] Starting from global_step {start_step}, targeting {total_steps} total training steps")
 
+    emit_init_markers = start_step == 0 and epoch == 0
+    init_first_batch_logged = False
+    init_first_forward_logged = False
+    init_first_backward_logged = False
+
     accumulation_steps = max(1, config.TRAIN.ACCUMULATION_STEPS)
     steps_run_in_this_epoch = 0  # Tracks optimizer steps within this epoch call
 
@@ -116,6 +122,10 @@ def train_one_epoch(
                 images, targets_dict, aux_info = batch_data[0], batch_data[1], batch_data[2]
                 actual_meta_stats = batch_data[6] if len(batch_data) > 6 else {}  # Safely get actual_meta_stats
 
+                if emit_init_markers and rank == 0 and not init_first_batch_logged:
+                    emit_init_timing("first_batch_fetched", logger_override=logger)
+                    init_first_batch_logged = True
+
                 bsz = images.size(0)
                 total_samples_for_epoch_avg += bsz
 
@@ -148,6 +158,9 @@ def train_one_epoch(
             with torch.cuda.amp.autocast(enabled=(config.TRAIN.AMP_OPT_LEVEL != "O0")):
                 with prof("forward_pass", level=1):
                     outputs = model(images, aux_info)  # GradNorm flag not needed here for normal fwd
+                if emit_init_markers and rank == 0 and not init_first_forward_logged:
+                    emit_init_timing("first_forward_end", logger_override=logger)
+                    init_first_forward_logged = True
 
                 with prof("loss_calculation", level=1):
                     total_loss, loss_components, task_weights_dict = weighted_hierarchical_loss(
@@ -174,6 +187,9 @@ def train_one_epoch(
 
             with prof("backward_pass", level=1):
                 scaler.scale(loss_to_backward).backward()
+            if emit_init_markers and rank == 0 and not init_first_backward_logged:
+                emit_init_timing("first_backward_end", logger_override=logger)
+                init_first_backward_logged = True
             inner_accum_count += 1
 
             # Log accumulation progress
