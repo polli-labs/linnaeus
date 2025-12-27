@@ -26,6 +26,7 @@ logger = logging.getLogger(__name__)
 
 
 _DOCKER_SERVICE_NAME = "linnaeus-training"
+_OUTPUT_DIR_RE = re.compile(r"Output directory:\s+(.+)")
 
 
 def _sanitize_identifier(value: str, *, fallback: str) -> str:
@@ -273,6 +274,12 @@ class ConcurrentTrialExecutor:
             stdout, stderr = process.communicate(timeout=timeout)
             returncode = process.returncode
 
+            experiment_path = None
+            if stdout:
+                match = _OUTPUT_DIR_RE.search(stdout)
+                if match:
+                    experiment_path = match.group(1).strip()
+
             init_timings = {}
             if stdout:
                 init_payloads = extract_init_timing_payloads(stdout.splitlines())
@@ -286,7 +293,10 @@ class ConcurrentTrialExecutor:
                 'gpu_id': gpu_id,
                 'elapsed_time': time.time() - start_time,
                 'stdout': stdout[-5000:] if stdout else '',  # Last 5000 chars
-                'stderr': stderr[-5000:] if stderr else ''   # Last 5000 chars
+                'stderr': stderr[-5000:] if stderr else '',   # Last 5000 chars
+                'compose_file': str(compose_path) if compose_path is not None else None,
+                'trial_output_dir': str(trial_output_dir) if trial_output_dir is not None else None,
+                'experiment_path': experiment_path,
             }
             if init_timings:
                 result["init_timings"] = init_timings
