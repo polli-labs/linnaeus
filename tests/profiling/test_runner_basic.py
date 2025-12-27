@@ -2,6 +2,7 @@
 
 import json
 import tempfile
+from collections import deque
 import yaml
 from pathlib import Path
 from unittest.mock import Mock, patch
@@ -12,6 +13,8 @@ from linnaeus.tools.profiling.run_profiling_trials import (
     modify_compose_file,
     check_docker_compose,
     extract_experiment_path,
+    run_docker_compose_up,
+    DOCKER_SERVICE_NAME,
 )
 
 
@@ -157,6 +160,54 @@ def test_check_docker_compose_fallback(mock_run):
     
     # Should try both commands
     assert mock_run.call_count == 2
+
+
+class DummyStdout:
+    def __init__(self, lines):
+        self._lines = deque(lines)
+
+    def readline(self):
+        if self._lines:
+            return self._lines.popleft()
+        return ""
+
+
+class DummyProcess:
+    def __init__(self, lines, returncode=0):
+        self.stdout = DummyStdout(lines)
+        self._returncode = returncode
+        self._terminated = False
+
+    def poll(self):
+        if self._terminated:
+            return self._returncode
+        if self.stdout._lines:
+            return None
+        return self._returncode
+
+    def wait(self, timeout=None):
+        return self._returncode
+
+    def terminate(self):
+        self._terminated = True
+
+
+def test_run_docker_compose_up_exit_code_and_cleanup():
+    compose_file = Path("compose.yml")
+    dummy_process = DummyProcess(["Emergency shutdown initiated\n"], returncode=0)
+
+    with patch("subprocess.run") as mock_run, patch("subprocess.Popen", return_value=dummy_process) as mock_popen:
+        mock_run.return_value.returncode = 0
+        returncode, _ = run_docker_compose_up(compose_file, timeout=5)
+
+        assert returncode == 0
+
+        popen_cmd = mock_popen.call_args[0][0]
+        assert "--exit-code-from" in popen_cmd
+        assert DOCKER_SERVICE_NAME in popen_cmd
+
+        cleanup_calls = [call_args[0][0] for call_args in mock_run.call_args_list if "down" in call_args[0][0]]
+        assert cleanup_calls[-1] == ["docker", "compose", "-f", str(compose_file), "down", "-v"]
 
 
 def test_smoke_runner_import():

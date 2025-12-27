@@ -50,7 +50,7 @@ def train_one_epoch(
         training_progress: TrainingProgress object to track state
 
     Returns:
-        tuple: (average_loss, steps_run)
+        tuple: (average_loss, steps_run, samples_processed_local)
     """
     rank = get_rank_safely()  # Get rank for logging
     model.train()  # Set model to training mode
@@ -351,7 +351,7 @@ def train_one_epoch(
             )
             logger.debug(f"[train_one_epoch] Reached global_step {training_progress.global_step} of {total_steps} total training steps")
 
-        return avg_loss_for_epoch, steps_run_in_this_epoch
+        return avg_loss_for_epoch, steps_run_in_this_epoch, total_samples_for_epoch_avg
 
     finally:  # Ensure checkpointing flag is reset
         if hasattr(model_to_set_checkpoint_flag, "use_checkpoint"):

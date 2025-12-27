@@ -67,7 +67,11 @@ from linnaeus.utils.config_utils import (
 )
 from linnaeus.utils.dataset_metadata import process_and_save_dataset_metadata
 from linnaeus.utils.debug_utils import check_debug_flag
-from linnaeus.utils.distributed import get_world_size
+from linnaeus.utils.distributed import (
+    distributed_allreduce_max,
+    distributed_allreduce_sum,
+    get_world_size,
+)
 from linnaeus.utils.hpc_utils import register_slurm_signal_handlers
 from linnaeus.utils.logging.logger import create_h5data_logger, create_logger, get_h5data_logger, get_level_number, get_main_logger
 from linnaeus.utils.logging.wandb import initialize_wandb, log_epoch_results, log_final_results, maybe_generate_wandb_run_id
@@ -1428,10 +1432,12 @@ def main(config, args=None, resolved_env=None):
 
             # Start epoch timing
             step_metrics_logger.start_epoch()
+            if torch.cuda.is_available():
+                torch.cuda.synchronize()
             train_epoch_start_time = time.time()
 
             # Train one epoch
-            train_epoch_loss, steps_run = train_one_epoch(
+            train_epoch_loss, steps_run, train_samples_processed_local = train_one_epoch(
                 config=config,
                 model=model,
                 data_loader=data_loader_train,
@@ -1451,17 +1457,30 @@ def main(config, args=None, resolved_env=None):
             )
 
             # Calculate training epoch stats
-            train_epoch_duration = time.time() - train_epoch_start_time
-            train_samples_processed = len(data_loader_train.dataset)
-            world_size = get_world_size()
-            train_throughput = (train_samples_processed * world_size) / train_epoch_duration if train_epoch_duration > 0 else 0
+            if torch.cuda.is_available():
+                torch.cuda.synchronize()
+            train_epoch_duration_local = time.time() - train_epoch_start_time
+
+            use_cuda_collective = (
+                torch.cuda.is_available()
+                and dist.is_available()
+                and dist.is_initialized()
+                and dist.get_backend() == "nccl"
+            )
+            stats_device = torch.device("cuda", torch.cuda.current_device()) if use_cuda_collective else torch.device("cpu")
+            samples_tensor = torch.tensor(float(train_samples_processed_local), device=stats_device)
+            duration_tensor = torch.tensor(float(train_epoch_duration_local), device=stats_device)
+
+            train_samples_processed = int(distributed_allreduce_sum(samples_tensor).item())
+            train_epoch_duration = distributed_allreduce_max(duration_tensor).item()
+            train_throughput = train_samples_processed / train_epoch_duration if train_epoch_duration > 0 else 0
 
             # Record metrics
             metrics_tracker.phase_metrics["train"]["epoch_duration_sec"].update(train_epoch_duration, epoch)
             metrics_tracker.phase_metrics["train"]["avg_samples_per_sec"].update(train_throughput, epoch)
 
             logger.info(
-                f"[main] Epoch {epoch} training: {train_samples_processed * world_size} samples, "
+                f"[main] Epoch {epoch} training: {train_samples_processed} samples, "
                 f"{train_epoch_duration:.2f} seconds, {train_throughput:.2f} samples/sec"
             )
             # Global step is now updated within train_one_epoch

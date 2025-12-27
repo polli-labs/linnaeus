@@ -57,7 +57,6 @@ logger = logging.getLogger(__name__)
 
 # Constants for log monitoring
 SUCCESS_STRING = "DEBUG: Early exiting main training loop"
-FAILURE_STRING = "Emergency shutdown initiated"
 LOG_CAPTURE_LINES = 300
 DOCKER_SERVICE_NAME = "linnaeus-training"
 
@@ -264,21 +263,22 @@ def check_docker_compose():
 
 def run_docker_compose_up(compose_file: Path, timeout: int) -> tuple[int, deque]:
     """Run docker compose up with timeout and capture logs."""
-    cmd = ["docker", "compose", "-f", str(compose_file), "up", "--abort-on-container-exit"]
+    base_cmd = ["docker", "compose", "-f", str(compose_file)]
+    cmd = base_cmd + ["up", "--abort-on-container-exit", "--exit-code-from", DOCKER_SERVICE_NAME]
 
     # Try docker-compose if docker compose doesn't work
     test_cmd = ["docker", "compose", "version"]
     try:
         subprocess.run(test_cmd, capture_output=True, check=True)
     except (subprocess.CalledProcessError, FileNotFoundError):
-        cmd = ["docker-compose", "-f", str(compose_file), "up", "--abort-on-container-exit"]
+        base_cmd = ["docker-compose", "-f", str(compose_file)]
+        cmd = base_cmd + ["up", "--abort-on-container-exit", "--exit-code-from", DOCKER_SERVICE_NAME]
 
     log_buffer = deque(maxlen=LOG_CAPTURE_LINES)
     process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1, universal_newlines=True)
 
     start_time = time.time()
     success_found = False
-    failure_found = False
 
     try:
         while True:
@@ -305,13 +305,7 @@ def run_docker_compose_up(compose_file: Path, timeout: int) -> tuple[int, deque]
                     process.wait(timeout=10)
                     return 0, log_buffer
 
-                if FAILURE_STRING in line:
-                    failure_found = True
-                    console.print("[red]Failure condition found![/red]")
-
         returncode = process.wait()
-        if failure_found:
-            return 2, log_buffer
         return returncode, log_buffer
 
     except Exception as e:
@@ -321,7 +315,7 @@ def run_docker_compose_up(compose_file: Path, timeout: int) -> tuple[int, deque]
         return 3, log_buffer
     finally:
         # Cleanup
-        cleanup_cmd = cmd[:-1] + ["down", "-v"]
+        cleanup_cmd = base_cmd + ["down", "-v"]
         subprocess.run(cleanup_cmd, capture_output=True)
 
 
