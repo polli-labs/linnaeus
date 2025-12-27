@@ -20,6 +20,7 @@ from typing import List, Dict, Any, Optional
 from pathlib import Path
 
 from .gpu_pool import GPUPoolManager
+from linnaeus.utils.init_timing import extract_init_timing_payloads, summarize_init_timings
 
 logger = logging.getLogger(__name__)
 
@@ -271,6 +272,11 @@ class ConcurrentTrialExecutor:
             # Wait for completion
             stdout, stderr = process.communicate(timeout=timeout)
             returncode = process.returncode
+
+            init_timings = {}
+            if stdout:
+                init_payloads = extract_init_timing_payloads(stdout.splitlines())
+                init_timings = summarize_init_timings(init_payloads)
             
             # Process results
             result = {
@@ -282,6 +288,8 @@ class ConcurrentTrialExecutor:
                 'stdout': stdout[-5000:] if stdout else '',  # Last 5000 chars
                 'stderr': stderr[-5000:] if stderr else ''   # Last 5000 chars
             }
+            if init_timings:
+                result["init_timings"] = init_timings
             
             # Capture debug logs if requested
             if capture_debug_logs and returncode != 0:

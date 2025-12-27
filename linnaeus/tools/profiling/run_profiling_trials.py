@@ -24,6 +24,11 @@ from typing import Any, Dict, List, Optional
 
 import yaml
 
+from linnaeus.utils.init_timing import (
+    INIT_TIMING_PREFIX,
+    extract_init_timing_payloads,
+    summarize_init_timings,
+)
 # Import concurrent execution modules if available
 try:
     from linnaeus.profiling.gpu_pool import GPUPoolManager
@@ -59,6 +64,21 @@ logger = logging.getLogger(__name__)
 SUCCESS_STRING = "DEBUG: Early exiting main training loop"
 LOG_CAPTURE_LINES = 300
 DOCKER_SERVICE_NAME = "linnaeus-training"
+
+
+def classify_trial_status(returncode: int, log_lines: Optional[List[str]] = None) -> str:
+    """Classify trial status based on exit code only.
+
+    log_lines is accepted for future precision checks, but success is always
+    tied to returncode == 0 to avoid soft-failure misclassification.
+    """
+    if returncode == 0:
+        return "success"
+    if returncode == 1:
+        return "timeout"
+    if returncode == 2:
+        return "failure"
+    return "error"
 
 
 def parse_args():
@@ -261,7 +281,7 @@ def check_docker_compose():
         return False
 
 
-def run_docker_compose_up(compose_file: Path, timeout: int) -> tuple[int, deque]:
+def run_docker_compose_up(compose_file: Path, timeout: int) -> tuple[int, deque, list[str]]:
     """Run docker compose up with timeout and capture logs."""
     base_cmd = ["docker", "compose", "-f", str(compose_file)]
     cmd = base_cmd + ["up", "--abort-on-container-exit", "--exit-code-from", DOCKER_SERVICE_NAME]
@@ -275,10 +295,10 @@ def run_docker_compose_up(compose_file: Path, timeout: int) -> tuple[int, deque]
         cmd = base_cmd + ["up", "--abort-on-container-exit", "--exit-code-from", DOCKER_SERVICE_NAME]
 
     log_buffer = deque(maxlen=LOG_CAPTURE_LINES)
+    init_marker_lines: list[str] = []
     process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1, universal_newlines=True)
 
     start_time = time.time()
-    success_found = False
 
     try:
         while True:
@@ -296,23 +316,24 @@ def run_docker_compose_up(compose_file: Path, timeout: int) -> tuple[int, deque]
             if line:
                 line = line.rstrip()
                 log_buffer.append(line)
+                if INIT_TIMING_PREFIX in line:
+                    init_marker_lines.append(line)
                 print(line)
 
                 if SUCCESS_STRING in line:
-                    success_found = True
                     console.print("[green]Success condition found![/green]")
                     process.terminate()
                     process.wait(timeout=10)
-                    return 0, log_buffer
+                    return 0, log_buffer, init_marker_lines
 
         returncode = process.wait()
-        return returncode, log_buffer
+        return returncode, log_buffer, init_marker_lines
 
     except Exception as e:
         console.print(f"[red]Error during execution: {e}[/red]")
         process.terminate()
         process.wait(timeout=10)
-        return 3, log_buffer
+        return 3, log_buffer, init_marker_lines
     finally:
         # Cleanup
         cleanup_cmd = base_cmd + ["down", "-v"]
@@ -428,15 +449,12 @@ def run_trials_concurrent(
 
         # Normalize ConcurrentTrialExecutor status values to match sequential runner.
         # Sequential mode uses: success | timeout | failure
-        if status == "completed" and returncode == 0:
-            result["status"] = "success"
-        elif status == "timeout":
+        if status == "timeout":
             result["status"] = "timeout"
-        elif status in ("completed", "error"):
-            result["status"] = "success" if returncode == 0 else "failure"
+        elif returncode is not None:
+            result["status"] = classify_trial_status(returncode)
         else:
-            # Unknown status: treat non-zero as failure.
-            result["status"] = "success" if returncode == 0 else "failure"
+            result["status"] = "error"
             
     return results
 
@@ -457,18 +475,11 @@ def run_trial(
 
     # Run the trial
     start_time = time.time()
-    returncode, log_buffer = run_docker_compose_up(temp_compose, timeout)
+    returncode, log_buffer, init_marker_lines = run_docker_compose_up(temp_compose, timeout)
     elapsed_time = time.time() - start_time
 
     # Determine status
-    if returncode == 0:
-        status = "success"
-    elif returncode == 1:
-        status = "timeout"
-    elif returncode == 2:
-        status = "failure"
-    else:
-        status = "error"
+    status = classify_trial_status(returncode, list(log_buffer))
 
     result = {
         "name": trial_name,
@@ -478,6 +489,11 @@ def run_trial(
         "git_ref": trial.get("git_ref", "main"),
         "commit_hash": trial.get("commit_hash"),
     }
+
+    init_payloads = extract_init_timing_payloads(init_marker_lines)
+    init_timings = summarize_init_timings(init_payloads)
+    if init_timings:
+        result["init_timings"] = init_timings
 
     # Save logs on failure
     if status in ["failure", "error", "timeout"]:

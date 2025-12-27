@@ -10,6 +10,7 @@ from unittest.mock import Mock, patch
 import pytest
 
 from linnaeus.tools.profiling.run_profiling_trials import (
+    classify_trial_status,
     modify_compose_file,
     check_docker_compose,
     extract_experiment_path,
@@ -198,7 +199,7 @@ def test_run_docker_compose_up_exit_code_and_cleanup():
 
     with patch("subprocess.run") as mock_run, patch("subprocess.Popen", return_value=dummy_process) as mock_popen:
         mock_run.return_value.returncode = 0
-        returncode, _ = run_docker_compose_up(compose_file, timeout=5)
+        returncode, _, _ = run_docker_compose_up(compose_file, timeout=5)
 
         assert returncode == 0
 
@@ -207,7 +208,12 @@ def test_run_docker_compose_up_exit_code_and_cleanup():
         assert DOCKER_SERVICE_NAME in popen_cmd
 
         cleanup_calls = [call_args[0][0] for call_args in mock_run.call_args_list if "down" in call_args[0][0]]
-        assert cleanup_calls[-1] == ["docker", "compose", "-f", str(compose_file), "down", "-v"]
+    assert cleanup_calls[-1] == ["docker", "compose", "-f", str(compose_file), "down", "-v"]
+
+
+def test_classify_trial_status_exit_code_wins_over_log_strings():
+    status = classify_trial_status(0, ["Failure condition found!", "Traceback (most recent call last): boom"])
+    assert status == "success"
 
 
 def test_smoke_runner_import():
