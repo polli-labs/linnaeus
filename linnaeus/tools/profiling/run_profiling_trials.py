@@ -62,7 +62,10 @@ logger = logging.getLogger(__name__)
 
 # Constants for log monitoring
 SUCCESS_STRING = "DEBUG: Early exiting main training loop"
-LOG_CAPTURE_LINES = 300
+# Keep a reasonably large rolling buffer so we can still discover important
+# early-log signals (e.g. output directory, autobatch final batch sizes) while
+# still bounding memory usage for long runs.
+LOG_CAPTURE_LINES = 2000
 DOCKER_SERVICE_NAME = "linnaeus-training"
 TIMEOUT_EXIT_CODE = 124
 RUNNER_ERROR_EXIT_CODE = 125
@@ -70,6 +73,159 @@ RUNNER_ERROR_EXIT_CODE = 125
 _SERVICE_EXIT_CODE_RE = re.compile(
     rf"{re.escape(DOCKER_SERVICE_NAME)}(?:-\d+)? exited with code (\d+)"
 )
+
+_OUTPUT_DIR_RE = re.compile(r"Output directory:\s+(.+)")
+_TRAIN_THROUGHPUT_RE = re.compile(
+    r"\[main\] Epoch (?P<epoch>\d+) training: (?P<samples>\d+) samples, "
+    r"(?P<seconds>\d+(?:\.\d+)?) seconds, (?P<samples_per_s>\d+(?:\.\d+)?) samples/sec"
+)
+_VRAM_EPOCH_RE = re.compile(
+    r"\[VRAM\]\[Epoch (?P<epoch>\d+) End\] Allocated: (?P<alloc_mb>\d+(?:\.\d+)?)MB "
+    r"\(max: (?P<alloc_max_mb>\d+(?:\.\d+)?)MB\), Reserved: (?P<reserved_mb>\d+(?:\.\d+)?)MB "
+    r"\(max: (?P<reserved_max_mb>\d+(?:\.\d+)?)MB\)"
+)
+_BATCH_SIZES_RE = re.compile(r"Batch sizes => Train: (?P<train>\d+), Val: (?P<val>\d+)")
+
+
+def parse_epoch_training_throughput(log_lines: list[str]) -> dict[str, dict[str, float | int]]:
+    """Parse per-epoch training throughput from log lines."""
+    out: dict[str, dict[str, float | int]] = {}
+    for line in log_lines:
+        match = _TRAIN_THROUGHPUT_RE.search(line)
+        if not match:
+            continue
+        epoch = int(match.group("epoch"))
+        samples = int(match.group("samples"))
+        seconds = float(match.group("seconds"))
+        samples_per_s = float(match.group("samples_per_s"))
+        out[str(epoch)] = {
+            "train_samples": samples,
+            "train_seconds": seconds,
+            "train_samples_per_s": samples_per_s,
+        }
+    return out
+
+
+def parse_epoch_vram(log_lines: list[str]) -> dict[str, dict[str, float]]:
+    """Parse per-epoch VRAM snapshots (allocated/reserved + peaks) from log lines."""
+    out: dict[str, dict[str, float]] = {}
+    for line in log_lines:
+        match = _VRAM_EPOCH_RE.search(line)
+        if not match:
+            continue
+        epoch = int(match.group("epoch"))
+        out[str(epoch)] = {
+            "alloc_mb": float(match.group("alloc_mb")),
+            "alloc_max_mb": float(match.group("alloc_max_mb")),
+            "reserved_mb": float(match.group("reserved_mb")),
+            "reserved_max_mb": float(match.group("reserved_max_mb")),
+        }
+    return out
+
+
+def parse_final_batch_sizes(log_lines: list[str]) -> dict[str, int] | None:
+    """Parse the last observed train/val batch sizes from log lines (e.g. autobatch)."""
+    last: dict[str, int] | None = None
+    for line in log_lines:
+        match = _BATCH_SIZES_RE.search(line)
+        if not match:
+            continue
+        last = {"train": int(match.group("train")), "val": int(match.group("val"))}
+    return last
+
+
+def _find_volume_host_path(compose_data: dict[str, Any], *, container_mount: str) -> str | None:
+    """Best-effort: locate the host path for a given container mount in compose volumes."""
+    try:
+        service = compose_data["services"][DOCKER_SERVICE_NAME]
+    except Exception:
+        return None
+
+    volumes = service.get("volumes") or []
+    for volume in volumes:
+        if not isinstance(volume, str):
+            continue
+        parts = volume.split(":")
+        if len(parts) < 2:
+            continue
+        host_path, container_path = parts[0], parts[1]
+        if container_path == container_mount:
+            return host_path
+    return None
+
+
+def resolve_experiment_path_host(compose_data: dict[str, Any], exp_path: str) -> str | None:
+    """Resolve the experiment path printed by the container into a host-accessible path.
+
+    Linnaeus configs typically use `/modelWorkshop/...` inside the container. The host
+    path varies by machine (e.g. `/datasets/modelWorkshop` on blade, or
+    `/home/caleb/data/linnaeus-dev/modelWorkshop` on worm). We derive the mapping from
+    the compose file volume mounts.
+    """
+    if not exp_path:
+        return None
+
+    # If the path already exists on host, we're done.
+    if Path(exp_path).exists():
+        return exp_path
+
+    model_workshop_host = _find_volume_host_path(compose_data, container_mount="/modelWorkshop")
+    if model_workshop_host and exp_path.startswith("/modelWorkshop"):
+        rel = exp_path[len("/modelWorkshop") :].lstrip("/")
+        return str(Path(model_workshop_host) / rel)
+
+    return None
+
+
+def _parse_metrics_from_debug_log(debug_log_path: Path) -> dict[str, Any]:
+    """Parse throughput/VRAM/batch-size signals from a Linnaeus debug log."""
+    throughput: dict[str, dict[str, float | int]] = {}
+    vram: dict[str, dict[str, float]] = {}
+    batch: dict[str, int] | None = None
+
+    try:
+        with open(debug_log_path, "r", encoding="utf-8", errors="replace") as f:
+            for raw in f:
+                line = raw.strip()
+                if not line:
+                    continue
+
+                match = _TRAIN_THROUGHPUT_RE.search(line)
+                if match:
+                    epoch = int(match.group("epoch"))
+                    throughput[str(epoch)] = {
+                        "train_samples": int(match.group("samples")),
+                        "train_seconds": float(match.group("seconds")),
+                        "train_samples_per_s": float(match.group("samples_per_s")),
+                    }
+                    continue
+
+                match = _VRAM_EPOCH_RE.search(line)
+                if match:
+                    epoch = int(match.group("epoch"))
+                    vram[str(epoch)] = {
+                        "alloc_mb": float(match.group("alloc_mb")),
+                        "alloc_max_mb": float(match.group("alloc_max_mb")),
+                        "reserved_mb": float(match.group("reserved_mb")),
+                        "reserved_max_mb": float(match.group("reserved_max_mb")),
+                    }
+                    continue
+
+                match = _BATCH_SIZES_RE.search(line)
+                if match:
+                    batch = {"train": int(match.group("train")), "val": int(match.group("val"))}
+
+    except FileNotFoundError:
+        return {}
+
+    out: dict[str, Any] = {}
+    if throughput:
+        out["throughput"] = throughput
+    if vram:
+        out["vram"] = vram
+    if batch:
+        out["batch"] = batch
+    return out
 
 
 def _extract_service_exit_code(log_lines: Optional[List[str]]) -> Optional[int]:
@@ -321,6 +477,11 @@ def run_docker_compose_up(compose_file: Path, timeout: int) -> tuple[int, deque,
         cmd = base_cmd + ["up", "--abort-on-container-exit", "--exit-code-from", DOCKER_SERVICE_NAME]
 
     log_buffer = deque(maxlen=LOG_CAPTURE_LINES)
+    # A small set of "signal" lines we want to retain independent of the rolling buffer.
+    # This started as init timing marker capture (POL-266), and now also includes:
+    # - experiment output dir discovery (needed to map /modelWorkshop -> host)
+    # - final batch sizes (autobatch)
+    # - epoch throughput / VRAM summaries (POL-270)
     init_marker_lines: list[str] = []
     process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1, universal_newlines=True)
 
@@ -343,6 +504,8 @@ def run_docker_compose_up(compose_file: Path, timeout: int) -> tuple[int, deque,
                 line = line.rstrip()
                 log_buffer.append(line)
                 if INIT_TIMING_PREFIX in line:
+                    init_marker_lines.append(line)
+                if _OUTPUT_DIR_RE.search(line) or _BATCH_SIZES_RE.search(line) or _TRAIN_THROUGHPUT_RE.search(line) or _VRAM_EPOCH_RE.search(line):
                     init_marker_lines.append(line)
                 print(line)
 
@@ -368,9 +531,8 @@ def run_docker_compose_up(compose_file: Path, timeout: int) -> tuple[int, deque,
 
 def extract_experiment_path(log_buffer: deque) -> str | None:
     """Extract the experiment output path from logs."""
-    pattern = re.compile(r"Output directory:\s+(.+)")
     for line in log_buffer:
-        match = pattern.search(line)
+        match = _OUTPUT_DIR_RE.search(line)
         if match:
             return match.group(1).strip()
     return None
@@ -482,6 +644,29 @@ def run_trials_concurrent(
             result["status"] = classify_trial_status(returncode, stdout_lines)
         else:
             result["status"] = "error"
+
+        # Attach parsed metrics (POL-270) on successful runs.
+        # In concurrent mode we rely on the per-trial compose file + captured
+        # experiment_path (from full stdout) to resolve the host log path.
+        if result.get("status") == "success":
+            exp_path_container = result.get("experiment_path")
+            compose_file = result.get("compose_file")
+            if exp_path_container and compose_file:
+                try:
+                    with open(compose_file, "r", encoding="utf-8") as f:
+                        compose_data = yaml.safe_load(f)
+                except Exception:
+                    compose_data = None
+
+                if isinstance(compose_data, dict):
+                    exp_path_host = resolve_experiment_path_host(compose_data, exp_path_container)
+                    if exp_path_host:
+                        debug_log_path = Path(exp_path_host) / "logs" / "debug_log_rank0.txt"
+                        metrics = _parse_metrics_from_debug_log(debug_log_path)
+                        if metrics:
+                            result.update(metrics)
+                            result["metrics_source"] = str(debug_log_path)
+                        result["experiment_path_host"] = exp_path_host
             
     return results
 
@@ -522,6 +707,31 @@ def run_trial(
     if init_timings:
         result["init_timings"] = init_timings
 
+    # Try to resolve experiment output path (printed by training) so we can
+    # parse stable metrics from the debug log (VRAM peaks are debug-level).
+    exp_path_container = extract_experiment_path(deque(init_marker_lines)) or extract_experiment_path(log_buffer)
+    if exp_path_container:
+        result["experiment_path"] = exp_path_container
+        exp_path_host = resolve_experiment_path_host(compose_data, exp_path_container)
+        if exp_path_host:
+            result["experiment_path_host"] = exp_path_host
+            debug_log_path = Path(exp_path_host) / "logs" / "debug_log_rank0.txt"
+            metrics = _parse_metrics_from_debug_log(debug_log_path)
+            if metrics:
+                result.update(metrics)
+                result["metrics_source"] = str(debug_log_path)
+
+    # Fallback: for templates without a host-accessible /modelWorkshop mount,
+    # parse what we can from the captured stdout signal lines.
+    if "throughput" not in result:
+        throughput = parse_epoch_training_throughput(init_marker_lines)
+        if throughput:
+            result["throughput"] = throughput
+    if "batch" not in result:
+        batch_sizes = parse_final_batch_sizes(init_marker_lines)
+        if batch_sizes:
+            result["batch"] = batch_sizes
+
     # Save logs on failure
     if status in ["failure", "error", "timeout"]:
         failure_log = output_dir / f"{trial_name}_failure.log"
@@ -531,10 +741,11 @@ def run_trial(
 
         # Try to copy debug log if requested
         if capture_debug_logs:
-            exp_path = extract_experiment_path(log_buffer)
-            if exp_path:
+            exp_path = extract_experiment_path(deque(init_marker_lines)) or extract_experiment_path(log_buffer)
+            exp_path_host = resolve_experiment_path_host(compose_data, exp_path) if exp_path else None
+            if exp_path_host:
                 debug_log_copy = output_dir / f"{trial_name}_debug_log.txt"
-                if copy_debug_log(exp_path, debug_log_copy):
+                if copy_debug_log(exp_path_host, debug_log_copy):
                     result["debug_log"] = str(debug_log_copy)
                     console.print(f"[yellow]Copied debug log to {debug_log_copy}[/yellow]")
 
