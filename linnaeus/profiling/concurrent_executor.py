@@ -26,7 +26,34 @@ logger = logging.getLogger(__name__)
 
 
 _DOCKER_SERVICE_NAME = "linnaeus-training"
-_OUTPUT_DIR_RE = re.compile(r"Output directory:\s+(.+)")
+_MODEL_CONFIG_PATH_RE = re.compile(r"Model config => (?P<path>/\S+)")
+_EXPERIMENT_CONFIG_PATH_RE = re.compile(r"Full experiment config => (?P<path>/\S+)")
+_ENV_VARS_WRITTEN_RE = re.compile(r"Environment variables written to (?P<path>/\S+)")
+
+
+def _derive_experiment_dir(path: str) -> str | None:
+    if not path:
+        return None
+    p = Path(path.strip())
+    if p.suffix == ".yaml" and p.parent.name == "configs":
+        return str(p.parent.parent)
+    if p.parent.name == "logs":
+        return str(p.parent.parent)
+    return str(p)
+
+
+def _extract_experiment_path(stdout_lines: list[str]) -> str | None:
+    for line in stdout_lines:
+        match = _MODEL_CONFIG_PATH_RE.search(line)
+        if match:
+            return _derive_experiment_dir(match.group("path"))
+        match = _EXPERIMENT_CONFIG_PATH_RE.search(line)
+        if match:
+            return _derive_experiment_dir(match.group("path"))
+        match = _ENV_VARS_WRITTEN_RE.search(line)
+        if match:
+            return _derive_experiment_dir(match.group("path"))
+    return None
 
 
 def _sanitize_identifier(value: str, *, fallback: str) -> str:
@@ -276,9 +303,7 @@ class ConcurrentTrialExecutor:
 
             experiment_path = None
             if stdout:
-                match = _OUTPUT_DIR_RE.search(stdout)
-                if match:
-                    experiment_path = match.group(1).strip()
+                experiment_path = _extract_experiment_path(stdout.splitlines())
 
             init_timings = {}
             if stdout:

@@ -74,7 +74,12 @@ _SERVICE_EXIT_CODE_RE = re.compile(
     rf"{re.escape(DOCKER_SERVICE_NAME)}(?:-\d+)? exited with code (\d+)"
 )
 
-_OUTPUT_DIR_RE = re.compile(r"Output directory:\s+(.+)")
+# Signals emitted by training that let the runner derive the experiment output
+# directory. We need this to map `/modelWorkshop/...` to a host path and then
+# parse debug-level signals (e.g. VRAM peaks) from `logs/debug_log_rank0.txt`.
+_MODEL_CONFIG_PATH_RE = re.compile(r"Model config => (?P<path>/\S+)")
+_EXPERIMENT_CONFIG_PATH_RE = re.compile(r"Full experiment config => (?P<path>/\S+)")
+_ENV_VARS_WRITTEN_RE = re.compile(r"Environment variables written to (?P<path>/\S+)")
 _TRAIN_THROUGHPUT_RE = re.compile(
     r"\[main\] Epoch (?P<epoch>\d+) training: (?P<samples>\d+) samples, "
     r"(?P<seconds>\d+(?:\.\d+)?) seconds, (?P<samples_per_s>\d+(?:\.\d+)?) samples/sec"
@@ -505,7 +510,14 @@ def run_docker_compose_up(compose_file: Path, timeout: int) -> tuple[int, deque,
                 log_buffer.append(line)
                 if INIT_TIMING_PREFIX in line:
                     init_marker_lines.append(line)
-                if _OUTPUT_DIR_RE.search(line) or _BATCH_SIZES_RE.search(line) or _TRAIN_THROUGHPUT_RE.search(line) or _VRAM_EPOCH_RE.search(line):
+                if (
+                    _MODEL_CONFIG_PATH_RE.search(line)
+                    or _EXPERIMENT_CONFIG_PATH_RE.search(line)
+                    or _ENV_VARS_WRITTEN_RE.search(line)
+                    or _BATCH_SIZES_RE.search(line)
+                    or _TRAIN_THROUGHPUT_RE.search(line)
+                    or _VRAM_EPOCH_RE.search(line)
+                ):
                     init_marker_lines.append(line)
                 print(line)
 
@@ -529,12 +541,46 @@ def run_docker_compose_up(compose_file: Path, timeout: int) -> tuple[int, deque,
         subprocess.run(cleanup_cmd, capture_output=True)
 
 
-def extract_experiment_path(log_buffer: deque) -> str | None:
-    """Extract the experiment output path from logs."""
+def _derive_experiment_dir(path: str) -> str | None:
+    """Derive the experiment base directory from a file or directory path."""
+    if not path:
+        return None
+
+    p = Path(path.strip())
+
+    # Common file hints:
+    # - .../configs/model_config.yaml
+    # - .../configs/experiment_config.yaml
+    if p.suffix == ".yaml" and p.parent.name == "configs":
+        return str(p.parent.parent)
+
+    # - .../logs/ENV_VARS.txt / env_vars.txt / debug_log_rank0.txt
+    if p.parent.name == "logs":
+        return str(p.parent.parent)
+
+    # If the hint is already an experiment directory, return as-is.
+    return str(p)
+
+
+def extract_experiment_path(log_buffer: deque | list[str]) -> str | None:
+    """Extract the experiment output path from logs.
+
+    We intentionally do NOT key off the profiling runner's own "Output directory"
+    banner (that's the runner output dir, not the training experiment dir).
+    """
     for line in log_buffer:
-        match = _OUTPUT_DIR_RE.search(line)
+        match = _MODEL_CONFIG_PATH_RE.search(line)
         if match:
-            return match.group(1).strip()
+            return _derive_experiment_dir(match.group("path"))
+
+        match = _EXPERIMENT_CONFIG_PATH_RE.search(line)
+        if match:
+            return _derive_experiment_dir(match.group("path"))
+
+        match = _ENV_VARS_WRITTEN_RE.search(line)
+        if match:
+            return _derive_experiment_dir(match.group("path"))
+
     return None
 
 

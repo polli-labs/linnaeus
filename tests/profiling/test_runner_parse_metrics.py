@@ -85,7 +85,7 @@ def test_run_trial_attaches_metrics_from_debug_log(tmp_path, monkeypatch):
 
     def fake_run(_compose_file: Path, timeout: int):
         assert timeout == 1
-        log_buffer = deque([f"Output directory: /modelWorkshop/{exp_rel}"])
+        log_buffer = deque([f"Model config => /modelWorkshop/{exp_rel}/configs/model_config.yaml"])
         return 0, log_buffer, []
 
     monkeypatch.setattr(rpt, "run_docker_compose_up", fake_run)

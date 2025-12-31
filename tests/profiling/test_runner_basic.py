@@ -109,12 +109,12 @@ def test_extract_experiment_path():
     log_buffer = deque([
         "Starting training...",
         "Loading config...",
-        "Output directory: /datasets/experiments/test_run_20241201",
+        "Model config => /modelWorkshop/mFormerV1/linnaeus-dev/group/name/configs/model_config.yaml",
         "Model loaded successfully",
     ])
     
     exp_path = extract_experiment_path(log_buffer)
-    assert exp_path == "/datasets/experiments/test_run_20241201"
+    assert exp_path == "/modelWorkshop/mFormerV1/linnaeus-dev/group/name"
 
 
 def test_extract_experiment_path_not_found():
