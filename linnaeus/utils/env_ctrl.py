@@ -46,6 +46,11 @@ LINNAEUS_SAFE_DEFAULT_ENV = {
     "NCCL_TOPO_DUMP_FILE": "/tmp/nccl_graph.xml",
     # Torch >=2.0 expects OFF|INFO|DETAIL (invalid values can break torch import)
     "TORCH_DISTRIBUTED_DEBUG": "OFF",
+    # Some libraries (notably torch.compile/inductor via Python getpass) will attempt to resolve the
+    # username for cache paths. In containers we often run as uid=1000 without an /etc/passwd entry,
+    # which can crash `getpass.getuser()` (falls back to pwd.getpwuid). Setting these avoids that.
+    "USER": "linnaeus",
+    "LOGNAME": "linnaeus",
 }
 
 # High-end defaults for DGX H100
@@ -78,6 +83,9 @@ LINNAEUS_DGX_H100_ENV = {
     # Optional debug flags
     "TORCH_DISTRIBUTED_DEBUG": "DETAIL",
     "NCCL_TOPO_DUMP_FILE": "/tmp/nccl_dgx_h100.xml",
+    # See note in LINNAEUS_SAFE_DEFAULT_ENV about container uid lookups.
+    "USER": "linnaeus",
+    "LOGNAME": "linnaeus",
 }
 
 # Multi-GPU workstation defaults (between safe and DGX)

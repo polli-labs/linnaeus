@@ -84,9 +84,10 @@ class GPUAugmentationPipeline(AugmentationPipeline):
             else:
                 logger.error(f"Unexpected error during torch.compile: {e}. Falling back to eager mode.")
 
-            # Disable compilation flag to prevent retry attempts
-            config.AUG.GPU_COMPILE.ENABLED = False
-            logger.info("Disabled GPU_COMPILE.ENABLED flag to prevent further compilation attempts")
+            # Important: config is typically a frozen YACS CfgNode at runtime; mutating it here can crash
+            # (e.g., `AttributeError: CfgNode is immutable`). Treat config as read-only and fall back to
+            # eager execution for this run.
+            logger.info("Proceeding with eager Kornia pipeline (GPU_COMPILE requested but compilation failed).")
             return pipeline
 
     def _create_kornia_pipeline(self) -> K.AugmentationSequential:
