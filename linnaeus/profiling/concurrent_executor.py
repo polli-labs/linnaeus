@@ -97,8 +97,10 @@ def _make_compose_project_name(*, trial_name: str, gpu_id: int) -> str:
 def _normalize_environment_for_gpu(environment: Any, *, gpu_id: int) -> Any:
     """
     Normalize a docker-compose service 'environment' entry to ensure:
-    - exactly one CUDA_VISIBLE_DEVICES=<gpu_id>
-    - if NVIDIA_VISIBLE_DEVICES is already present, update it to match
+    - exactly one CUDA_VISIBLE_DEVICES entry that is compatible with single-GPU
+      containers launched via NVIDIA_VISIBLE_DEVICES pinning
+    - if NVIDIA_VISIBLE_DEVICES is already present, update it to match the
+      requested host GPU id
     - supports list[str] and dict[str, str] representations
     """
     if environment is None:
@@ -106,9 +108,15 @@ def _normalize_environment_for_gpu(environment: Any, *, gpu_id: int) -> Any:
 
     if isinstance(environment, dict):
         env_dict = dict(environment)
-        env_dict["CUDA_VISIBLE_DEVICES"] = str(gpu_id)
         if "NVIDIA_VISIBLE_DEVICES" in env_dict:
+            # When NVIDIA_VISIBLE_DEVICES pins a single host GPU, that GPU is
+            # exposed as device 0 inside the container. Setting
+            # CUDA_VISIBLE_DEVICES=<host id> (e.g., 1) would hide the only
+            # device and make torch/triton think there are zero GPUs.
             env_dict["NVIDIA_VISIBLE_DEVICES"] = str(gpu_id)
+            env_dict["CUDA_VISIBLE_DEVICES"] = "0"
+        else:
+            env_dict["CUDA_VISIBLE_DEVICES"] = str(gpu_id)
         return env_dict
 
     if isinstance(environment, list):
@@ -122,9 +130,11 @@ def _normalize_environment_for_gpu(environment: Any, *, gpu_id: int) -> Any:
                 continue
             cleaned.append(item)
 
-        cleaned.append(f"CUDA_VISIBLE_DEVICES={gpu_id}")
         if saw_nvidia:
+            cleaned.append("CUDA_VISIBLE_DEVICES=0")
             cleaned.append(f"NVIDIA_VISIBLE_DEVICES={gpu_id}")
+        else:
+            cleaned.append(f"CUDA_VISIBLE_DEVICES={gpu_id}")
         return cleaned
 
     # Unknown type: coerce to list and apply conservatively.
