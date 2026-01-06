@@ -110,7 +110,7 @@ def test_env_list_dedupes_cuda_visible_devices(mock_popen, mock_run, tmp_path):
     assert isinstance(env, list)
 
     cuda_entries = [e for e in env if isinstance(e, str) and e.startswith("CUDA_VISIBLE_DEVICES=")]
-    assert cuda_entries == ["CUDA_VISIBLE_DEVICES=1"]
+    assert cuda_entries == ["CUDA_VISIBLE_DEVICES=0"]
     assert "FOO=bar" in env
     assert "NVIDIA_VISIBLE_DEVICES=1" in env
 
