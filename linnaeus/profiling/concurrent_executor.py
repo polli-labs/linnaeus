@@ -386,13 +386,10 @@ class ConcurrentTrialExecutor:
             # docker compose cleanup (best-effort), using the same project name + compose file used for 'up'.
             if compose_project_name and compose_path and compose_path.exists():
                 self._cleanup_docker(compose_project_name, compose_path)
-
-                # Keep compose file on failures for debugging; remove it on success.
-                if result and result.get("status") == "completed" and result.get("returncode") == 0:
-                    try:
-                        compose_path.unlink()
-                    except Exception:
-                        pass
+                # Intentionally keep the per-trial compose file. The top-level
+                # profiling runner uses it to resolve host volume mappings (e.g.
+                # /modelWorkshop -> /datasets/modelWorkshop) and then parse
+                # throughput/VRAM/batch size signals from debug logs.
             
         if result is None:
             return {

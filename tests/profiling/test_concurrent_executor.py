@@ -55,6 +55,8 @@ def test_unique_compose_project_names_and_cleanup_match(mock_popen, mock_run, tm
 
     compose_a = up_cmd_a[up_cmd_a.index("-f") + 1]
     compose_b = up_cmd_b[up_cmd_b.index("-f") + 1]
+    assert Path(compose_a).exists()
+    assert Path(compose_b).exists()
 
     assert mock_run.call_count == 2
     down_cmd_a = mock_run.call_args_list[0][0][0]
