@@ -89,7 +89,13 @@ _VRAM_EPOCH_RE = re.compile(
     r"\(max: (?P<alloc_max_mb>\d+(?:\.\d+)?)MB\), Reserved: (?P<reserved_mb>\d+(?:\.\d+)?)MB "
     r"\(max: (?P<reserved_max_mb>\d+(?:\.\d+)?)MB\)"
 )
-_BATCH_SIZES_RE = re.compile(r"Batch sizes => Train: (?P<train>\d+), Val: (?P<val>\d+)")
+# Batch-size signals appear in multiple formats depending on where the message
+# originates (stdout vs debug_log) and which training codepath is active.
+_BATCH_SIZES_TRAIN_VAL_RE = re.compile(r"Batch sizes => Train: (?P<train>\d+), Val: (?P<val>\d+)")
+_BATCH_SIZE_PER_GPU_RE = re.compile(r"Batch size: (?P<train>\d+) per GPU")
+_STARTING_TRAINING_BATCH_RE = re.compile(r"Starting training with per-GPU batch_size=(?P<train>\d+)")
+_REFERENCE_BATCH_SIZE_RE = re.compile(r"Reference Batch Size: (?P<val>\d+)")
+_LR_SCALING_REF_BATCH_SIZE_RE = re.compile(r"Reference batch size: (?P<val>\d+)", re.IGNORECASE)
 
 
 def parse_epoch_training_throughput(log_lines: list[str]) -> dict[str, dict[str, float | int]]:
@@ -129,14 +135,43 @@ def parse_epoch_vram(log_lines: list[str]) -> dict[str, dict[str, float]]:
 
 
 def parse_final_batch_sizes(log_lines: list[str]) -> dict[str, int] | None:
-    """Parse the last observed train/val batch sizes from log lines (e.g. autobatch)."""
-    last: dict[str, int] | None = None
+    """Parse the last observed train/val batch sizes from log lines.
+
+    Notes:
+    - The most explicit signal is `Batch sizes => Train: X, Val: Y`.
+    - In some logs (notably debug_log_rank0.txt) train and reference batch sizes are
+      emitted as separate lines:
+        - `Batch size: X per GPU`
+        - `Reference Batch Size: Y`
+    """
+    train: int | None = None
+    val: int | None = None
     for line in log_lines:
-        match = _BATCH_SIZES_RE.search(line)
-        if not match:
+        match = _BATCH_SIZES_TRAIN_VAL_RE.search(line)
+        if match:
+            train = int(match.group("train"))
+            val = int(match.group("val"))
             continue
-        last = {"train": int(match.group("train")), "val": int(match.group("val"))}
-    return last
+
+        match = _BATCH_SIZE_PER_GPU_RE.search(line) or _STARTING_TRAINING_BATCH_RE.search(line)
+        if match:
+            train = int(match.group("train"))
+            continue
+
+        match = _REFERENCE_BATCH_SIZE_RE.search(line) or _LR_SCALING_REF_BATCH_SIZE_RE.search(line)
+        if match:
+            val = int(match.group("val"))
+            continue
+
+    if train is None and val is None:
+        return None
+
+    out: dict[str, int] = {}
+    if train is not None:
+        out["train"] = train
+    if val is not None:
+        out["val"] = val
+    return out or None
 
 
 def _find_volume_host_path(compose_data: dict[str, Any], *, container_mount: str) -> str | None:
@@ -186,7 +221,7 @@ def _parse_metrics_from_debug_log(debug_log_path: Path) -> dict[str, Any]:
     """Parse throughput/VRAM/batch-size signals from a Linnaeus debug log."""
     throughput: dict[str, dict[str, float | int]] = {}
     vram: dict[str, dict[str, float]] = {}
-    batch: dict[str, int] | None = None
+    batch: dict[str, int] = {}
 
     try:
         with open(debug_log_path, "r", encoding="utf-8", errors="replace") as f:
@@ -216,9 +251,20 @@ def _parse_metrics_from_debug_log(debug_log_path: Path) -> dict[str, Any]:
                     }
                     continue
 
-                match = _BATCH_SIZES_RE.search(line)
+                match = _BATCH_SIZES_TRAIN_VAL_RE.search(line)
                 if match:
-                    batch = {"train": int(match.group("train")), "val": int(match.group("val"))}
+                    batch["train"] = int(match.group("train"))
+                    batch["val"] = int(match.group("val"))
+                    continue
+
+                match = _BATCH_SIZE_PER_GPU_RE.search(line) or _STARTING_TRAINING_BATCH_RE.search(line)
+                if match:
+                    batch["train"] = int(match.group("train"))
+                    continue
+
+                match = _REFERENCE_BATCH_SIZE_RE.search(line) or _LR_SCALING_REF_BATCH_SIZE_RE.search(line)
+                if match:
+                    batch["val"] = int(match.group("val"))
 
     except FileNotFoundError:
         return {}
