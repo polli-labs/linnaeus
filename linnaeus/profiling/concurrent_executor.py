@@ -375,10 +375,6 @@ class ConcurrentTrialExecutor:
             }
             
         finally:
-            # Release GPU if we acquired it
-            if acquired_gpu:
-                self.gpu_pool.release_gpu(gpu_id)
-                
             # Clean up active trial tracking
             if trial_name in self.active_trials:
                 del self.active_trials[trial_name]
@@ -390,6 +386,11 @@ class ConcurrentTrialExecutor:
                 # profiling runner uses it to resolve host volume mappings (e.g.
                 # /modelWorkshop -> /datasets/modelWorkshop) and then parse
                 # throughput/VRAM/batch size signals from debug logs.
+
+            # Release GPU back to the pool *after* docker cleanup so a newly
+            # scheduled trial can't overlap with a still-tearing-down container.
+            if acquired_gpu:
+                self.gpu_pool.release_gpu(gpu_id)
             
         if result is None:
             return {

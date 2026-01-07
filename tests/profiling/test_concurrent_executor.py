@@ -205,6 +205,36 @@ def test_template_not_mutated_and_gpu_rank_passed_to_modifier(mock_popen, mock_r
 
 @patch("linnaeus.profiling.concurrent_executor.subprocess.run")
 @patch("linnaeus.profiling.concurrent_executor.subprocess.Popen")
+def test_gpu_released_after_docker_cleanup(mock_popen, mock_run, tmp_path):
+    process = Mock()
+    process.communicate.return_value = ("ok", "")
+    process.returncode = 0
+    mock_popen.return_value = process
+    mock_run.return_value = Mock(returncode=0)
+
+    executor = _make_executor()
+
+    calls: list[str] = []
+    executor._cleanup_docker = Mock(side_effect=lambda *args, **kwargs: calls.append("cleanup"))
+    executor.gpu_pool.acquire_gpu = Mock(return_value=1)
+    executor.gpu_pool.release_gpu = Mock(side_effect=lambda *args, **kwargs: calls.append("release"))
+
+    template_data = {"services": {"linnaeus-training": {"environment": ["NVIDIA_VISIBLE_DEVICES=all"]}}}
+
+    result = executor.run_trial_on_gpu(
+        {"name": "order_trial", "config_file": "/configs/x.yaml"},
+        template_data,
+        str(tmp_path),
+        timeout=5,
+        gpu_id=None,
+    )
+
+    assert result["status"] == "completed"
+    assert calls == ["cleanup", "release"]
+
+
+@patch("linnaeus.profiling.concurrent_executor.subprocess.run")
+@patch("linnaeus.profiling.concurrent_executor.subprocess.Popen")
 def test_compose_path_is_absolute_when_output_dir_is_relative(mock_popen, mock_run, tmp_path, monkeypatch):
     """Regression: don't pass a relative -f path while also chdir'ing into output_dir."""
     process = Mock()
