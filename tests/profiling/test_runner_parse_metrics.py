@@ -46,6 +46,18 @@ def test_parse_final_batch_sizes_returns_last():
     assert parsed == {"train": 96, "val": 1024}
 
 
+def test_parse_final_batch_sizes_supports_split_batch_lines():
+    lines = [
+        "noise",
+        "  - Reference Batch Size: 512",
+        "Starting training with per-GPU batch_size=64",
+        "Batch size: 64 per GPU",
+    ]
+
+    parsed = rpt.parse_final_batch_sizes(lines)
+    assert parsed == {"train": 64, "val": 512}
+
+
 def test_resolve_experiment_path_host_maps_modelworkshop(tmp_path):
     host_mw = tmp_path / "modelWorkshop"
     host_mw.mkdir()
@@ -111,3 +123,47 @@ def test_run_trial_attaches_metrics_from_debug_log(tmp_path, monkeypatch):
     assert result["vram"]["0"]["reserved_max_mb"] == pytest.approx(5824.0)
     assert result["batch"] == {"train": 96, "val": 512}
     assert result["metrics_source"].endswith("debug_log_rank0.txt")
+
+
+def test_run_trial_attaches_metrics_from_debug_log_supports_split_batch_lines(tmp_path, monkeypatch):
+    host_mw = tmp_path / "modelWorkshop"
+    exp_rel = "mFormerV1/linnaeus-dev/pol258_split_batch/v040_trial"
+    exp_host = host_mw / exp_rel
+    logs_dir = exp_host / "logs"
+    logs_dir.mkdir(parents=True)
+
+    debug_log = logs_dir / "debug_log_rank0.txt"
+    debug_log.write_text(
+        "\n".join(
+            [
+                "[VRAM][Epoch 0 End] Allocated: 517.65MB (max: 5643.13MB), Reserved: 5338.00MB (max: 5824.00MB)",
+                "[main] Epoch 0 training: 9744 samples, 125.99 seconds, 77.34 samples/sec",
+                "  - Reference Batch Size: 512",
+                "Batch size: 64 per GPU",
+            ]
+        )
+        + "\n"
+    )
+
+    def fake_run(_compose_file: Path, timeout: int):
+        assert timeout == 1
+        log_buffer = deque([f"Model config => /modelWorkshop/{exp_rel}/configs/model_config.yaml"])
+        return 0, log_buffer, []
+
+    monkeypatch.setattr(rpt, "run_docker_compose_up", fake_run)
+
+    template_data = {
+        "services": {
+            rpt.DOCKER_SERVICE_NAME: {
+                "image": "linnaeus:test",
+                "volumes": [f"{host_mw}:/modelWorkshop:rw"],
+                "command": "echo ok",
+            }
+        }
+    }
+
+    trial = {"name": "trial1", "config_file": "/configs/template.yaml"}
+    result = rpt.run_trial(trial, template_data, tmp_path, timeout=1, capture_debug_logs=False)
+
+    assert result["status"] == "success"
+    assert result["batch"] == {"train": 64, "val": 512}
