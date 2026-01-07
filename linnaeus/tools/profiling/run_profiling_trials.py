@@ -560,7 +560,11 @@ def run_docker_compose_up(compose_file: Path, timeout: int) -> tuple[int, deque,
                     _MODEL_CONFIG_PATH_RE.search(line)
                     or _EXPERIMENT_CONFIG_PATH_RE.search(line)
                     or _ENV_VARS_WRITTEN_RE.search(line)
-                    or _BATCH_SIZES_RE.search(line)
+                    or _BATCH_SIZES_TRAIN_VAL_RE.search(line)
+                    or _BATCH_SIZE_PER_GPU_RE.search(line)
+                    or _STARTING_TRAINING_BATCH_RE.search(line)
+                    or _REFERENCE_BATCH_SIZE_RE.search(line)
+                    or _LR_SCALING_REF_BATCH_SIZE_RE.search(line)
                     or _TRAIN_THROUGHPUT_RE.search(line)
                     or _VRAM_EPOCH_RE.search(line)
                 ):
