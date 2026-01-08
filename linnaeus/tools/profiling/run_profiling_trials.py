@@ -140,13 +140,13 @@ _REFERENCE_BATCH_SIZE_RE = re.compile(r"Reference Batch Size: (?P<val>\d+)")
 _LR_SCALING_REF_BATCH_SIZE_RE = re.compile(r"Reference batch size: (?P<val>\d+)", re.IGNORECASE)
 
 # PrefetchingHybridDataset monitor lines include steady-state pipeline health signals like
-# queue depths, cache hit %, IO/handoff throughput and wait times. These show up in
-# debug_log_rank0.txt and are safe to parse without enabling torch.profiler.
+# queue depths, cache hit %, IO/handoff throughput and wait times. These are emitted to
+# stdout/stderr (docker compose logs) and are safe to parse without enabling torch.profiler.
 _ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-9;]*m")
 _PREFETCH_MONITOR_RANK_RE = re.compile(r"Monitor \[Rank (?P<rank>\d+)\]")
 _PREFETCH_Q_DEPTH_RE = re.compile(r"Q\(B/P/R\): (?P<batch>\d+)/(?P<preproc>\d+)/(?P<processed>\d+)")
 _PREFETCH_CACHE_RE = re.compile(
-    r"Cache\(H/M/E\): (?P<hit>\d+(?:\.\d+)?)%/(?P<miss>\d+(?:\.\d+)?)%/(?P<evict>\d+)"
+    r"Cache\(H/M/E\): (?P<hit>\d+(?:\.\d+)?)%/(?P<miss>\d+(?:\.\d+)?)%/(?P<evict>\d+(?:\.\d+)?)%?"
 )
 _PREFETCH_TPUT_RE = re.compile(r"Tput\(IO/H\): (?P<io>\d+(?:\.\d+)?)/(?P<handoff>\d+(?:\.\d+)?) it/s")
 _PREFETCH_WAIT_RE = re.compile(r"Wait\(Main/Pre/IO\): (?P<main>\d+(?:\.\d+)?)/(?P<pre>\d+(?:\.\d+)?)/(?P<io>\d+(?:\.\d+)?) ms/s")
