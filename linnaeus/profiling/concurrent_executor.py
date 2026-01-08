@@ -141,6 +141,42 @@ def _normalize_environment_for_gpu(environment: Any, *, gpu_id: int) -> Any:
     return [f"CUDA_VISIBLE_DEVICES={gpu_id}"]
 
 
+def _pin_service_to_single_gpu(service: Dict[str, Any], *, gpu_id: int) -> None:
+    """
+    Pin the docker-compose service to a specific host GPU id by setting
+    `deploy.resources.reservations.devices[].device_ids = ["<gpu_id>"]` and
+    removing `count` (they are mutually exclusive).
+
+    On some docker-compose setups, relying on `NVIDIA_VISIBLE_DEVICES` alone is
+    not sufficient to select the desired host GPU when the template uses a
+    single-GPU reservation (e.g., `count: 1`). Without `device_ids`, compose may
+    always pick GPU0, causing "GPU1" trials to accidentally run on GPU0 and
+    collide/oom under concurrency.
+    """
+    deploy = service.get("deploy")
+    if not isinstance(deploy, dict):
+        return
+    resources = deploy.get("resources")
+    if not isinstance(resources, dict):
+        return
+    reservations = resources.get("reservations")
+    if not isinstance(reservations, dict):
+        return
+    devices = reservations.get("devices")
+    if not isinstance(devices, list):
+        return
+
+    for device in devices:
+        if not isinstance(device, dict):
+            continue
+        capabilities = device.get("capabilities")
+        has_gpu_cap = isinstance(capabilities, list) and "gpu" in capabilities
+        if device.get("driver") == "nvidia" or has_gpu_cap:
+            device.pop("count", None)
+            device["device_ids"] = [str(gpu_id)]
+            return
+
+
 class ConcurrentTrialExecutor:
     """
     Executes profiling trials concurrently across multiple GPUs.
@@ -260,6 +296,7 @@ class ConcurrentTrialExecutor:
                 service.get("environment"),
                 gpu_id=gpu_id,
             )
+            _pin_service_to_single_gpu(service, gpu_id=gpu_id)
 
             # Write compose file to per-trial output dir so cleanup can always target the right project.
             compose_path = trial_output_dir / f"docker-compose.{compose_project_name}.yml"

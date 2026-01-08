@@ -393,6 +393,41 @@ def modify_compose_file(template_data: dict[str, Any], trial: dict[str, Any], ou
     env_yaml = trial.get("env_yaml")
     env_overrides = trial.get("env", {})
 
+    def _pin_service_to_single_gpu(*, gpu_id: int) -> bool:
+        """
+        Pin docker-compose GPU selection to a specific host GPU id by writing
+        `device_ids: ["<gpu_id>"]` and removing `count` (they are mutually exclusive).
+
+        Why this exists:
+        - On some docker-compose setups, `deploy.resources.reservations.devices.count: 1`
+          will always pick GPU0 unless we specify `device_ids`.
+        - Merely setting `NVIDIA_VISIBLE_DEVICES=<idx>` is not sufficient to select
+          the desired host GPU in those environments.
+        """
+        deploy = service.get("deploy")
+        if not isinstance(deploy, dict):
+            return False
+        resources = deploy.get("resources")
+        if not isinstance(resources, dict):
+            return False
+        reservations = resources.get("reservations")
+        if not isinstance(reservations, dict):
+            return False
+        devices = reservations.get("devices")
+        if not isinstance(devices, list) or not devices:
+            return False
+
+        for device in devices:
+            if not isinstance(device, dict):
+                continue
+            capabilities = device.get("capabilities")
+            has_gpu_cap = isinstance(capabilities, list) and "gpu" in capabilities
+            if device.get("driver") == "nvidia" or has_gpu_cap:
+                device.pop("count", None)  # "count" and "device_ids" are exclusive
+                device["device_ids"] = [str(gpu_id)]
+                return True
+        return False
+
     # Normalize GPU selection.
     #
     # Why:
@@ -407,6 +442,12 @@ def modify_compose_file(template_data: dict[str, Any], trial: dict[str, Any], ou
     # - If a trial provides `CUDA_VISIBLE_DEVICES` as a single integer and does NOT
     #   set `NVIDIA_VISIBLE_DEVICES`, interpret it as the *host* GPU index and
     #   convert to `NVIDIA_VISIBLE_DEVICES=<idx>` + `CUDA_VISIBLE_DEVICES=0`.
+    requested_gpu_id: int | None = None
+
+    gpu_rank = trial.get("gpu_rank")
+    if gpu_rank is not None and str(gpu_rank).strip().isdigit():
+        requested_gpu_id = int(str(gpu_rank).strip())
+
     if env_overrides:
         cuda_visible_devices = env_overrides.get("CUDA_VISIBLE_DEVICES")
         if (
@@ -415,12 +456,35 @@ def modify_compose_file(template_data: dict[str, Any], trial: dict[str, Any], ou
             and str(cuda_visible_devices).strip().isdigit()
         ):
             gpu_idx = str(cuda_visible_devices).strip()
+            requested_gpu_id = int(gpu_idx)
             env_overrides = dict(env_overrides)
             env_overrides["NVIDIA_VISIBLE_DEVICES"] = gpu_idx
             env_overrides["CUDA_VISIBLE_DEVICES"] = "0"
             console.print(
                 f"[blue]Normalized GPU env: CUDA_VISIBLE_DEVICES={gpu_idx} -> "
                 f"NVIDIA_VISIBLE_DEVICES={gpu_idx}, CUDA_VISIBLE_DEVICES=0[/blue]"
+            )
+        else:
+            nvidia_visible_devices = env_overrides.get("NVIDIA_VISIBLE_DEVICES")
+            if (
+                requested_gpu_id is None
+                and nvidia_visible_devices is not None
+                and str(nvidia_visible_devices).strip().isdigit()
+            ):
+                requested_gpu_id = int(str(nvidia_visible_devices).strip())
+                env_overrides = dict(env_overrides)
+                env_overrides.setdefault("CUDA_VISIBLE_DEVICES", "0")
+
+    if requested_gpu_id is not None:
+        env_overrides = dict(env_overrides)
+        env_overrides.setdefault("NVIDIA_VISIBLE_DEVICES", str(requested_gpu_id))
+        env_overrides.setdefault("CUDA_VISIBLE_DEVICES", "0")
+        if _pin_service_to_single_gpu(gpu_id=requested_gpu_id):
+            console.print(f"[blue]Pinned compose GPU device_ids=[{requested_gpu_id}][/blue]")
+        else:
+            console.print(
+                f"[yellow]Warning: could not pin compose GPU device_ids for gpu_id={requested_gpu_id} "
+                "(missing deploy.resources.reservations.devices?)[/yellow]"
             )
 
     # Build commit reset command if hash is provided

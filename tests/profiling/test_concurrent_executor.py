@@ -90,7 +90,16 @@ def test_env_list_dedupes_cuda_visible_devices(mock_popen, mock_run, tmp_path):
                     "FOO=bar",
                     "CUDA_VISIBLE_DEVICES=1",
                     "NVIDIA_VISIBLE_DEVICES=all",
-                ]
+                ],
+                "deploy": {
+                    "resources": {
+                        "reservations": {
+                            "devices": [
+                                {"driver": "nvidia", "count": 1, "capabilities": ["gpu"]},
+                            ]
+                        }
+                    }
+                },
             }
         }
     }
@@ -116,6 +125,10 @@ def test_env_list_dedupes_cuda_visible_devices(mock_popen, mock_run, tmp_path):
     assert "FOO=bar" in env
     assert "NVIDIA_VISIBLE_DEVICES=1" in env
 
+    devices = compose["services"]["linnaeus-training"]["deploy"]["resources"]["reservations"]["devices"]
+    assert devices[0]["device_ids"] == ["1"]
+    assert "count" not in devices[0]
+
 
 @patch("linnaeus.profiling.concurrent_executor.subprocess.run")
 @patch("linnaeus.profiling.concurrent_executor.subprocess.Popen")
@@ -134,7 +147,16 @@ def test_env_dict_sets_cuda_visible_devices(mock_popen, mock_run, tmp_path):
                     "FOO": "bar",
                     "CUDA_VISIBLE_DEVICES": "0",
                     "NVIDIA_VISIBLE_DEVICES": "all",
-                }
+                },
+                "deploy": {
+                    "resources": {
+                        "reservations": {
+                            "devices": [
+                                {"driver": "nvidia", "count": 1, "capabilities": ["gpu"]},
+                            ]
+                        }
+                    }
+                },
             }
         }
     }
@@ -157,6 +179,10 @@ def test_env_dict_sets_cuda_visible_devices(mock_popen, mock_run, tmp_path):
     assert env["CUDA_VISIBLE_DEVICES"] == "0"
     assert env["NVIDIA_VISIBLE_DEVICES"] == "0"
     assert env["FOO"] == "bar"
+
+    devices = compose["services"]["linnaeus-training"]["deploy"]["resources"]["reservations"]["devices"]
+    assert devices[0]["device_ids"] == ["0"]
+    assert "count" not in devices[0]
 
 
 @patch("linnaeus.profiling.concurrent_executor.subprocess.run")
