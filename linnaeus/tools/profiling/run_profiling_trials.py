@@ -146,7 +146,7 @@ _ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-9;]*m")
 _PREFETCH_MONITOR_RANK_RE = re.compile(r"Monitor \[Rank (?P<rank>\d+)\]")
 _PREFETCH_Q_DEPTH_RE = re.compile(r"Q\(B/P/R\): (?P<batch>\d+)/(?P<preproc>\d+)/(?P<processed>\d+)")
 _PREFETCH_CACHE_RE = re.compile(
-    r"Cache\(H/M/E\): (?P<hit>\d+(?:\.\d+)?)%/(?P<miss>\d+(?:\.\d+)?)%/(?P<evict>\d+(?:\.\d+)?)%?"
+    r"Cache\(H/M/E\): (?P<hit>\d+(?:\.\d+)?)%/(?P<miss>\d+(?:\.\d+)?)%/(?P<evict>\d+)"
 )
 _PREFETCH_TPUT_RE = re.compile(r"Tput\(IO/H\): (?P<io>\d+(?:\.\d+)?)/(?P<handoff>\d+(?:\.\d+)?) it/s")
 _PREFETCH_WAIT_RE = re.compile(r"Wait\(Main/Pre/IO\): (?P<main>\d+(?:\.\d+)?)/(?P<pre>\d+(?:\.\d+)?)/(?P<io>\d+(?:\.\d+)?) ms/s")
