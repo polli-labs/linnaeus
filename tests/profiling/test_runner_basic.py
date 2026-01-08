@@ -109,6 +109,15 @@ def test_modify_compose_file_normalizes_single_gpu_cuda_visible_devices():
             "linnaeus-training": {
                 "image": "linnaeus:test",
                 "command": "python -m linnaeus.main --cfg {{CONFIG_FILE}}",
+                "deploy": {
+                    "resources": {
+                        "reservations": {
+                            "devices": [
+                                {"driver": "nvidia", "count": 1, "capabilities": ["gpu"]},
+                            ]
+                        }
+                    }
+                },
             }
         }
     }
@@ -125,6 +134,11 @@ def test_modify_compose_file_normalizes_single_gpu_cuda_visible_devices():
     env_vars = service["environment"]
     assert "NVIDIA_VISIBLE_DEVICES=1" in env_vars
     assert "CUDA_VISIBLE_DEVICES=0" in env_vars
+
+    # Also pin the docker compose GPU selection (count/device_ids are exclusive).
+    devices = service["deploy"]["resources"]["reservations"]["devices"]
+    assert devices[0]["device_ids"] == ["1"]
+    assert "count" not in devices[0]
 
 
 def test_extract_experiment_path():
