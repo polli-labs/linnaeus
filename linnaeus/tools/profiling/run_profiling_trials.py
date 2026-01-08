@@ -15,10 +15,11 @@ import os
 import re
 import shlex
 import shutil
+import statistics
 import subprocess
 import sys
 import time
-from collections import OrderedDict, deque
+from collections import OrderedDict, defaultdict, deque
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -138,6 +139,24 @@ _STARTING_TRAINING_BATCH_RE = re.compile(r"Starting training with per-GPU batch_
 _REFERENCE_BATCH_SIZE_RE = re.compile(r"Reference Batch Size: (?P<val>\d+)")
 _LR_SCALING_REF_BATCH_SIZE_RE = re.compile(r"Reference batch size: (?P<val>\d+)", re.IGNORECASE)
 
+# PrefetchingHybridDataset monitor lines include steady-state pipeline health signals like
+# queue depths, cache hit %, IO/handoff throughput and wait times. These show up in
+# debug_log_rank0.txt and are safe to parse without enabling torch.profiler.
+_ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-9;]*m")
+_PREFETCH_MONITOR_RANK_RE = re.compile(r"Monitor \[Rank (?P<rank>\d+)\]")
+_PREFETCH_Q_DEPTH_RE = re.compile(r"Q\(B/P/R\): (?P<batch>\d+)/(?P<preproc>\d+)/(?P<processed>\d+)")
+_PREFETCH_CACHE_RE = re.compile(
+    r"Cache\(H/M/E\): (?P<hit>\d+(?:\.\d+)?)%/(?P<miss>\d+(?:\.\d+)?)%/(?P<evict>\d+)"
+)
+_PREFETCH_TPUT_RE = re.compile(r"Tput\(IO/H\): (?P<io>\d+(?:\.\d+)?)/(?P<handoff>\d+(?:\.\d+)?) it/s")
+_PREFETCH_WAIT_RE = re.compile(r"Wait\(Main/Pre/IO\): (?P<main>\d+(?:\.\d+)?)/(?P<pre>\d+(?:\.\d+)?)/(?P<io>\d+(?:\.\d+)?) ms/s")
+
+
+def _median(values: list[float]) -> float | None:
+    if not values:
+        return None
+    return float(statistics.median(values))
+
 
 def parse_epoch_training_throughput(log_lines: list[str]) -> dict[str, dict[str, float | int]]:
     """Parse per-epoch training throughput from log lines."""
@@ -215,6 +234,65 @@ def parse_final_batch_sizes(log_lines: list[str]) -> dict[str, int] | None:
     return out or None
 
 
+def parse_prefetch_monitor_medians(log_lines: list[str]) -> dict[str, dict[str, float]]:
+    """Parse PrefetchingHybridDataset monitor lines and return per-rank medians.
+
+    These lines are emitted to stdout/stderr (docker compose logs) and include:
+    - Queue depths: Q(B/P/R)
+    - Cache hit%: Cache(H/M/E)
+    - IO and handoff throughput: Tput(IO/H)
+    - Wait times: Wait(Main/Pre/IO)
+
+    The runner captures a rolling window of recent log lines (LOG_CAPTURE_LINES),
+    which is typically enough to include several monitor samples for short trials.
+    """
+    samples: dict[str, dict[str, list[float]]] = defaultdict(lambda: defaultdict(list))
+
+    for raw in log_lines:
+        line = _ANSI_ESCAPE_RE.sub("", raw.strip())
+        if not line:
+            continue
+
+        rank_match = _PREFETCH_MONITOR_RANK_RE.search(line)
+        if not rank_match:
+            continue
+
+        rank = rank_match.group("rank")
+        q_match = _PREFETCH_Q_DEPTH_RE.search(line)
+        if q_match:
+            samples[rank]["median_batch_index_q_depth"].append(float(q_match.group("batch")))
+            samples[rank]["median_preprocess_q_depth"].append(float(q_match.group("preproc")))
+            samples[rank]["median_processed_batch_q_depth"].append(float(q_match.group("processed")))
+
+        cache_match = _PREFETCH_CACHE_RE.search(line)
+        if cache_match:
+            samples[rank]["median_cache_hit_rate_pct"].append(float(cache_match.group("hit")))
+
+        tput_match = _PREFETCH_TPUT_RE.search(line)
+        if tput_match:
+            samples[rank]["median_io_throughput_it_s"].append(float(tput_match.group("io")))
+            samples[rank]["median_handoff_throughput_it_s"].append(float(tput_match.group("handoff")))
+
+        wait_match = _PREFETCH_WAIT_RE.search(line)
+        if wait_match:
+            samples[rank]["median_wait_main_ms_per_s"].append(float(wait_match.group("main")))
+            samples[rank]["median_wait_pre_ms_per_s"].append(float(wait_match.group("pre")))
+            samples[rank]["median_wait_io_ms_per_s"].append(float(wait_match.group("io")))
+
+    medians: dict[str, dict[str, float]] = {}
+    for rank, metrics in samples.items():
+        rank_medians: dict[str, float] = {}
+        for key, values in metrics.items():
+            median_value = _median(values)
+            if median_value is None:
+                continue
+            rank_medians[key] = median_value
+        if rank_medians:
+            medians[str(rank)] = rank_medians
+
+    return medians
+
+
 def _find_volume_host_path(compose_data: dict[str, Any], *, container_mount: str) -> str | None:
     """Best-effort: locate the host path for a given container mount in compose volumes."""
     try:
@@ -263,6 +341,7 @@ def _parse_metrics_from_debug_log(debug_log_path: Path) -> dict[str, Any]:
     throughput: dict[str, dict[str, float | int]] = {}
     vram: dict[str, dict[str, float]] = {}
     batch: dict[str, int] = {}
+    prefetch_samples: dict[str, dict[str, list[float]]] = defaultdict(lambda: defaultdict(list))
 
     try:
         with open(debug_log_path, "r", encoding="utf-8", errors="replace") as f:
@@ -270,6 +349,33 @@ def _parse_metrics_from_debug_log(debug_log_path: Path) -> dict[str, Any]:
                 line = raw.strip()
                 if not line:
                     continue
+                # Strip ANSI color codes to make regex parsing deterministic.
+                line = _ANSI_ESCAPE_RE.sub("", line)
+
+                # Prefetch monitor lines (pipeline health / wait signals)
+                rank_match = _PREFETCH_MONITOR_RANK_RE.search(line)
+                if rank_match:
+                    rank = rank_match.group("rank")
+                    q_match = _PREFETCH_Q_DEPTH_RE.search(line)
+                    if q_match:
+                        prefetch_samples[rank]["median_batch_index_q_depth"].append(float(q_match.group("batch")))
+                        prefetch_samples[rank]["median_preprocess_q_depth"].append(float(q_match.group("preproc")))
+                        prefetch_samples[rank]["median_processed_batch_q_depth"].append(float(q_match.group("processed")))
+
+                    cache_match = _PREFETCH_CACHE_RE.search(line)
+                    if cache_match:
+                        prefetch_samples[rank]["median_cache_hit_rate_pct"].append(float(cache_match.group("hit")))
+
+                    tput_match = _PREFETCH_TPUT_RE.search(line)
+                    if tput_match:
+                        prefetch_samples[rank]["median_io_throughput_it_s"].append(float(tput_match.group("io")))
+                        prefetch_samples[rank]["median_handoff_throughput_it_s"].append(float(tput_match.group("handoff")))
+
+                    wait_match = _PREFETCH_WAIT_RE.search(line)
+                    if wait_match:
+                        prefetch_samples[rank]["median_wait_main_ms_per_s"].append(float(wait_match.group("main")))
+                        prefetch_samples[rank]["median_wait_pre_ms_per_s"].append(float(wait_match.group("pre")))
+                        prefetch_samples[rank]["median_wait_io_ms_per_s"].append(float(wait_match.group("io")))
 
                 match = _TRAIN_THROUGHPUT_RE.search(line)
                 if match:
@@ -317,6 +423,19 @@ def _parse_metrics_from_debug_log(debug_log_path: Path) -> dict[str, Any]:
         out["vram"] = vram
     if batch:
         out["batch"] = batch
+    if prefetch_samples:
+        prefetch_medians: dict[str, dict[str, float]] = {}
+        for rank, metrics in prefetch_samples.items():
+            medians: dict[str, float] = {}
+            for key, values in metrics.items():
+                median_value = _median(values)
+                if median_value is None:
+                    continue
+                medians[key] = median_value
+            if medians:
+                prefetch_medians[str(rank)] = medians
+        if prefetch_medians:
+            out["prefetch_monitor"] = prefetch_medians
     return out
 
 
@@ -868,6 +987,12 @@ def run_trials_concurrent(
         else:
             result["status"] = "error"
 
+        # Parse prefetch monitor metrics from stdout if present.
+        if result.get("stdout"):
+            prefetch = parse_prefetch_monitor_medians(result["stdout"].splitlines())
+            if prefetch:
+                result["prefetch_monitor"] = prefetch
+
         # Attach parsed metrics (POL-270) on successful runs.
         # In concurrent mode we rely on the per-trial compose file + captured
         # experiment_path (from full stdout) to resolve the host log path.
@@ -929,6 +1054,18 @@ def run_trial(
     init_timings = summarize_init_timings(init_payloads)
     if init_timings:
         result["init_timings"] = init_timings
+
+    prefetch_monitor = parse_prefetch_monitor_medians(list(log_buffer))
+    if prefetch_monitor:
+        existing = result.get("prefetch_monitor")
+        if isinstance(existing, dict):
+            # Merge rank dicts (stdout-derived metrics should win for missing keys).
+            for rank, metrics in prefetch_monitor.items():
+                if not isinstance(metrics, dict):
+                    continue
+                existing.setdefault(rank, {}).update(metrics)
+        else:
+            result["prefetch_monitor"] = prefetch_monitor
 
     # Try to resolve experiment output path (printed by training) so we can
     # parse stable metrics from the debug log (VRAM peaks are debug-level).
