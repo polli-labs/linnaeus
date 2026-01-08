@@ -169,30 +169,23 @@ def test_run_trial_attaches_metrics_from_debug_log_supports_split_batch_lines(tm
     assert result["batch"] == {"train": 64, "val": 512}
 
 
-def test_run_trial_attaches_prefetch_monitor_metrics_from_debug_log(tmp_path, monkeypatch):
+def test_run_trial_attaches_prefetch_monitor_metrics_from_stdout(tmp_path, monkeypatch):
     host_mw = tmp_path / "modelWorkshop"
     exp_rel = "mFormerV1/linnaeus-dev/pol297_prefetch/v040_trial"
     exp_host = host_mw / exp_rel
-    logs_dir = exp_host / "logs"
-    logs_dir.mkdir(parents=True)
+    (exp_host / "logs").mkdir(parents=True)
 
-    # Include ANSI escape codes to ensure stripping is robust.
-    debug_log = logs_dir / "debug_log_rank0.txt"
-    debug_log.write_text(
-        "\n".join(
+    def fake_run(_compose_file: Path, timeout: int):
+        assert timeout == 1
+        log_buffer = deque(
             [
+                f"Model config => /modelWorkshop/{exp_rel}/configs/model_config.yaml",
                 "\x1b[36m[h5data]\x1b[0m Monitor [Rank 0] | Q(B/P/R): 12/0/1 | Cache(H/M/E): 100%/0%/0 | "
                 "Size: 0.1/8.0GB | Tput(IO/H): 50.0/60.0 it/s | Wait(Main/Pre/IO): 0/200/0 ms/s",
                 "\x1b[36m[h5data]\x1b[0m Monitor [Rank 0] | Q(B/P/R): 8/2/0 | Cache(H/M/E): 80%/20%/1 | "
                 "Size: 0.2/8.0GB | Tput(IO/H): 70.0/90.0 it/s | Wait(Main/Pre/IO): 10/400/5 ms/s",
             ]
         )
-        + "\n"
-    )
-
-    def fake_run(_compose_file: Path, timeout: int):
-        assert timeout == 1
-        log_buffer = deque([f"Model config => /modelWorkshop/{exp_rel}/configs/model_config.yaml"])
         return 0, log_buffer, []
 
     monkeypatch.setattr(rpt, "run_docker_compose_up", fake_run)
