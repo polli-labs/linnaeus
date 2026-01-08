@@ -12,6 +12,51 @@ from linnaeus.utils.metrics.step_metrics_logger import StepMetricsLogger
 from linnaeus.utils.profiling_helpers import prof, update_profiler_config
 
 
+def _clip_and_collect_grad_norm_metrics(
+    params_to_clip: list[torch.nn.Parameter],
+    *,
+    clip_grad: float,
+    compute_metrics: bool,
+    compute_post_clip_norm: bool,
+) -> tuple[float, float, float]:
+    """
+    Apply grad clipping (if enabled) and optionally collect grad-norm metrics.
+
+    Returns:
+        (pre_clip_norm_val, post_clip_norm_val, norm_val_returned_from_clipfn)
+
+    Notes:
+    - When `clip_grad > 0`, a single `clip_grad_norm_` call both clips AND returns the *pre-clip* total norm.
+      Historically we called `clip_grad_norm_` twice (once w/ inf for logging + once for clipping); this helper
+      keeps metrics equivalent while avoiding the redundant all-reduce / reduction.
+    - When `clip_grad <= 0`, we only compute a norm if `compute_metrics=True`.
+    """
+
+    if not params_to_clip:
+        return 0.0, 0.0, 0.0
+
+    pre_clip_norm_val = 0.0
+    post_clip_norm_val = 0.0
+    norm_val_returned_from_clipfn = 0.0
+
+    if clip_grad > 0.0:
+        norm_val_returned_from_clipfn = torch.nn.utils.clip_grad_norm_(params_to_clip, float(clip_grad)).item()
+
+        if compute_metrics:
+            pre_clip_norm_val = norm_val_returned_from_clipfn
+            if compute_post_clip_norm:
+                grads_after_clip = [p.grad.detach().flatten() for p in params_to_clip if p.grad is not None]
+                post_clip_norm_val = torch.linalg.norm(torch.cat(grads_after_clip).float()).item() if grads_after_clip else 0.0
+
+        return pre_clip_norm_val, post_clip_norm_val, norm_val_returned_from_clipfn
+
+    # No clipping requested; only compute norm if explicitly enabled.
+    if compute_metrics:
+        pre_clip_norm_val = torch.nn.utils.clip_grad_norm_(params_to_clip, float("inf")).item()
+
+    return pre_clip_norm_val, 0.0, 0.0
+
+
 def train_one_epoch(
     config,
     model,
@@ -264,21 +309,21 @@ def train_one_epoch(
                     scaler.unscale_(optimizer)
 
                 params_to_clip = [p for p in model.parameters() if p.grad is not None]
-                pre_clip_norm_val = 0.0
-                if params_to_clip:
-                    pre_clip_norm = torch.nn.utils.clip_grad_norm_(params_to_clip, float("inf"))
-                    pre_clip_norm_val = pre_clip_norm.item()
-                    # (metrics_tracker update for pre_clip_norm happens in step_logger)
+                grad_norm_logging_cfg = getattr(config.TRAIN, "GRAD_NORM_LOGGING", None)
+                grad_norm_logging_enabled = bool(getattr(grad_norm_logging_cfg, "ENABLED", True))
+                grad_norm_logging_rank0_only = bool(getattr(grad_norm_logging_cfg, "RANK0_ONLY", False))
+                grad_norm_logging_post_clip_norm = bool(getattr(grad_norm_logging_cfg, "POST_CLIP_NORM", True))
 
-                post_clip_norm_val = 0.0
-                norm_val_returned_from_clipfn = 0.0
-                if config.TRAIN.CLIP_GRAD > 0.0 and params_to_clip:
-                    actual_clip_value = float(config.TRAIN.CLIP_GRAD)
-                    norm_val_returned_from_clipfn = torch.nn.utils.clip_grad_norm_(params_to_clip, actual_clip_value).item()
+                should_compute_grad_norm_metrics = grad_norm_logging_enabled and (
+                    (not grad_norm_logging_rank0_only) or (rank == 0)
+                )
 
-                    grads_after_clip = [p.grad.detach().flatten() for p in params_to_clip if p.grad is not None]
-                    post_clip_norm_val = torch.linalg.norm(torch.cat(grads_after_clip).float()).item() if grads_after_clip else 0.0
-                    # (metrics_tracker update for post_clip_norm happens in step_logger)
+                pre_clip_norm_val, post_clip_norm_val, norm_val_returned_from_clipfn = _clip_and_collect_grad_norm_metrics(
+                    params_to_clip,
+                    clip_grad=float(config.TRAIN.CLIP_GRAD),
+                    compute_metrics=should_compute_grad_norm_metrics,
+                    compute_post_clip_norm=grad_norm_logging_post_clip_norm,
+                )
 
                 with prof("optimizer_step", level=1):
                     scaler.step(optimizer)
@@ -304,10 +349,11 @@ def train_one_epoch(
                 if gradnorm_metrics_for_log:
                     final_gradnorm_metrics_to_log.update(gradnorm_metrics_for_log)
                 # Add clipping norms
-                if params_to_clip:
+                if should_compute_grad_norm_metrics and params_to_clip:
                     final_gradnorm_metrics_to_log["gradnorm/total_norm_pre_clip"] = pre_clip_norm_val
                     if config.TRAIN.CLIP_GRAD > 0.0:
-                        final_gradnorm_metrics_to_log["gradnorm/total_norm_post_clip"] = post_clip_norm_val
+                        if grad_norm_logging_post_clip_norm:
+                            final_gradnorm_metrics_to_log["gradnorm/total_norm_post_clip"] = post_clip_norm_val
                         final_gradnorm_metrics_to_log["gradnorm/total_norm_clip_fn_returned"] = norm_val_returned_from_clipfn
 
                 step_logger.log_step_metrics(
