@@ -29,7 +29,7 @@ TORCH:
   TORCH_COMPILE_DISABLE: 0
 
 CUDA:
-  PYTORCH_CUDA_ALLOC_CONF: "expandable_segments:true,rounding:64m"
+  PYTORCH_CUDA_ALLOC_CONF: "expandable_segments:True,rounding:64m"
   CUDA_DEVICE_MAX_CONNECTIONS: 1
 
 NCCL:
