@@ -127,6 +127,12 @@ The script creates an output directory containing:
 - `<trial_name>_failure.log`: Console output for failed trials
 - `<trial_name>_debug_log.txt`: Full debug log (if `--capture-debug-logs` is used)
 
+`summary.json` includes best-effort extracted signals from `debug_log_rank0.txt`, such as:
+- Per-epoch throughput and VRAM snapshots
+- Final resolved train/val batch sizes
+- Init-stage timing deltas (dataset processor, dataloader ready, first batch/forward/backward)
+- Prefetch monitor medians (queue depths, IO/handoff throughput, cache hit %, and wait times) when present
+
 ## Success/Failure Detection
 
 The tool monitors logs for specific strings:
