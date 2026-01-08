@@ -18,7 +18,7 @@ import shutil
 import subprocess
 import sys
 import time
-from collections import deque
+from collections import OrderedDict, deque
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -78,6 +78,47 @@ _SERVICE_EXIT_CODE_RE = re.compile(
 # directory. We need this to map `/modelWorkshop/...` to a host path and then
 # parse debug-level signals (e.g. VRAM peaks) from `logs/debug_log_rank0.txt`.
 _MODEL_CONFIG_PATH_RE = re.compile(r"Model config => (?P<path>/\S+)")
+
+
+def _flatten_compose_environment(environment: Any) -> list[str]:
+    if isinstance(environment, dict):
+        return [f"{key}={value}" for key, value in environment.items()]
+
+    if not isinstance(environment, list):
+        return []
+
+    flattened: list[str] = []
+    for entry in environment:
+        if isinstance(entry, dict):
+            flattened.extend(f"{key}={value}" for key, value in entry.items())
+            continue
+        if isinstance(entry, str):
+            flattened.append(entry)
+    return flattened
+
+
+def _merge_compose_environment(environment: Any, env_overrides: dict[str, Any]) -> list[str]:
+    """Return a deduped docker-compose environment list where later sources win."""
+    env_entries = _flatten_compose_environment(environment)
+
+    merged: "OrderedDict[str, str]" = OrderedDict()
+    passthrough: list[str] = []
+
+    for entry in env_entries:
+        if "=" not in entry:
+            passthrough.append(entry)
+            continue
+        key, value = entry.split("=", 1)
+        if key in merged:
+            del merged[key]
+        merged[key] = value
+
+    for key, value in env_overrides.items():
+        if key in merged:
+            del merged[key]
+        merged[key] = str(value)
+
+    return [f"{key}={value}" for key, value in merged.items()] + passthrough
 _EXPERIMENT_CONFIG_PATH_RE = re.compile(r"Full experiment config => (?P<path>/\S+)")
 _ENV_VARS_WRITTEN_RE = re.compile(r"Environment variables written to (?P<path>/\S+)")
 _TRAIN_THROUGHPUT_RE = re.compile(
@@ -538,10 +579,8 @@ def modify_compose_file(template_data: dict[str, Any], trial: dict[str, Any], ou
         command_str = command_str.replace("{{OPTS_STRING}}", opts_string)
         service["command"] = command_str
 
-    # Handle environment variables
-    if "environment" not in service:
-        service["environment"] = []
-    
+    environment_entries = _flatten_compose_environment(service.get("environment", []))
+
     # Load env_yaml and inject variables directly
     if env_yaml:
         # Map container path to host path
@@ -551,31 +590,25 @@ def modify_compose_file(template_data: dict[str, Any], trial: dict[str, Any], ou
         if env_yaml:
             host_env_path = env_yaml.replace("/configs/", "/home/caleb/repo/linnaeus-deployment/linnaeus_deploy/configs/")
             if Path(host_env_path).exists():
-                with open(host_env_path, 'r') as f:
-                    env_data = yaml.safe_load(f)
+                with open(host_env_path, "r") as f:
+                    env_data = yaml.safe_load(f) or {}
                     # Flatten nested structure if present
                     for key, value in env_data.items():
                         if isinstance(value, dict):
                             # Handle nested env vars (e.g., profiling: {TORCH_PROFILER_LEVEL: 2})
                             for sub_key, sub_value in value.items():
-                                service["environment"].append(f"{sub_key}={sub_value}")
+                                environment_entries.append(f"{sub_key}={sub_value}")
                         else:
-                            service["environment"].append(f"{key}={value}")
+                            environment_entries.append(f"{key}={value}")
             else:
                 console.print(f"[yellow]Warning: env_yaml file not found: {host_env_path}[/yellow]")
 
-    # Apply any direct environment overrides
-    if env_overrides:
-        for key, value in env_overrides.items():
-            # Check if this env var already exists and update it
-            found = False
-            for i, env in enumerate(service["environment"]):
-                if isinstance(env, str) and env.startswith(f"{key}="):
-                    service["environment"][i] = f"{key}={value}"
-                    found = True
-                    break
-            if not found:
-                service["environment"].append(f"{key}={value}")
+    if not isinstance(env_overrides, dict):
+        console.print(f"[yellow]Warning: env overrides are not a dict: {type(env_overrides)}[/yellow]")
+        env_overrides = {}
+
+    # Merge env sources with dedupe (docker-compose uses last value, but we keep it explicit).
+    service["environment"] = _merge_compose_environment(environment_entries, env_overrides)
     
     # Handle template substitutions
     # Convert the entire YAML back to string to handle substitutions

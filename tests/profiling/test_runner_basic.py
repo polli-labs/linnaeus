@@ -102,6 +102,49 @@ def test_modify_compose_file_with_env_overrides():
     assert "TORCH_COMPILE_DISABLE=1" in env_vars
 
 
+def test_modify_compose_file_env_yaml_and_overrides_dedupe_env_keys(tmp_path: Path):
+    template_data = {
+        "services": {
+            "linnaeus-training": {
+                "image": "linnaeus:test",
+                "command": "python -m linnaeus.main --cfg {{CONFIG_FILE}}",
+                "environment": [
+                    "TORCH_DISTRIBUTED_DEBUG=OFF",
+                    "CUSTOM=template",
+                ],
+            }
+        }
+    }
+
+    env_yaml_path = tmp_path / "env.yaml"
+    env_yaml_path.write_text(
+        yaml.safe_dump(
+            {
+                "DEBUG": {"TORCH_DISTRIBUTED_DEBUG": "WARN"},
+                "CUSTOM": "yaml",
+            }
+        )
+    )
+
+    trial = {
+        "name": "test_trial",
+        "config_file": "configs/test.yaml",
+        "env_yaml": str(env_yaml_path),
+        "env": {"TORCH_DISTRIBUTED_DEBUG": "OFF"},
+    }
+
+    result = modify_compose_file(template_data, trial)
+
+    env_vars = result["services"]["linnaeus-training"]["environment"]
+    assert "TORCH_DISTRIBUTED_DEBUG=OFF" in env_vars
+    assert "TORCH_DISTRIBUTED_DEBUG=WARN" not in env_vars
+    assert sum(1 for env in env_vars if env.startswith("TORCH_DISTRIBUTED_DEBUG=")) == 1
+
+    # env_yaml should override the template value (with dedupe).
+    assert "CUSTOM=yaml" in env_vars
+    assert "CUSTOM=template" not in env_vars
+
+
 def test_modify_compose_file_normalizes_single_gpu_cuda_visible_devices():
     """If CUDA_VISIBLE_DEVICES is a single int, treat it as host GPU idx."""
     template_data = {
