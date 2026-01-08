@@ -102,6 +102,31 @@ def test_modify_compose_file_with_env_overrides():
     assert "TORCH_COMPILE_DISABLE=1" in env_vars
 
 
+def test_modify_compose_file_normalizes_single_gpu_cuda_visible_devices():
+    """If CUDA_VISIBLE_DEVICES is a single int, treat it as host GPU idx."""
+    template_data = {
+        "services": {
+            "linnaeus-training": {
+                "image": "linnaeus:test",
+                "command": "python -m linnaeus.main --cfg {{CONFIG_FILE}}",
+            }
+        }
+    }
+
+    trial = {
+        "name": "test_trial",
+        "config_file": "configs/test.yaml",
+        "env": {"CUDA_VISIBLE_DEVICES": "1"},
+    }
+
+    result = modify_compose_file(template_data, trial)
+
+    service = result["services"]["linnaeus-training"]
+    env_vars = service["environment"]
+    assert "NVIDIA_VISIBLE_DEVICES=1" in env_vars
+    assert "CUDA_VISIBLE_DEVICES=0" in env_vars
+
+
 def test_extract_experiment_path():
     """Test extraction of experiment path from log buffer."""
     from collections import deque
