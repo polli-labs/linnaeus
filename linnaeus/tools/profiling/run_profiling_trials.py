@@ -393,6 +393,36 @@ def modify_compose_file(template_data: dict[str, Any], trial: dict[str, Any], ou
     env_yaml = trial.get("env_yaml")
     env_overrides = trial.get("env", {})
 
+    # Normalize GPU selection.
+    #
+    # Why:
+    # - Our profiling compose templates often reserve a single GPU (count=1). In that
+    #   setup, the container typically sees exactly one device as `cuda:0`.
+    # - If a trial passes `CUDA_VISIBLE_DEVICES="1"` intending to select host GPU1,
+    #   that can accidentally hide all CUDA devices in-container (there is no
+    #   `cuda:1`), which can cause Triton to fail during import with:
+    #     "0 active drivers ([]). There should only be one."
+    #
+    # Convention:
+    # - If a trial provides `CUDA_VISIBLE_DEVICES` as a single integer and does NOT
+    #   set `NVIDIA_VISIBLE_DEVICES`, interpret it as the *host* GPU index and
+    #   convert to `NVIDIA_VISIBLE_DEVICES=<idx>` + `CUDA_VISIBLE_DEVICES=0`.
+    if env_overrides:
+        cuda_visible_devices = env_overrides.get("CUDA_VISIBLE_DEVICES")
+        if (
+            cuda_visible_devices is not None
+            and "NVIDIA_VISIBLE_DEVICES" not in env_overrides
+            and str(cuda_visible_devices).strip().isdigit()
+        ):
+            gpu_idx = str(cuda_visible_devices).strip()
+            env_overrides = dict(env_overrides)
+            env_overrides["NVIDIA_VISIBLE_DEVICES"] = gpu_idx
+            env_overrides["CUDA_VISIBLE_DEVICES"] = "0"
+            console.print(
+                f"[blue]Normalized GPU env: CUDA_VISIBLE_DEVICES={gpu_idx} -> "
+                f"NVIDIA_VISIBLE_DEVICES={gpu_idx}, CUDA_VISIBLE_DEVICES=0[/blue]"
+            )
+
     # Build commit reset command if hash is provided
     commit_reset_cmd = ""
     if commit_hash:
