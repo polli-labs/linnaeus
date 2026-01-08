@@ -597,6 +597,13 @@ _C.TRAIN.AUTO_RESUME = True
 _C.TRAIN.STRICT_CHECKPOINT_LOADING = False  # If True, reject checkpoints with metadata mismatches
 _C.TRAIN.CHECKPOINT_NAMESPACING = False  # If True, save checkpoints in branch/commit subdirectories
 _C.TRAIN.ALLOW_WANDB_VAL_CHANGE = True  # Allow small value changes when resuming wandb runs
+
+# Grad norm logging (distinct from GradNorm loss re-weighting)
+# NOTE: default values preserve historical behavior (compute and log per-step grad norms).
+_C.TRAIN.GRAD_NORM_LOGGING = CN()
+_C.TRAIN.GRAD_NORM_LOGGING.ENABLED = True
+_C.TRAIN.GRAD_NORM_LOGGING.RANK0_ONLY = False
+_C.TRAIN.GRAD_NORM_LOGGING.POST_CLIP_NORM = True
 # Gradient checkpointing configuration (for memory efficiency)
 _C.TRAIN.GRADIENT_CHECKPOINTING = CN()
 _C.TRAIN.GRADIENT_CHECKPOINTING.ENABLED_NORMAL_STEPS = True  # Apply checkpointing to normal forward passes
