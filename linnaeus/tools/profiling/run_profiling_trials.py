@@ -68,6 +68,7 @@ logger = logging.getLogger(__name__)
 #
 # We therefore force autobatch OFF for all profiling trials by default.
 _AUTOBATCH_OPT_KEYS = ("DATA.AUTOBATCH.ENABLED", "DATA.AUTOBATCH.ENABLED_VAL")
+_YACS_KEY_RE = re.compile(r"^[A-Z0-9_]+(?:\.[A-Z0-9_]+)+$")
 
 
 def _force_disable_autobatch_opts(opts: list[Any] | None) -> list[Any]:
@@ -83,14 +84,24 @@ def _force_disable_autobatch_opts(opts: list[Any] | None) -> list[Any]:
     else:
         cleaned = list(opts)
 
+    def _looks_like_yacs_key(value: Any) -> bool:
+        text = str(value)
+        return bool(_YACS_KEY_RE.match(text))
+
     def _strip_key(key: str) -> None:
         nonlocal cleaned
         out: list[Any] = []
         idx = 0
         while idx < len(cleaned):
             if str(cleaned[idx]) == key:
-                # Skip key + its value (if present).
-                idx += 2
+                # Skip key, and skip its value only if the next token does *not*
+                # look like another YACS key.
+                #
+                # This makes stripping robust to malformed opts lists where a key
+                # appears without a value; we should not drop the next key.
+                idx += 1
+                if idx < len(cleaned) and not _looks_like_yacs_key(cleaned[idx]):
+                    idx += 1
                 continue
             out.append(cleaned[idx])
             idx += 1

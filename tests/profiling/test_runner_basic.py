@@ -10,6 +10,7 @@ from unittest.mock import Mock, patch
 import pytest
 
 from linnaeus.tools.profiling.run_profiling_trials import (
+    _force_disable_autobatch_opts,
     classify_trial_status,
     modify_compose_file,
     check_docker_compose,
@@ -83,6 +84,25 @@ def test_modify_compose_file_forces_autobatch_off_even_when_requested():
     # Ensure we force both flags off.
     assert "DATA.AUTOBATCH.ENABLED False" in command
     assert "DATA.AUTOBATCH.ENABLED_VAL False" in command
+
+
+def test_force_disable_autobatch_does_not_drop_following_key_when_value_missing():
+    # Malformed opts lists can happen (e.g., generated incorrectly in a sweep).
+    # Stripping autobatch keys should not delete legitimate keys that follow.
+    cleaned = _force_disable_autobatch_opts(
+        [
+            "TRAIN.EPOCHS",
+            "1",
+            # Missing a value here; next token is another key.
+            "DATA.AUTOBATCH.ENABLED",
+            "MODEL.NAME",
+            "mFormerV1_md",
+        ]
+    )
+
+    assert "MODEL.NAME" in cleaned
+    model_idx = cleaned.index("MODEL.NAME")
+    assert cleaned[model_idx + 1] == "mFormerV1_md"
 
 
 def test_modify_compose_file_with_env_yaml():

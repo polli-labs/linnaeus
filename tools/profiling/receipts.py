@@ -24,15 +24,15 @@ class ReceiptRow:
     val_batch: int | None
 
 
-def _rank0(metrics_by_rank: Any) -> dict[str, Any]:
-    if not isinstance(metrics_by_rank, dict):
+def _epoch0(metrics_by_epoch: Any) -> dict[str, Any]:
+    if not isinstance(metrics_by_epoch, dict):
         return {}
     for key in ("0", 0):
-        if key in metrics_by_rank:
-            value = metrics_by_rank.get(key)
+        if key in metrics_by_epoch:
+            value = metrics_by_epoch.get(key)
             return value if isinstance(value, dict) else {}
-    if len(metrics_by_rank) == 1:
-        (_, value) = next(iter(metrics_by_rank.items()))
+    if len(metrics_by_epoch) == 1:
+        (_, value) = next(iter(metrics_by_epoch.items()))
         return value if isinstance(value, dict) else {}
     return {}
 
@@ -54,8 +54,8 @@ def _read_summary(path: Path) -> list[ReceiptRow]:
         if not name:
             continue
 
-        throughput = _rank0(trial.get("throughput", {}))
-        vram = _rank0(trial.get("vram", {}))
+        throughput = _epoch0(trial.get("throughput", {}))
+        vram = _epoch0(trial.get("vram", {}))
         batch = trial.get("batch", {}) if isinstance(trial.get("batch", {}), dict) else {}
 
         commit_hash = str(trial.get("commit_hash", "") or "")
@@ -168,4 +168,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
