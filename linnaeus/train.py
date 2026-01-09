@@ -1,6 +1,7 @@
 import gc  # For garbage collection
 
 import torch
+from contextlib import nullcontext
 
 from linnaeus.h5data.base_prefetching_dataset import STOP_SENTINEL
 from linnaeus.loss.gradient_weighting import log_memory_usage
@@ -10,6 +11,32 @@ from linnaeus.utils.distributed import get_rank_safely
 from linnaeus.utils.init_timing import emit_init_timing
 from linnaeus.utils.metrics.step_metrics_logger import StepMetricsLogger
 from linnaeus.utils.profiling_helpers import prof, update_profiler_config
+
+
+def _should_sync_ddp_gradients(*, is_ddp: bool, accumulation_steps: int, inner_accum_count: int, batch_idx: int, dataloader_len: int) -> bool:
+    """Decide whether this micro-batch should trigger DDP gradient synchronization.
+
+    When using gradient accumulation under DDP, we should avoid paying the all-reduce
+    cost on every micro-batch by using `DDP.no_sync()` for non-boundary micro-batches.
+
+    We still must sync:
+    - on the micro-batch that completes the accumulation window (so the optimizer step sees reduced grads)
+    - on the final batch of the epoch (to keep the leftover optimizer-step path correct)
+    """
+    if not is_ddp or accumulation_steps <= 1:
+        return True
+
+    # `inner_accum_count` is the number of micro-batches already processed for the current accumulation window.
+    next_accum_count = inner_accum_count + 1
+    if next_accum_count >= accumulation_steps:
+        return True
+
+    # Ensure gradients are synchronized before the end-of-epoch leftover optimizer step.
+    is_last_batch = batch_idx >= (dataloader_len - 1)
+    if is_last_batch:
+        return True
+
+    return False
 
 
 def _clip_and_collect_grad_norm_metrics(
@@ -201,38 +228,49 @@ def train_one_epoch(
             except ImportError:
                 pass  # Optimized drop path not available
             
-            with torch.cuda.amp.autocast(enabled=(config.TRAIN.AMP_OPT_LEVEL != "O0")):
-                with prof("forward_pass", level=1):
-                    outputs = model(images, aux_info)  # GradNorm flag not needed here for normal fwd
-                if emit_init_markers and rank == 0 and not init_first_forward_logged:
-                    emit_init_timing("first_forward_end", logger_override=logger)
-                    init_first_forward_logged = True
+            is_ddp = isinstance(model, torch.nn.parallel.DistributedDataParallel)
+            should_sync_ddp = _should_sync_ddp_gradients(
+                is_ddp=is_ddp,
+                accumulation_steps=accumulation_steps,
+                inner_accum_count=inner_accum_count,
+                batch_idx=idx,
+                dataloader_len=dataloader_len,
+            )
+            ddp_sync_ctx = nullcontext() if (not is_ddp or should_sync_ddp) else model.no_sync()
 
-                with prof("loss_calculation", level=1):
-                    total_loss, loss_components, task_weights_dict = weighted_hierarchical_loss(
-                        outputs,
-                        tdict_gpu,
-                        criteria,
-                        grad_weighting,
-                        ops_schedule,
-                        training_progress.global_step,  # Use global_step for schedule
-                        is_validation=False,
-                        logger=logger,
-                        config=config,
-                    )
+            with ddp_sync_ctx:
+                with torch.cuda.amp.autocast(enabled=(config.TRAIN.AMP_OPT_LEVEL != "O0")):
+                    with prof("forward_pass", level=1):
+                        outputs = model(images, aux_info)  # GradNorm flag not needed here for normal fwd
+                    if emit_init_markers and rank == 0 and not init_first_forward_logged:
+                        emit_init_timing("first_forward_end", logger_override=logger)
+                        init_first_forward_logged = True
+
+                    with prof("loss_calculation", level=1):
+                        total_loss, loss_components, task_weights_dict = weighted_hierarchical_loss(
+                            outputs,
+                            tdict_gpu,
+                            criteria,
+                            grad_weighting,
+                            ops_schedule,
+                            training_progress.global_step,  # Use global_step for schedule
+                            is_validation=False,
+                            logger=logger,
+                            config=config,
+                        )
+
+                loss_to_backward = total_loss
+                if accumulation_steps > 1:
+                    loss_to_backward = loss_to_backward / accumulation_steps
+
+                with prof("backward_pass", level=1):
+                    scaler.scale(loss_to_backward).backward()
 
             null_stats = loss_components.get("null_masking", None)
             if null_stats:
                 metrics_tracker.update_null_masking_stats(null_stats)
 
             total_loss_accum_for_epoch_avg += float(total_loss.item()) * bsz
-
-            loss_to_backward = total_loss
-            if accumulation_steps > 1:
-                loss_to_backward = loss_to_backward / accumulation_steps
-
-            with prof("backward_pass", level=1):
-                scaler.scale(loss_to_backward).backward()
             if emit_init_markers and rank == 0 and not init_first_backward_logged:
                 emit_init_timing("first_backward_end", logger_override=logger)
                 init_first_backward_logged = True
