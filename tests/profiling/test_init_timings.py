@@ -27,6 +27,12 @@ def test_init_timing_parsing_and_deltas():
         _line({"stage": "first_batch_fetched", "t_s": 5.5, "rank": 0, "world_size": 1}),
         _line({"stage": "first_forward_end", "t_s": 7.0, "rank": 0, "world_size": 1}),
         _line({"stage": "first_backward_end", "t_s": 9.0, "rank": 0, "world_size": 1}),
+        _line({"stage": "autobatch_probe_start", "t_s": 10.0, "rank": 0, "world_size": 1}),
+        _line({"stage": "autobatch_train_probe_start", "t_s": 10.5, "rank": 0, "world_size": 1}),
+        _line({"stage": "autobatch_train_probe_end", "t_s": 12.5, "rank": 0, "world_size": 1}),
+        _line({"stage": "autobatch_val_probe_start", "t_s": 13.0, "rank": 0, "world_size": 1}),
+        _line({"stage": "autobatch_val_probe_end", "t_s": 15.0, "rank": 0, "world_size": 1}),
+        _line({"stage": "autobatch_probe_end", "t_s": 15.5, "rank": 0, "world_size": 1}),
     ]
 
     payloads = extract_init_timing_payloads(lines)
@@ -41,7 +47,29 @@ def test_init_timing_parsing_and_deltas():
     assert deltas["first_batch_s"] == pytest.approx(1.0)
     assert deltas["first_forward_s"] == pytest.approx(1.5)
     assert deltas["first_backward_s"] == pytest.approx(2.0)
+    assert deltas["autobatch_probe_s"] == pytest.approx(5.5)
+    assert deltas["autobatch_train_probe_s"] == pytest.approx(2.0)
+    assert deltas["autobatch_val_probe_s"] == pytest.approx(2.0)
     assert summary["missing_stages"] == []
+
+
+def test_init_timing_missing_autobatch_stages():
+    lines = [
+        _line({"stage": "dataset_processor_start", "t_s": 1.0, "rank": 0, "world_size": 1}),
+        _line({"stage": "dataset_processor_end", "t_s": 2.0, "rank": 0, "world_size": 1}),
+        _line({"stage": "dataloader_ready", "t_s": 3.0, "rank": 0, "world_size": 1}),
+        _line({"stage": "first_batch_fetched", "t_s": 4.0, "rank": 0, "world_size": 1}),
+        _line({"stage": "first_forward_end", "t_s": 5.0, "rank": 0, "world_size": 1}),
+        _line({"stage": "first_backward_end", "t_s": 6.0, "rank": 0, "world_size": 1}),
+        _line({"stage": "autobatch_probe_start", "t_s": 7.0, "rank": 0, "world_size": 1}),
+    ]
+
+    summary = summarize_init_timings(extract_init_timing_payloads(lines))
+    missing = set(summary["missing_stages"])
+
+    assert "autobatch_probe_end" in missing
+    assert "autobatch_train_probe_start" in missing
+    assert "autobatch_val_probe_start" in missing
 
 
 def test_run_trial_attaches_init_timings(tmp_path, monkeypatch):

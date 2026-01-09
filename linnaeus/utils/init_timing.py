@@ -31,6 +31,15 @@ EXPECTED_INIT_STAGES = [
     "first_backward_end",
 ]
 
+AUTOBATCH_INIT_STAGES = [
+    "autobatch_probe_start",
+    "autobatch_train_probe_start",
+    "autobatch_train_probe_end",
+    "autobatch_val_probe_start",
+    "autobatch_val_probe_end",
+    "autobatch_probe_end",
+]
+
 
 def emit_init_timing(
     stage: str,
@@ -124,6 +133,12 @@ def _delta_with_fallback(
     return None
 
 
+def _delta_if_present(stage_times: dict[str, float], *, start: str, end: str) -> float | None:
+    if start in stage_times and end in stage_times:
+        return stage_times[end] - stage_times[start]
+    return None
+
+
 def summarize_init_timings(payloads: list[dict[str, Any]]) -> dict[str, Any]:
     """Summarize init timing payloads into stage timestamps + deltas."""
     if not payloads:
@@ -185,7 +200,23 @@ def summarize_init_timings(payloads: list[dict[str, Any]]) -> dict[str, Any]:
     if first_backward_s is not None:
         deltas_s["first_backward_s"] = first_backward_s
 
-    missing_stages = [stage for stage in EXPECTED_INIT_STAGES if stage not in stage_times]
+    autobatch_probe_s = _delta_if_present(stage_times, start="autobatch_probe_start", end="autobatch_probe_end")
+    if autobatch_probe_s is not None:
+        deltas_s["autobatch_probe_s"] = autobatch_probe_s
+
+    autobatch_train_probe_s = _delta_if_present(stage_times, start="autobatch_train_probe_start", end="autobatch_train_probe_end")
+    if autobatch_train_probe_s is not None:
+        deltas_s["autobatch_train_probe_s"] = autobatch_train_probe_s
+
+    autobatch_val_probe_s = _delta_if_present(stage_times, start="autobatch_val_probe_start", end="autobatch_val_probe_end")
+    if autobatch_val_probe_s is not None:
+        deltas_s["autobatch_val_probe_s"] = autobatch_val_probe_s
+
+    expected_stages = list(EXPECTED_INIT_STAGES)
+    if any(stage in stage_times for stage in AUTOBATCH_INIT_STAGES):
+        expected_stages.extend(AUTOBATCH_INIT_STAGES)
+
+    missing_stages = [stage for stage in expected_stages if stage not in stage_times]
 
     return {
         "selected_rank": selected_rank,
