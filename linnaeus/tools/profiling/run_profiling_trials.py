@@ -61,6 +61,59 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Profiling runs should never pay the autobatch probing overhead unless we're
+# explicitly evaluating autobatch itself. In practice, leaving autobatch enabled
+# can add minutes of init time (especially for validation probing) while not
+# contributing meaningful throughput signal.
+#
+# We therefore force autobatch OFF for all profiling trials by default.
+_AUTOBATCH_OPT_KEYS = ("DATA.AUTOBATCH.ENABLED", "DATA.AUTOBATCH.ENABLED_VAL")
+_YACS_KEY_RE = re.compile(r"^[A-Z0-9_]+(?:\.[A-Z0-9_]+)+$")
+
+
+def _force_disable_autobatch_opts(opts: list[Any] | None) -> list[Any]:
+    """Return an opts list with autobatch disabled (train + val).
+
+    Notes:
+    - YACS opts are key/value pairs in a flat list.
+    - We remove any existing autobatch settings and append `False` at the end so
+      the final resolved value is always disabled.
+    """
+    if not opts:
+        cleaned: list[Any] = []
+    else:
+        cleaned = list(opts)
+
+    def _looks_like_yacs_key(value: Any) -> bool:
+        text = str(value)
+        return bool(_YACS_KEY_RE.match(text))
+
+    def _strip_key(key: str) -> None:
+        nonlocal cleaned
+        out: list[Any] = []
+        idx = 0
+        while idx < len(cleaned):
+            if str(cleaned[idx]) == key:
+                # Skip key, and skip its value only if the next token does *not*
+                # look like another YACS key.
+                #
+                # This makes stripping robust to malformed opts lists where a key
+                # appears without a value; we should not drop the next key.
+                idx += 1
+                if idx < len(cleaned) and not _looks_like_yacs_key(cleaned[idx]):
+                    idx += 1
+                continue
+            out.append(cleaned[idx])
+            idx += 1
+        cleaned = out
+
+    for key in _AUTOBATCH_OPT_KEYS:
+        _strip_key(key)
+
+    cleaned.extend(["DATA.AUTOBATCH.ENABLED", "False", "DATA.AUTOBATCH.ENABLED_VAL", "False"])
+    return cleaned
+
+
 # Constants for log monitoring
 SUCCESS_STRING = "DEBUG: Early exiting main training loop"
 # Keep a reasonably large rolling buffer so we can still discover important
@@ -549,7 +602,7 @@ def modify_compose_file(template_data: dict[str, Any], trial: dict[str, Any], ou
     git_ref = trial.get("git_ref", "main")
     commit_hash = trial.get("commit_hash")
     config_file = trial["config_file"]
-    opts = trial.get("opts", [])
+    opts = _force_disable_autobatch_opts(trial.get("opts", []))
     env_yaml = trial.get("env_yaml")
     env_overrides = trial.get("env", {})
 

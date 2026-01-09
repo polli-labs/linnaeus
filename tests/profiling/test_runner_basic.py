@@ -10,6 +10,7 @@ from unittest.mock import Mock, patch
 import pytest
 
 from linnaeus.tools.profiling.run_profiling_trials import (
+    _force_disable_autobatch_opts,
     classify_trial_status,
     modify_compose_file,
     check_docker_compose,
@@ -44,8 +45,64 @@ def test_modify_compose_file_basic():
     command = result["services"]["linnaeus-training"]["command"]
     assert "configs/test.yaml" in command
     assert "--opts TRAIN.EPOCHS 5" in command
+    # Profiling runs should force-disable autobatch to avoid probing overhead.
+    assert "DATA.AUTOBATCH.ENABLED False" in command
+    assert "DATA.AUTOBATCH.ENABLED_VAL False" in command
     assert "{{CONFIG_FILE}}" not in command
     assert "{{OPTS_STRING}}" not in command
+
+
+def test_modify_compose_file_forces_autobatch_off_even_when_requested():
+    template_data = {
+        "services": {
+            "linnaeus-training": {
+                "image": "linnaeus:test",
+                "command": "python -m linnaeus.main --cfg {{CONFIG_FILE}}{{OPTS_STRING}}",
+            }
+        }
+    }
+
+    trial = {
+        "name": "test_trial",
+        "config_file": "configs/test.yaml",
+        "git_ref": "main",
+        "opts": [
+            "DATA.AUTOBATCH.ENABLED",
+            "True",
+            "DATA.AUTOBATCH.ENABLED_VAL",
+            "True",
+        ],
+    }
+
+    result = modify_compose_file(template_data, trial)
+    command = result["services"]["linnaeus-training"]["command"]
+
+    # Ensure we do not retain the requested True flags.
+    assert "DATA.AUTOBATCH.ENABLED True" not in command
+    assert "DATA.AUTOBATCH.ENABLED_VAL True" not in command
+
+    # Ensure we force both flags off.
+    assert "DATA.AUTOBATCH.ENABLED False" in command
+    assert "DATA.AUTOBATCH.ENABLED_VAL False" in command
+
+
+def test_force_disable_autobatch_does_not_drop_following_key_when_value_missing():
+    # Malformed opts lists can happen (e.g., generated incorrectly in a sweep).
+    # Stripping autobatch keys should not delete legitimate keys that follow.
+    cleaned = _force_disable_autobatch_opts(
+        [
+            "TRAIN.EPOCHS",
+            "1",
+            # Missing a value here; next token is another key.
+            "DATA.AUTOBATCH.ENABLED",
+            "MODEL.NAME",
+            "mFormerV1_md",
+        ]
+    )
+
+    assert "MODEL.NAME" in cleaned
+    model_idx = cleaned.index("MODEL.NAME")
+    assert cleaned[model_idx + 1] == "mFormerV1_md"
 
 
 def test_modify_compose_file_with_env_yaml():
@@ -343,8 +400,10 @@ def test_create_dummy_compose_template():
     result = modify_compose_file(template_data, trial)
     
     # Verify the command was properly substituted
-    expected_command = 'echo "Trial: test-branch - Config: /configs/dummy.yaml --opts DEBUG.ENABLED true"'
-    assert result["services"]["linnaeus-training"]["command"] == expected_command
+    command = result["services"]["linnaeus-training"]["command"]
+    assert 'Trial: test-branch - Config: /configs/dummy.yaml --opts DEBUG.ENABLED true' in command
+    assert "DATA.AUTOBATCH.ENABLED False" in command
+    assert "DATA.AUTOBATCH.ENABLED_VAL False" in command
 
 
 def test_trial_jsonl_parsing():
