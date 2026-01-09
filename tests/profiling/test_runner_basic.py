@@ -380,8 +380,10 @@ def test_create_dummy_compose_template():
     result = modify_compose_file(template_data, trial)
     
     # Verify the command was properly substituted
-    expected_command = 'echo "Trial: test-branch - Config: /configs/dummy.yaml --opts DEBUG.ENABLED true"'
-    assert result["services"]["linnaeus-training"]["command"] == expected_command
+    command = result["services"]["linnaeus-training"]["command"]
+    assert 'Trial: test-branch - Config: /configs/dummy.yaml --opts DEBUG.ENABLED true' in command
+    assert "DATA.AUTOBATCH.ENABLED False" in command
+    assert "DATA.AUTOBATCH.ENABLED_VAL False" in command
 
 
 def test_trial_jsonl_parsing():
