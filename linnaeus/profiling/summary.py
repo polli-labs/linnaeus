@@ -49,6 +49,10 @@ class ProfilerMetrics:
     model_convnext_stage_1_ms: float = 0.0
     model_rope_stage_2_ms: float = 0.0
     model_rope_stage_3_ms: float = 0.0
+    model_rope_stage_4_ms: float = 0.0
+    model_downsample_0_ms: float = 0.0
+    model_downsample_1_ms: float = 0.0
+    model_downsample_2_ms: float = 0.0
     model_aggregation_ms: float = 0.0
 
     # Level 2 Profiling - Loss Components
@@ -254,6 +258,10 @@ def analyze_profiler_traces(trace_files: list[Path]) -> ProfilerMetrics:
     total_model_convnext_stage_1 = 0.0
     total_model_rope_stage_2 = 0.0
     total_model_rope_stage_3 = 0.0
+    total_model_rope_stage_4 = 0.0
+    total_model_downsample_0 = 0.0
+    total_model_downsample_1 = 0.0
+    total_model_downsample_2 = 0.0
     total_model_aggregation = 0.0
     total_loss_core_loss = 0.0
     total_loss_masking = 0.0
@@ -261,6 +269,37 @@ def analyze_profiler_traces(trace_files: list[Path]) -> ProfilerMetrics:
     total_loss_aggregation = 0.0
     total_augmentation_selective_mixing = 0.0
     total_augmentation_gpu_batch_augmentations = 0.0
+
+    # NOTE: It's tempting to use locals() to accumulate into the total_* variables,
+    # but mutating locals() does not reliably update local variables in Python.
+    # Use an explicit mapping instead.
+    l2_region_totals: dict[str, float] = {
+        # Dataloader components
+        "dataloader/io_wait": 0.0,
+        "dataloader/cpu_decode": 0.0,
+        "dataloader/preprocess_wait": 0.0,
+        "dataloader/cpu_xform": 0.0,
+        # Model components
+        "model/stem": 0.0,
+        "model/convnext_stage_0": 0.0,
+        "model/downsample_0": 0.0,
+        "model/convnext_stage_1": 0.0,
+        "model/downsample_1": 0.0,
+        "model/downsample_2": 0.0,
+        # NOTE: mFormerV1 currently uses rope stages 3/4.
+        "model/rope_stage_2": 0.0,  # legacy / reserved
+        "model/rope_stage_3": 0.0,
+        "model/rope_stage_4": 0.0,
+        "model/aggregation": 0.0,
+        # Loss components
+        "loss/core_loss": 0.0,
+        "loss/masking": 0.0,
+        "loss/weighting": 0.0,
+        "loss/aggregation": 0.0,
+        # Augmentation components
+        "augmentation/selective_mixing": 0.0,
+        "augmentation/gpu_batch_augmentations": 0.0,
+    }
 
     for trace_file in trace_files:
         with open(trace_file) as f:
@@ -293,6 +332,16 @@ def analyze_profiler_traces(trace_files: list[Path]) -> ProfilerMetrics:
             if "dur" in event:
                 total_cpu_time += event["dur"] / 1000.0
 
+        # Extract custom profiler regions (Level 2 / record_function), single pass.
+        for event in events:
+            name = event.get("name")
+            dur_us = event.get("dur")
+            if not name or dur_us is None:
+                continue
+
+            if name in l2_region_totals:
+                l2_region_totals[name] += dur_us / 1000.0  # us -> ms
+
         # Estimate memory-bound operations
         memory_events = [e for e in events if e.get("cat") == "gpu_memcpy" or "memory" in e.get("name", "").lower()]
         for event in memory_events:
@@ -311,55 +360,6 @@ def analyze_profiler_traces(trace_files: list[Path]) -> ProfilerMetrics:
             if "dur" in event:
                 total_mixing_time += event["dur"] / 1000.0
 
-        # Extract Level 2 profiler regions
-        # Dataloader components
-        for region_name, total_var in [
-            ("dataloader/io_wait", "total_dataloader_io_wait"),
-            ("dataloader/cpu_decode", "total_dataloader_cpu_decode"),
-            ("dataloader/preprocess_wait", "total_dataloader_preprocess_wait"),
-            ("dataloader/cpu_xform", "total_dataloader_cpu_xform"),
-        ]:
-            region_events = [e for e in events if e.get("name") == region_name]
-            for event in region_events:
-                if "dur" in event:
-                    locals()[total_var] += event["dur"] / 1000.0
-
-        # Model components
-        for region_name, total_var in [
-            ("model/stem", "total_model_stem"),
-            ("model/convnext_stage_0", "total_model_convnext_stage_0"),
-            ("model/convnext_stage_1", "total_model_convnext_stage_1"),
-            ("model/rope_stage_2", "total_model_rope_stage_2"),
-            ("model/rope_stage_3", "total_model_rope_stage_3"),
-            ("model/aggregation", "total_model_aggregation"),
-        ]:
-            region_events = [e for e in events if e.get("name") == region_name]
-            for event in region_events:
-                if "dur" in event:
-                    locals()[total_var] += event["dur"] / 1000.0
-
-        # Loss components
-        for region_name, total_var in [
-            ("loss/core_loss", "total_loss_core_loss"),
-            ("loss/masking", "total_loss_masking"),
-            ("loss/weighting", "total_loss_weighting"),
-            ("loss/aggregation", "total_loss_aggregation"),
-        ]:
-            region_events = [e for e in events if e.get("name") == region_name]
-            for event in region_events:
-                if "dur" in event:
-                    locals()[total_var] += event["dur"] / 1000.0
-
-        # Augmentation components (Level 2)
-        for region_name, total_var in [
-            ("augmentation/selective_mixing", "total_augmentation_selective_mixing"),
-            ("augmentation/gpu_batch_augmentations", "total_augmentation_gpu_batch_augmentations"),
-        ]:
-            region_events = [e for e in events if e.get("name") == region_name]
-            for event in region_events:
-                if "dur" in event:
-                    locals()[total_var] += event["dur"] / 1000.0
-
         # Calculate total trace duration
         if events:
             timestamps = [e.get("ts", 0) for e in events if "ts" in e]
@@ -369,7 +369,8 @@ def analyze_profiler_traces(trace_files: list[Path]) -> ProfilerMetrics:
                 total_duration += (trace_end - trace_start) / 1000.0
 
     # Calculate averages and percentages
-    avg_step_time = total_step_time / max(steps_profiled, 1)
+    step_divisor = max(steps_profiled, 1)
+    avg_step_time = total_step_time / step_divisor
     total_active_time = total_gpu_time + total_cpu_time
 
     gpu_utilization = (total_gpu_time / total_duration * 100) if total_duration > 0 else 0
@@ -405,6 +406,31 @@ def analyze_profiler_traces(trace_files: list[Path]) -> ProfilerMetrics:
             # Silently continue if pandas is not available or parsing fails
             pass
 
+    # Convert L2 totals into per-step averages (ms/step), matching avg_step_time_ms.
+    total_dataloader_io_wait = l2_region_totals["dataloader/io_wait"] / step_divisor
+    total_dataloader_cpu_decode = l2_region_totals["dataloader/cpu_decode"] / step_divisor
+    total_dataloader_preprocess_wait = l2_region_totals["dataloader/preprocess_wait"] / step_divisor
+    total_dataloader_cpu_xform = l2_region_totals["dataloader/cpu_xform"] / step_divisor
+
+    total_model_stem = l2_region_totals["model/stem"] / step_divisor
+    total_model_convnext_stage_0 = l2_region_totals["model/convnext_stage_0"] / step_divisor
+    total_model_downsample_0 = l2_region_totals["model/downsample_0"] / step_divisor
+    total_model_convnext_stage_1 = l2_region_totals["model/convnext_stage_1"] / step_divisor
+    total_model_downsample_1 = l2_region_totals["model/downsample_1"] / step_divisor
+    total_model_downsample_2 = l2_region_totals["model/downsample_2"] / step_divisor
+    total_model_rope_stage_2 = l2_region_totals["model/rope_stage_2"] / step_divisor
+    total_model_rope_stage_3 = l2_region_totals["model/rope_stage_3"] / step_divisor
+    total_model_rope_stage_4 = l2_region_totals["model/rope_stage_4"] / step_divisor
+    total_model_aggregation = l2_region_totals["model/aggregation"] / step_divisor
+
+    total_loss_core_loss = l2_region_totals["loss/core_loss"] / step_divisor
+    total_loss_masking = l2_region_totals["loss/masking"] / step_divisor
+    total_loss_weighting = l2_region_totals["loss/weighting"] / step_divisor
+    total_loss_aggregation = l2_region_totals["loss/aggregation"] / step_divisor
+
+    total_augmentation_selective_mixing = l2_region_totals["augmentation/selective_mixing"] / step_divisor
+    total_augmentation_gpu_batch_augmentations = l2_region_totals["augmentation/gpu_batch_augmentations"] / step_divisor
+
     return ProfilerMetrics(
         avg_step_time_ms=avg_step_time,
         gpu_utilization_pct=gpu_utilization,
@@ -415,8 +441,8 @@ def analyze_profiler_traces(trace_files: list[Path]) -> ProfilerMetrics:
         total_kernels=total_kernel_count,
         trace_duration_ms=total_duration,
         steps_profiled=steps_profiled,
-        batch_aug_time_ms=total_batch_aug_time,
-        mixing_time_ms=total_mixing_time,
+        batch_aug_time_ms=total_batch_aug_time / step_divisor,
+        mixing_time_ms=total_mixing_time / step_divisor,
         # Level 2 profiling metrics
         dataloader_io_wait_ms=total_dataloader_io_wait,
         dataloader_cpu_decode_ms=total_dataloader_cpu_decode,
@@ -427,6 +453,10 @@ def analyze_profiler_traces(trace_files: list[Path]) -> ProfilerMetrics:
         model_convnext_stage_1_ms=total_model_convnext_stage_1,
         model_rope_stage_2_ms=total_model_rope_stage_2,
         model_rope_stage_3_ms=total_model_rope_stage_3,
+        model_rope_stage_4_ms=total_model_rope_stage_4,
+        model_downsample_0_ms=total_model_downsample_0,
+        model_downsample_1_ms=total_model_downsample_1,
+        model_downsample_2_ms=total_model_downsample_2,
         model_aggregation_ms=total_model_aggregation,
         loss_core_loss_ms=total_loss_core_loss,
         loss_masking_ms=total_loss_masking,
@@ -516,9 +546,13 @@ def format_pretty(summary: RunSummary) -> Panel:
         # Model components
         add_component_row("Model Stem", m.model_stem_ms)
         add_component_row("Model ConvNeXt Stage 0", m.model_convnext_stage_0_ms)
+        add_component_row("Model Downsample 0", m.model_downsample_0_ms)
         add_component_row("Model ConvNeXt Stage 1", m.model_convnext_stage_1_ms)
+        add_component_row("Model Downsample 1", m.model_downsample_1_ms)
+        add_component_row("Model Downsample 2", m.model_downsample_2_ms)
         add_component_row("Model RoPE Stage 2", m.model_rope_stage_2_ms)
         add_component_row("Model RoPE Stage 3", m.model_rope_stage_3_ms)
+        add_component_row("Model RoPE Stage 4", m.model_rope_stage_4_ms)
         add_component_row("Model Aggregation", m.model_aggregation_ms)
 
         # Loss components
@@ -658,9 +692,13 @@ def format_markdown(summary: RunSummary) -> str:
         add_component("Dataloader CPU Transform", m.dataloader_cpu_xform_ms)
         add_component("Model Stem", m.model_stem_ms)
         add_component("Model ConvNeXt Stage 0", m.model_convnext_stage_0_ms)
+        add_component("Model Downsample 0", m.model_downsample_0_ms)
         add_component("Model ConvNeXt Stage 1", m.model_convnext_stage_1_ms)
+        add_component("Model Downsample 1", m.model_downsample_1_ms)
+        add_component("Model Downsample 2", m.model_downsample_2_ms)
         add_component("Model RoPE Stage 2", m.model_rope_stage_2_ms)
         add_component("Model RoPE Stage 3", m.model_rope_stage_3_ms)
+        add_component("Model RoPE Stage 4", m.model_rope_stage_4_ms)
         add_component("Model Aggregation", m.model_aggregation_ms)
         add_component("Loss Core Loss", m.loss_core_loss_ms)
         add_component("Loss Masking", m.loss_masking_ms)
