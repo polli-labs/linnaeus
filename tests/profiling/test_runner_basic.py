@@ -44,8 +44,45 @@ def test_modify_compose_file_basic():
     command = result["services"]["linnaeus-training"]["command"]
     assert "configs/test.yaml" in command
     assert "--opts TRAIN.EPOCHS 5" in command
+    # Profiling runs should force-disable autobatch to avoid probing overhead.
+    assert "DATA.AUTOBATCH.ENABLED False" in command
+    assert "DATA.AUTOBATCH.ENABLED_VAL False" in command
     assert "{{CONFIG_FILE}}" not in command
     assert "{{OPTS_STRING}}" not in command
+
+
+def test_modify_compose_file_forces_autobatch_off_even_when_requested():
+    template_data = {
+        "services": {
+            "linnaeus-training": {
+                "image": "linnaeus:test",
+                "command": "python -m linnaeus.main --cfg {{CONFIG_FILE}}{{OPTS_STRING}}",
+            }
+        }
+    }
+
+    trial = {
+        "name": "test_trial",
+        "config_file": "configs/test.yaml",
+        "git_ref": "main",
+        "opts": [
+            "DATA.AUTOBATCH.ENABLED",
+            "True",
+            "DATA.AUTOBATCH.ENABLED_VAL",
+            "True",
+        ],
+    }
+
+    result = modify_compose_file(template_data, trial)
+    command = result["services"]["linnaeus-training"]["command"]
+
+    # Ensure we do not retain the requested True flags.
+    assert "DATA.AUTOBATCH.ENABLED True" not in command
+    assert "DATA.AUTOBATCH.ENABLED_VAL True" not in command
+
+    # Ensure we force both flags off.
+    assert "DATA.AUTOBATCH.ENABLED False" in command
+    assert "DATA.AUTOBATCH.ENABLED_VAL False" in command
 
 
 def test_modify_compose_file_with_env_yaml():
