@@ -73,6 +73,7 @@ from linnaeus.utils.distributed import (
     get_world_size,
 )
 from linnaeus.utils.hpc_utils import register_slurm_signal_handlers
+from linnaeus.utils.init_timing import emit_init_timing
 from linnaeus.utils.logging.logger import create_h5data_logger, create_logger, get_h5data_logger, get_level_number, get_main_logger
 from linnaeus.utils.logging.wandb import initialize_wandb, log_epoch_results, log_final_results, maybe_generate_wandb_run_id
 from linnaeus.utils.meta_utils import compute_meta_chunk_bounds
@@ -976,55 +977,69 @@ def main(config, args=None, resolved_env=None):
 
     # Possibly do autobatch for training and validation now that optimizer,
     # loss functions, grad weighting, and scaler are available
-    if config.DATA.AUTOBATCH.ENABLED:
+    def _emit_autobatch_init(stage: str) -> None:
         if rank == 0:
-            logger.info("[Autobatch] Searching for best train batch size...")
-        best_bs = auto_find_batch_size(
-            model=model,
-            config=config,
-            mode="train",
-            optimizer_main=optimizer,
-            criteria_train=criteria_train,
-            grad_weighting_main=grad_weighting,
-            scaler_main=scaler,
-            target_memory_fraction=config.DATA.AUTOBATCH.TARGET_MEMORY_FRACTION,
-            max_batch_size=config.DATA.AUTOBATCH.MAX_BATCH_SIZE,
-            log_level="DEBUG" if config.EXPERIMENT.LOG_LEVEL_MAIN == "DEBUG" else "INFO",
-        )
-        if best_bs < 1:
-            best_bs = 16
-            if rank == 0:
-                logger.warning("Autobatch => fallback=16 for training")
-        config.defrost()
-        config.DATA.BATCH_SIZE = best_bs
-        config.freeze()
-        if rank == 0:
-            logger.info(f"[Autobatch] Using train BATCH_SIZE={best_bs}")
+            emit_init_timing(stage, logger_override=logger)
 
-    if config.DATA.AUTOBATCH.ENABLED_VAL:
-        if rank == 0:
-            logger.info("[Autobatch] Searching for best val batch size...")
-        best_val_bs = auto_find_batch_size(
-            model=model,
-            config=config,
-            mode="val",
-            optimizer_main=optimizer,
-            criteria_val=criteria_val,
-            grad_weighting_main=grad_weighting,
-            scaler_main=scaler,
-            target_memory_fraction=config.DATA.AUTOBATCH.TARGET_MEMORY_FRACTION_VAL,
-            max_batch_size=config.DATA.AUTOBATCH.MAX_BATCH_SIZE_VAL,
-            log_level="DEBUG" if config.EXPERIMENT.LOG_LEVEL_MAIN == "DEBUG" else "INFO",
-        )
-        if best_val_bs < 1:
-            best_val_bs = config.DATA.BATCH_SIZE_VAL
-            if rank == 0:
-                logger.warning(f"[Autobatch] fallback => val BATCH_SIZE_VAL={best_val_bs}")
-        config.defrost()
-        config.DATA.BATCH_SIZE_VAL = best_val_bs
-        config.freeze()
-        if rank == 0:
-            logger.info(f"[Autobatch] Using val BATCH_SIZE_VAL={best_val_bs}")
+    autobatch_enabled = config.DATA.AUTOBATCH.ENABLED or config.DATA.AUTOBATCH.ENABLED_VAL
+    if autobatch_enabled:
+        _emit_autobatch_init("autobatch_probe_start")
+        try:
+            if config.DATA.AUTOBATCH.ENABLED:
+                _emit_autobatch_init("autobatch_train_probe_start")
+                if rank == 0:
+                    logger.info("[Autobatch] Searching for best train batch size...")
+                best_bs = auto_find_batch_size(
+                    model=model,
+                    config=config,
+                    mode="train",
+                    optimizer_main=optimizer,
+                    criteria_train=criteria_train,
+                    grad_weighting_main=grad_weighting,
+                    scaler_main=scaler,
+                    target_memory_fraction=config.DATA.AUTOBATCH.TARGET_MEMORY_FRACTION,
+                    max_batch_size=config.DATA.AUTOBATCH.MAX_BATCH_SIZE,
+                    log_level="DEBUG" if config.EXPERIMENT.LOG_LEVEL_MAIN == "DEBUG" else "INFO",
+                )
+                if best_bs < 1:
+                    best_bs = 16
+                    if rank == 0:
+                        logger.warning("Autobatch => fallback=16 for training")
+                config.defrost()
+                config.DATA.BATCH_SIZE = best_bs
+                config.freeze()
+                if rank == 0:
+                    logger.info(f"[Autobatch] Using train BATCH_SIZE={best_bs}")
+                _emit_autobatch_init("autobatch_train_probe_end")
+
+            if config.DATA.AUTOBATCH.ENABLED_VAL:
+                _emit_autobatch_init("autobatch_val_probe_start")
+                if rank == 0:
+                    logger.info("[Autobatch] Searching for best val batch size...")
+                best_val_bs = auto_find_batch_size(
+                    model=model,
+                    config=config,
+                    mode="val",
+                    optimizer_main=optimizer,
+                    criteria_val=criteria_val,
+                    grad_weighting_main=grad_weighting,
+                    scaler_main=scaler,
+                    target_memory_fraction=config.DATA.AUTOBATCH.TARGET_MEMORY_FRACTION_VAL,
+                    max_batch_size=config.DATA.AUTOBATCH.MAX_BATCH_SIZE_VAL,
+                    log_level="DEBUG" if config.EXPERIMENT.LOG_LEVEL_MAIN == "DEBUG" else "INFO",
+                )
+                if best_val_bs < 1:
+                    best_val_bs = config.DATA.BATCH_SIZE_VAL
+                    if rank == 0:
+                        logger.warning(f"[Autobatch] fallback => val BATCH_SIZE_VAL={best_val_bs}")
+                config.defrost()
+                config.DATA.BATCH_SIZE_VAL = best_val_bs
+                config.freeze()
+                if rank == 0:
+                    logger.info(f"[Autobatch] Using val BATCH_SIZE_VAL={best_val_bs}")
+                _emit_autobatch_init("autobatch_val_probe_end")
+        finally:
+            _emit_autobatch_init("autobatch_probe_end")
 
     # Synchronize after all ranks have potentially updated their config from autobatch search
     if dist.is_available() and dist.is_initialized():
