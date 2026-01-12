@@ -11,6 +11,8 @@ import pytest
 
 from linnaeus.tools.profiling.run_profiling_trials import (
     _force_disable_autobatch_opts,
+    _infer_compose_gpu_count,
+    _validate_concurrent_settings,
     classify_trial_status,
     modify_compose_file,
     check_docker_compose,
@@ -239,6 +241,53 @@ def test_modify_compose_file_normalizes_single_gpu_cuda_visible_devices():
     devices = service["deploy"]["resources"]["reservations"]["devices"]
     assert devices[0]["device_ids"] == ["1"]
     assert "count" not in devices[0]
+
+
+def test_infer_compose_gpu_count_from_deploy_count():
+    template_data = {
+        "services": {
+            "linnaeus-training": {
+                "deploy": {
+                    "resources": {
+                        "reservations": {
+                            "devices": [
+                                {"driver": "nvidia", "count": 2, "capabilities": ["gpu"]},
+                            ]
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    assert _infer_compose_gpu_count(template_data) == 2
+
+
+def test_infer_compose_gpu_count_from_env_list():
+    template_data = {
+        "services": {
+            "linnaeus-training": {
+                "environment": [
+                    "CUDA_VISIBLE_DEVICES=0,1",
+                ]
+            }
+        }
+    }
+
+    assert _infer_compose_gpu_count(template_data) == 2
+
+
+def test_validate_concurrent_settings_blocks_multi_gpu_templates():
+    with pytest.raises(ValueError):
+        _validate_concurrent_settings(
+            max_concurrent=2,
+            template_gpu_count=2,
+            compose_template=Path("docker-compose.yml"),
+        )
+
+    # Should not raise for sequential or unknown GPU count.
+    _validate_concurrent_settings(max_concurrent=1, template_gpu_count=2, compose_template=Path("docker-compose.yml"))
+    _validate_concurrent_settings(max_concurrent=2, template_gpu_count=None, compose_template=Path("docker-compose.yml"))
 
 
 def test_extract_experiment_path():
