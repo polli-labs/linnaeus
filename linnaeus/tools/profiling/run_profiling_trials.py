@@ -9,6 +9,7 @@ Supports both sequential and concurrent execution modes for multi-GPU systems.
 """
 
 import argparse
+import datetime
 import json
 import logging
 import os
@@ -120,6 +121,8 @@ SUCCESS_STRING = "DEBUG: Early exiting main training loop"
 # early-log signals (e.g. output directory, autobatch final batch sizes) while
 # still bounding memory usage for long runs.
 LOG_CAPTURE_LINES = 2000
+SUMMARY_TAIL_LINES = 200
+STATUS_DIRNAME = "status"
 DOCKER_SERVICE_NAME = "linnaeus-training"
 TIMEOUT_EXIT_CODE = 124
 RUNNER_ERROR_EXIT_CODE = 125
@@ -191,6 +194,9 @@ _BATCH_SIZE_PER_GPU_RE = re.compile(r"Batch size: (?P<train>\d+) per GPU")
 _STARTING_TRAINING_BATCH_RE = re.compile(r"Starting training with per-GPU batch_size=(?P<train>\d+)")
 _REFERENCE_BATCH_SIZE_RE = re.compile(r"Reference Batch Size: (?P<val>\d+)")
 _LR_SCALING_REF_BATCH_SIZE_RE = re.compile(r"Reference batch size: (?P<val>\d+)", re.IGNORECASE)
+_NPROC_PER_NODE_RE = re.compile(r"--nproc_per_node(?:=|\s+)(?P<count>\d+)")
+_NPROC_PER_NODE_DASH_RE = re.compile(r"--nproc-per-node(?:=|\s+)(?P<count>\d+)")
+_NPROC_PER_NODE_DEFAULT_RE = re.compile(r"NPROC_PER_NODE:-?(?P<count>\d+)")
 
 # PrefetchingHybridDataset monitor lines include steady-state pipeline health signals like
 # queue depths, cache hit %, IO/handoff throughput and wait times. These show up in
@@ -527,6 +533,390 @@ def classify_trial_status(returncode: int, log_lines: Optional[List[str]] = None
     return "failure"
 
 
+def _slugify_trial_name(name: str) -> str:
+    if not name:
+        return "trial"
+    slug = re.sub(r"[^a-zA-Z0-9_-]+", "-", name).strip("-_")
+    slug = slug.lower()
+    return slug or "trial"
+
+
+def _status_dir(output_dir: Path) -> Path:
+    return output_dir / STATUS_DIRNAME
+
+
+def _status_file_path(output_dir: Path, trial_name: str) -> Path:
+    return _status_dir(output_dir) / f"{_slugify_trial_name(trial_name)}.json"
+
+
+def _now_iso() -> str:
+    return datetime.datetime.now(tz=datetime.timezone.utc).isoformat()
+
+
+def update_trial_status(output_dir: Path, trial_name: str, updates: dict[str, Any]) -> Path:
+    status_dir = _status_dir(output_dir)
+    status_dir.mkdir(parents=True, exist_ok=True)
+    path = _status_file_path(output_dir, trial_name)
+
+    data: dict[str, Any] = {}
+    if path.exists():
+        try:
+            data = json.loads(path.read_text())
+        except json.JSONDecodeError:
+            data = {}
+
+    data.setdefault("name", trial_name)
+    if updates.get("status") == "running" and "started_at" not in data:
+        data["started_at"] = _now_iso()
+    data.update(updates)
+    data["updated_at"] = _now_iso()
+
+    path.write_text(json.dumps(data, indent=2))
+    return path
+
+
+def _compose_env_to_dict(environment: Any) -> dict[str, str]:
+    env_entries = _flatten_compose_environment(environment)
+    env: dict[str, str] = {}
+    for entry in env_entries:
+        if "=" not in entry:
+            continue
+        key, value = entry.split("=", 1)
+        env[key] = value
+    return env
+
+
+def _parse_visible_devices(value: Optional[str], available_gpus: Optional[int]) -> Optional[int]:
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    lowered = text.lower()
+    if lowered in {"all", "auto"}:
+        return available_gpus if available_gpus is not None else None
+    range_match = re.match(r"^(?P<start>\d+)-(?P<end>\d+)$", text)
+    if range_match:
+        start = int(range_match.group("start"))
+        end = int(range_match.group("end"))
+        if end >= start:
+            return end - start + 1
+    parts = [p.strip() for p in text.split(",") if p.strip()]
+    if not parts:
+        return None
+    if all(p.isdigit() for p in parts):
+        return len(parts)
+    if text.isdigit():
+        return 1
+    return None
+
+
+def _infer_gpu_count_from_service(service: dict[str, Any], available_gpus: Optional[int]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+
+    gpus_field = service.get("gpus")
+    if gpus_field is not None:
+        if isinstance(gpus_field, int) and gpus_field > 0:
+            counts["compose_gpus"] = gpus_field
+        elif isinstance(gpus_field, str):
+            gpus_text = gpus_field.strip().lower()
+            if gpus_text.isdigit():
+                counts["compose_gpus"] = int(gpus_text)
+            elif gpus_text == "all" and available_gpus is not None:
+                counts["compose_gpus"] = available_gpus
+
+    deploy = service.get("deploy")
+    if isinstance(deploy, dict):
+        resources = deploy.get("resources")
+        if isinstance(resources, dict):
+            reservations = resources.get("reservations")
+            if isinstance(reservations, dict):
+                devices = reservations.get("devices")
+                if isinstance(devices, list):
+                    for device in devices:
+                        if not isinstance(device, dict):
+                            continue
+                        capabilities = device.get("capabilities")
+                        has_gpu_cap = isinstance(capabilities, list) and "gpu" in capabilities
+                        if device.get("driver") != "nvidia" and not has_gpu_cap:
+                            continue
+                        device_ids = device.get("device_ids")
+                        if isinstance(device_ids, list) and device_ids:
+                            counts["compose_device_ids"] = max(counts.get("compose_device_ids", 0), len(device_ids))
+                        count = device.get("count")
+                        if isinstance(count, int) and count > 0:
+                            counts["compose_device_count"] = max(counts.get("compose_device_count", 0), count)
+                        elif isinstance(count, str):
+                            count_text = count.strip().lower()
+                            if count_text.isdigit():
+                                counts["compose_device_count"] = max(
+                                    counts.get("compose_device_count", 0),
+                                    int(count_text),
+                                )
+                            elif count_text == "all" and available_gpus is not None:
+                                counts["compose_device_count"] = max(counts.get("compose_device_count", 0), available_gpus)
+
+    return counts
+
+
+def _infer_gpu_count_from_env(env_map: dict[str, str], available_gpus: Optional[int]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for key in ("NVIDIA_VISIBLE_DEVICES", "CUDA_VISIBLE_DEVICES"):
+        if key in env_map:
+            parsed = _parse_visible_devices(env_map[key], available_gpus)
+            if parsed:
+                counts[f"env_{key.lower()}"] = parsed
+
+    for key in ("WORLD_SIZE", "LOCAL_WORLD_SIZE", "NPROC_PER_NODE", "NUM_GPUS"):
+        if key in env_map:
+            try:
+                value = int(str(env_map[key]).strip())
+            except (TypeError, ValueError):
+                continue
+            if value > 0:
+                counts[f"env_{key.lower()}"] = value
+
+    return counts
+
+
+def _command_to_string(command: Any) -> str:
+    if isinstance(command, list):
+        return " ".join(str(part) for part in command)
+    if isinstance(command, str):
+        return command
+    return ""
+
+
+def _infer_gpu_count_from_command(command: Any, env_map: dict[str, str]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    command_str = _command_to_string(command)
+    if not command_str:
+        return counts
+
+    for regex in (_NPROC_PER_NODE_RE, _NPROC_PER_NODE_DASH_RE):
+        match = regex.search(command_str)
+        if match:
+            counts["cmd_nproc_per_node"] = int(match.group("count"))
+            return counts
+
+    if "NPROC_PER_NODE" in env_map:
+        try:
+            counts["cmd_nproc_per_node"] = int(str(env_map["NPROC_PER_NODE"]).strip())
+            return counts
+        except (TypeError, ValueError):
+            pass
+
+    default_match = _NPROC_PER_NODE_DEFAULT_RE.search(command_str)
+    if default_match:
+        counts["cmd_nproc_per_node"] = int(default_match.group("count"))
+
+    return counts
+
+
+def infer_trial_gpu_requirement(
+    template_data: dict[str, Any],
+    trial: dict[str, Any],
+    output_dir: Path,
+    available_gpus: Optional[int],
+) -> tuple[int, dict[str, int]]:
+    compose_data = modify_compose_file(template_data, trial, str(output_dir))
+    service = compose_data["services"].get(DOCKER_SERVICE_NAME, {})
+
+    counts: dict[str, int] = {}
+    counts.update(_infer_gpu_count_from_service(service, available_gpus))
+
+    env_map = _compose_env_to_dict(service.get("environment"))
+    counts.update(_infer_gpu_count_from_env(env_map, available_gpus))
+    counts.update(_infer_gpu_count_from_command(service.get("command"), env_map))
+
+    required = max(counts.values(), default=1)
+    return required, counts
+
+
+def _tail_lines(lines: list[str], limit: int) -> list[str]:
+    if limit <= 0:
+        return []
+    return lines[-limit:]
+
+
+def _tail_text(text: str, limit: int) -> list[str]:
+    return _tail_lines(text.splitlines(), limit)
+
+
+def collect_status_records(
+    output_dir: Path,
+    trial_names: Optional[list[str]] = None,
+    tail_lines: int = 30,
+) -> dict[str, dict[str, Any]]:
+    records: dict[str, dict[str, Any]] = {}
+    status_dir = _status_dir(output_dir)
+    if status_dir.exists():
+        for status_file in sorted(status_dir.glob("*.json")):
+            try:
+                data = json.loads(status_file.read_text())
+            except json.JSONDecodeError:
+                continue
+            name = data.get("name") or status_file.stem
+            records[name] = data
+
+    summary_file = output_dir / "summary.json"
+    if summary_file.exists():
+        try:
+            summary_data = json.loads(summary_file.read_text())
+        except json.JSONDecodeError:
+            summary_data = []
+        if isinstance(summary_data, list):
+            for entry in summary_data:
+                if not isinstance(entry, dict):
+                    continue
+                name = entry.get("name")
+                if not name or name in records:
+                    continue
+                records[name] = entry.copy()
+
+    if trial_names:
+        for name in trial_names:
+            records.setdefault(name, {"name": name, "status": "unknown"})
+
+    for record in records.values():
+        if "log_tail" in record and record["log_tail"]:
+            continue
+        stdout_tail = record.get("stdout_tail")
+        stderr_tail = record.get("stderr_tail")
+        if stdout_tail or stderr_tail:
+            record["log_tail"] = (stdout_tail or []) + (stderr_tail or [])
+            continue
+        if "stdout" in record:
+            record["log_tail"] = _tail_text(str(record.get("stdout", "")), tail_lines)
+            continue
+        failure_log = record.get("failure_log")
+        if failure_log and Path(failure_log).exists():
+            try:
+                record["log_tail"] = _tail_lines(
+                    Path(failure_log).read_text(errors="replace").splitlines(),
+                    tail_lines,
+                )
+                continue
+            except OSError:
+                pass
+        record.setdefault("log_tail", [])
+
+    return records
+
+
+def apply_resume_policy(
+    trials: list[dict[str, Any]],
+    status_records: dict[str, dict[str, Any]],
+    failures_only: bool,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    to_run: list[dict[str, Any]] = []
+    skipped: list[dict[str, Any]] = []
+
+    for trial in trials:
+        name = trial.get("name")
+        record = status_records.get(name) if name else None
+        status = record.get("status") if record else None
+        if status == "success":
+            skipped.append({"name": name, "status": "skipped", "skip_reason": "already_success"})
+            continue
+        if status in {"failure", "error", "timeout"}:
+            to_run.append(trial)
+            continue
+        if status in {"running", "queued"}:
+            skipped.append({"name": name, "status": "skipped", "skip_reason": f"{status}_in_progress"})
+            continue
+        if failures_only:
+            skipped.append({"name": name, "status": "skipped", "skip_reason": "not_failed"})
+            continue
+        to_run.append(trial)
+
+    return to_run, skipped
+
+
+def build_gpu_allocation_plan(
+    trials: list[dict[str, Any]],
+    required_by_trial: dict[str, int],
+    total_gpus: int,
+    gpu_assignment: str,
+) -> list[dict[str, Any]]:
+    plan: list[dict[str, Any]] = []
+    if total_gpus <= 0:
+        return plan
+
+    if gpu_assignment == "manual":
+        for trial in trials:
+            name = trial.get("name", "trial")
+            required = required_by_trial.get(name, 1)
+            gpu_ids = trial.get("gpu_ids")
+            if gpu_ids is None and trial.get("gpu_rank") is not None:
+                gpu_ids = [trial.get("gpu_rank")]
+            plan.append(
+                {
+                    "name": name,
+                    "required_gpus": required,
+                    "gpu_ids": gpu_ids or [],
+                    "wave": 1,
+                }
+            )
+        return plan
+
+    if gpu_assignment == "round-robin":
+        cursor = 0
+        for trial in trials:
+            name = trial.get("name", "trial")
+            required = required_by_trial.get(name, 1)
+            if required > total_gpus:
+                plan.append(
+                    {"name": name, "required_gpus": required, "gpu_ids": [], "wave": None, "error": "insufficient_gpus"}
+                )
+                continue
+            gpu_ids = [((cursor + idx) % total_gpus) for idx in range(required)]
+            cursor += required
+            plan.append({"name": name, "required_gpus": required, "gpu_ids": gpu_ids, "wave": 1})
+        return plan
+
+    # Auto: greedy wave packing
+    wave = 1
+    available = list(range(total_gpus))
+    for trial in trials:
+        name = trial.get("name", "trial")
+        required = required_by_trial.get(name, 1)
+        if required > total_gpus:
+            plan.append(
+                {"name": name, "required_gpus": required, "gpu_ids": [], "wave": None, "error": "insufficient_gpus"}
+            )
+            continue
+        if len(available) < required:
+            wave += 1
+            available = list(range(total_gpus))
+        gpu_ids = available[:required]
+        del available[:required]
+        plan.append({"name": name, "required_gpus": required, "gpu_ids": gpu_ids, "wave": wave})
+    return plan
+
+
+def _detect_host_gpu_count() -> Optional[int]:
+    env_visible = os.environ.get("CUDA_VISIBLE_DEVICES")
+    parsed = _parse_visible_devices(env_visible, None)
+    if parsed:
+        return parsed
+    try:
+        result = subprocess.run(
+            ["nvidia-smi", "-L"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except FileNotFoundError:
+        return None
+    if result.returncode != 0:
+        return None
+    lines = [line for line in result.stdout.splitlines() if line.strip().startswith("GPU")]
+    if not lines:
+        return None
+    return len(lines)
+
+
 def parse_args():
     """Parse command-line arguments."""
     parser = argparse.ArgumentParser(
@@ -559,9 +949,17 @@ Trial JSONL format:
 Tip: a local `work/` directory is a convenient place to keep trial JSONLs, compose templates, and results (it is typically gitignored).
 """,
     )
-    parser.add_argument("--trial-params-file", required=True, type=Path, help="Path to the JSONL file defining trials.")
+    parser.add_argument(
+        "--trial-params-file",
+        type=Path,
+        help="Path to the JSONL file defining trials (required unless --status).",
+    )
     parser.add_argument("--output-dir", required=True, type=Path, help="Directory to save status and failure logs.")
-    parser.add_argument("--compose-template", required=True, type=Path, help="Path to the docker-compose.yml template file.")
+    parser.add_argument(
+        "--compose-template",
+        type=Path,
+        help="Path to the docker-compose.yml template file (required unless --status).",
+    )
     parser.add_argument("--timeout", type=int, default=180, help="Timeout in seconds for each trial.")
     parser.add_argument("--exit-on-failure", action="store_true", help="Exit immediately if any trial fails.")
     parser.add_argument(
@@ -588,6 +986,26 @@ Tip: a local `work/` directory is a convenient place to keep trial JSONLs, compo
         type=float,
         default=5.0,
         help="Delay between trial starts to reduce contention (seconds, default: 5.0)"
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Print inferred GPU requirements and allocation plan, then exit.",
+    )
+    parser.add_argument(
+        "--status",
+        action="store_true",
+        help="Show trial status from an output directory and exit.",
+    )
+    parser.add_argument(
+        "--resume",
+        action="store_true",
+        help="Resume from an output directory by skipping completed trials.",
+    )
+    parser.add_argument(
+        "--resume-failures-only",
+        action="store_true",
+        help="When resuming, rerun failures only (skip missing/unrun trials).",
     )
     
     return parser.parse_args()
@@ -1035,6 +1453,71 @@ def copy_debug_log(exp_path: str, output_file: Path) -> bool:
     return False
 
 
+def infer_failure_reason(
+    returncode: Optional[int],
+    log_lines: Optional[list[str]],
+    *,
+    error: Optional[str] = None,
+) -> Optional[str]:
+    if returncode == TIMEOUT_EXIT_CODE:
+        return "timeout"
+
+    text = ""
+    if log_lines:
+        text = "\n".join(log_lines)
+    if error:
+        text = f"{text}\n{error}"
+
+    patterns = [
+        ("cuda_invalid_device_ordinal", re.compile(r"invalid device ordinal", re.IGNORECASE)),
+        ("cuda_no_gpus", re.compile(r"no cuda gpus are available|no cuda devices", re.IGNORECASE)),
+        ("cuda_oom", re.compile(r"cuda out of memory|out of memory", re.IGNORECASE)),
+        ("nccl_error", re.compile(r"nccl", re.IGNORECASE)),
+        ("docker_compose_failure", re.compile(r"docker compose|docker-compose", re.IGNORECASE)),
+        ("permission_denied", re.compile(r"permission denied", re.IGNORECASE)),
+        ("file_not_found", re.compile(r"no such file or directory", re.IGNORECASE)),
+    ]
+    for reason, regex in patterns:
+        if regex.search(text):
+            return reason
+
+    if error and "Failed to acquire" in error:
+        return "gpu_allocation_timeout"
+
+    if returncode not in (None, 0):
+        return f"exit_code_{returncode}"
+
+    return None
+
+
+def _capture_debug_log_for_result(result: dict[str, Any], output_dir: Path) -> None:
+    exp_path_container = result.get("experiment_path")
+    compose_file = result.get("compose_file")
+    trial_name = result.get("name", "trial")
+    if not exp_path_container or not compose_file:
+        result["debug_log_missing_reason"] = "missing_experiment_path_or_compose"
+        return
+
+    try:
+        with open(compose_file, "r", encoding="utf-8") as f:
+            compose_data = yaml.safe_load(f)
+    except Exception:
+        result["debug_log_missing_reason"] = "compose_read_failed"
+        return
+
+    exp_path_host = resolve_experiment_path_host(compose_data, exp_path_container)
+    if not exp_path_host:
+        result["debug_log_missing_reason"] = "experiment_path_unresolved"
+        return
+
+    target_dir = Path(result.get("trial_output_dir") or output_dir)
+    debug_log_copy = target_dir / f"{_slugify_trial_name(trial_name)}_debug_log.txt"
+    if copy_debug_log(exp_path_host, debug_log_copy):
+        result["debug_log"] = str(debug_log_copy)
+    else:
+        result["debug_log_missing_reason"] = "debug_log_not_found"
+
+
 def run_trials_concurrent(
     trials: List[Dict[str, Any]], 
     template_data: Dict[str, Any], 
@@ -1062,24 +1545,62 @@ def run_trials_concurrent(
     """
     # Initialize GPU pool manager
     gpu_pool = GPUPoolManager(gpu_count=max_concurrent)
-    
+
+    def status_callback(trial_name: str, payload: dict[str, Any]) -> None:
+        update_trial_status(output_dir, trial_name, payload)
+
     # Initialize concurrent executor
     executor = ConcurrentTrialExecutor(
         gpu_pool=gpu_pool,
         max_workers=max_concurrent,
-        stagger_delay=stagger_delay
+        stagger_delay=stagger_delay,
+        status_callback=status_callback,
     )
-    
+
     # Apply GPU assignment strategy
+    requires_multi_gpu = any(trial.get("required_gpus", 1) > 1 for trial in trials)
+    if requires_multi_gpu and gpu_assignment != "auto":
+        raise ValueError(
+            "Multi-GPU trials require --gpu-assignment auto to avoid overlapping GPU usage. "
+            "Set --gpu-assignment auto or run sequentially with --max-concurrent 1."
+        )
+
     if gpu_assignment == 'manual':
-        # Trials should have gpu_rank specified in config
-        pass
+        # Trials should have gpu_rank or gpu_ids specified in config.
+        for trial in trials:
+            required_gpus = trial.get("required_gpus", 1)
+            gpu_ids = trial.get("gpu_ids")
+            if gpu_ids is not None:
+                if not isinstance(gpu_ids, list) or len(gpu_ids) != required_gpus:
+                    raise ValueError(
+                        f"Trial '{trial.get('name')}' gpu_ids must be a list of length {required_gpus}."
+                    )
+            elif required_gpus == 1 and 'gpu_rank' not in trial:
+                raise ValueError(
+                    f"Trial '{trial.get('name')}' missing gpu_rank or gpu_ids for manual assignment."
+                )
     elif gpu_assignment == 'round-robin':
-        # Assign GPUs in round-robin fashion
+        # Assign GPUs in round-robin fashion (single GPU only)
         for i, trial in enumerate(trials):
+            if trial.get("required_gpus", 1) > 1:
+                raise ValueError(
+                    f"Trial '{trial.get('name')}' requires >1 GPU; round-robin only supports single-GPU trials."
+                )
             if 'gpu_rank' not in trial:
                 trial['gpu_rank'] = i % max_concurrent
     # 'auto' uses pool-based dynamic assignment
+
+    for trial in trials:
+        update_trial_status(
+            output_dir,
+            trial.get("name", "unknown"),
+            {
+                "status": "queued",
+                "required_gpus": trial.get("required_gpus", 1),
+            },
+        )
+
+    required_lookup = {trial.get("name", "unknown"): trial.get("required_gpus", 1) for trial in trials}
     
     # Define compose modification function
     def modify_compose_fn(
@@ -1149,6 +1670,40 @@ def run_trials_concurrent(
                             result.update(metrics)
                             result["metrics_source"] = str(debug_log_path)
                         result["experiment_path_host"] = exp_path_host
+
+        stdout_tail = _tail_text(result.get("stdout", ""), SUMMARY_TAIL_LINES)
+        stderr_tail = _tail_text(result.get("stderr", ""), SUMMARY_TAIL_LINES)
+        if stdout_tail:
+            result["stdout_tail"] = stdout_tail
+        if stderr_tail:
+            result["stderr_tail"] = stderr_tail
+
+        result["required_gpus"] = required_lookup.get(result.get("name", "unknown"), 1)
+
+        failure_reason = infer_failure_reason(
+            result.get("returncode"),
+            stdout_tail + stderr_tail,
+            error=result.get("error"),
+        )
+        if failure_reason and result.get("status") != "success":
+            result["failure_reason"] = failure_reason
+
+        if capture_debug_logs and result.get("status") in {"failure", "error", "timeout"}:
+            _capture_debug_log_for_result(result, output_dir)
+
+        update_trial_status(
+            output_dir,
+            result.get("name", "unknown"),
+            {
+                "status": result.get("status"),
+                "returncode": result.get("returncode"),
+                "gpu_ids": result.get("gpu_ids"),
+                "required_gpus": result.get("required_gpus"),
+                "failure_reason": result.get("failure_reason"),
+                "stdout_tail": result.get("stdout_tail"),
+                "stderr_tail": result.get("stderr_tail"),
+            },
+        )
             
     return results
 
@@ -1159,6 +1714,14 @@ def run_trial(
     """Run a single trial and return results."""
     trial_name = trial["name"]
     console.print(f"\n[bold blue]Running trial: {trial_name}[/bold blue]")
+    update_trial_status(
+        output_dir,
+        trial_name,
+        {
+            "status": "running",
+            "required_gpus": trial.get("required_gpus", 1),
+        },
+    )
 
     # Create temporary compose file
     compose_data = modify_compose_file(template_data, trial, str(output_dir))
@@ -1173,7 +1736,8 @@ def run_trial(
     elapsed_time = time.time() - start_time
 
     # Determine status
-    status = classify_trial_status(returncode, list(log_buffer))
+    log_lines = list(log_buffer)
+    status = classify_trial_status(returncode, log_lines)
 
     result = {
         "name": trial_name,
@@ -1182,6 +1746,7 @@ def run_trial(
         "elapsed_time": elapsed_time,
         "git_ref": trial.get("git_ref", "main"),
         "commit_hash": trial.get("commit_hash"),
+        "required_gpus": trial.get("required_gpus", 1),
     }
 
     init_payloads = extract_init_timing_payloads(init_marker_lines)
@@ -1189,7 +1754,7 @@ def run_trial(
     if init_timings:
         result["init_timings"] = init_timings
 
-    prefetch_monitor = parse_prefetch_monitor_medians(list(log_buffer))
+    prefetch_monitor = parse_prefetch_monitor_medians(log_lines)
     if prefetch_monitor:
         existing = result.get("prefetch_monitor")
         if isinstance(existing, dict):
@@ -1203,7 +1768,7 @@ def run_trial(
 
     # Try to resolve experiment output path (printed by training) so we can
     # parse stable metrics from the debug log (VRAM peaks are debug-level).
-    exp_path_container = extract_experiment_path(deque(init_marker_lines)) or extract_experiment_path(log_buffer)
+    exp_path_container = extract_experiment_path(deque(init_marker_lines)) or extract_experiment_path(log_lines)
     if exp_path_container:
         result["experiment_path"] = exp_path_container
         exp_path_host = resolve_experiment_path_host(compose_data, exp_path_container)
@@ -1226,22 +1791,45 @@ def run_trial(
         if batch_sizes:
             result["batch"] = batch_sizes
 
+    log_tail = _tail_lines(log_lines, SUMMARY_TAIL_LINES)
+    if log_tail:
+        result["log_tail"] = log_tail
+
+    failure_reason = infer_failure_reason(returncode, log_tail)
+    if failure_reason and status != "success":
+        result["failure_reason"] = failure_reason
+
     # Save logs on failure
     if status in ["failure", "error", "timeout"]:
         failure_log = output_dir / f"{trial_name}_failure.log"
         with open(failure_log, "w") as f:
-            f.write("\n".join(log_buffer))
+            f.write("\n".join(log_lines))
         result["failure_log"] = str(failure_log)
 
         # Try to copy debug log if requested
         if capture_debug_logs:
-            exp_path = extract_experiment_path(deque(init_marker_lines)) or extract_experiment_path(log_buffer)
+            exp_path = extract_experiment_path(deque(init_marker_lines)) or extract_experiment_path(log_lines)
             exp_path_host = resolve_experiment_path_host(compose_data, exp_path) if exp_path else None
             if exp_path_host:
                 debug_log_copy = output_dir / f"{trial_name}_debug_log.txt"
                 if copy_debug_log(exp_path_host, debug_log_copy):
                     result["debug_log"] = str(debug_log_copy)
                     console.print(f"[yellow]Copied debug log to {debug_log_copy}[/yellow]")
+                else:
+                    result["debug_log_missing_reason"] = "debug_log_not_found"
+            else:
+                result["debug_log_missing_reason"] = "experiment_path_unresolved"
+
+    update_trial_status(
+        output_dir,
+        trial_name,
+        {
+            "status": status,
+            "returncode": returncode,
+            "failure_reason": result.get("failure_reason"),
+            "log_tail": result.get("log_tail"),
+        },
+    )
 
     # Clean up temporary compose file
     temp_compose.unlink(missing_ok=True)
@@ -1253,7 +1841,43 @@ def main():
     """Main entry point."""
     args = parse_args()
 
-    # Validate inputs
+    if args.status:
+        trial_names: Optional[list[str]] = None
+        if args.trial_params_file and args.trial_params_file.exists():
+            trial_names = []
+            with open(args.trial_params_file) as f:
+                for line in f:
+                    line = line.strip()
+                    if line and not line.startswith("#"):
+                        trial = json.loads(line)
+                        if "name" in trial:
+                            trial_names.append(trial["name"])
+        records = collect_status_records(args.output_dir, trial_names=trial_names, tail_lines=30)
+        if not records:
+            console.print(f"[yellow]No status records found in {args.output_dir}[/yellow]")
+            sys.exit(1)
+        order = trial_names or sorted(records.keys())
+        console.print(f"\n=== Profiling Runner Status ({args.output_dir}) ===")
+        for name in order:
+            record = records.get(name, {"name": name, "status": "unknown"})
+            status = record.get("status", "unknown")
+            updated = record.get("updated_at") or record.get("completed_at") or ""
+            gpu_ids = record.get("gpu_ids") or []
+            failure_reason = record.get("failure_reason")
+            console.print(f"\n- {name}: {status} {f'GPU(s) {gpu_ids}' if gpu_ids else ''} {updated}")
+            if failure_reason:
+                console.print(f"  reason: {failure_reason}")
+            tail = record.get("log_tail") or []
+            if tail:
+                console.print("  log tail:")
+                for line in tail[-30:]:
+                    console.print(f"    {line}")
+        sys.exit(0)
+
+    if args.trial_params_file is None or args.compose_template is None:
+        console.print("[red]--trial-params-file and --compose-template are required unless --status is set.[/red]")
+        sys.exit(1)
+
     if not args.trial_params_file.exists():
         console.print(f"[red]Trial params file not found: {args.trial_params_file}[/red]")
         sys.exit(1)
@@ -1262,18 +1886,19 @@ def main():
         console.print(f"[red]Compose template not found: {args.compose_template}[/red]")
         sys.exit(1)
 
-    if not check_docker_compose():
+    if args.resume_failures_only and not args.resume:
+        console.print("[red]--resume-failures-only requires --resume.[/red]")
+        sys.exit(1)
+
+    if not args.dry_run and not check_docker_compose():
         console.print("[red]docker compose (or docker-compose) not found![/red]")
         sys.exit(1)
-    
+
     # Check concurrent execution support
     if args.max_concurrent > 1 and not CONCURRENT_SUPPORT:
         console.print("[red]Concurrent execution requested but concurrent modules not available![/red]")
         console.print("[yellow]Falling back to sequential execution[/yellow]")
         args.max_concurrent = 1
-
-    # Create output directory
-    args.output_dir.mkdir(parents=True, exist_ok=True)
 
     # Load trials
     trials = []
@@ -1303,9 +1928,88 @@ def main():
         console.print(f"[red]{exc}[/red]")
         sys.exit(2)
 
+    all_trials = list(trials)
+    required_by_trial: dict[str, int] = {}
+    sources_by_trial: dict[str, dict[str, int]] = {}
+    for trial in trials:
+        required, sources = infer_trial_gpu_requirement(
+            template_data, trial, args.output_dir, args.max_concurrent
+        )
+        trial["required_gpus"] = required
+        required_by_trial[trial.get("name", "trial")] = required
+        sources_by_trial[trial.get("name", "trial")] = sources
+
+    if args.dry_run:
+        plan = build_gpu_allocation_plan(
+            all_trials,
+            required_by_trial,
+            args.max_concurrent,
+            args.gpu_assignment,
+        )
+        console.print("\n=== Linnaeus Profiling Runner (Dry Run) ===")
+        console.print(f"Trials: {len(trials)}")
+        console.print(f"Max GPUs: {args.max_concurrent}")
+        console.print(f"GPU assignment: {args.gpu_assignment}")
+        for trial in all_trials:
+            name = trial.get("name", "trial")
+            sources = sources_by_trial.get(name, {})
+            source_str = ", ".join(f"{k}={v}" for k, v in sources.items()) or "default=1"
+            console.print(f"- {name}: required_gpus={required_by_trial.get(name, 1)} ({source_str})")
+        console.print("\nAllocation plan:")
+        for entry in plan:
+            if entry.get("error"):
+                console.print(f"- {entry['name']}: error={entry['error']}")
+                continue
+            console.print(
+                f"- wave {entry['wave']}: {entry['name']} -> gpus {entry.get('gpu_ids', [])} "
+                f"(required {entry['required_gpus']})"
+            )
+        if any(entry.get("error") == "insufficient_gpus" for entry in plan):
+            console.print(
+                "[red]Insufficient GPUs for at least one trial. Increase --max-concurrent or reduce GPU usage.[/red]"
+            )
+            sys.exit(1)
+        sys.exit(0)
+
+    # Validate GPU availability
+    insufficient = [
+        (trial.get("name", "trial"), trial.get("required_gpus", 1))
+        for trial in all_trials
+        if trial.get("required_gpus", 1) > args.max_concurrent
+    ]
+    if insufficient:
+        if args.max_concurrent == 1:
+            detected = _detect_host_gpu_count()
+            if detected is not None and all(req <= detected for _, req in insufficient):
+                console.print(
+                    f"[yellow]Detected {detected} GPUs; proceeding sequentially. "
+                    f"Use --max-concurrent {max(req for _, req in insufficient)} to avoid detection and enable concurrency.[/yellow]"
+                )
+            else:
+                details = ", ".join(f"{name} requires {req}" for name, req in insufficient)
+                console.print(
+                    f"[red]Insufficient GPUs (max_concurrent={args.max_concurrent}). {details}.[/red]"
+                )
+                console.print(
+                    "[yellow]Tip: set --max-concurrent to the total GPUs available or adjust the compose template.[/yellow]"
+                )
+                sys.exit(1)
+        else:
+            details = ", ".join(f"{name} requires {req}" for name, req in insufficient)
+            console.print(
+                f"[red]Insufficient GPUs (max_concurrent={args.max_concurrent}). {details}.[/red]"
+            )
+            console.print(
+                "[yellow]Tip: set --max-concurrent to the total GPUs available or adjust the compose template.[/yellow]"
+            )
+            sys.exit(1)
+
+    # Create output directory
+    args.output_dir.mkdir(parents=True, exist_ok=True)
+
     # Display trial plan
     if Panel:
-        trial_list = "\n".join([f"- {t['name']}: {t.get('git_ref', 'main')}" for t in trials])
+        trial_list = "\n".join([f"- {t['name']}: {t.get('git_ref', 'main')}" for t in all_trials])
         console.print(
             Panel(
                 f"[bold]Profiling Plan[/bold]\n\n"
@@ -1323,15 +2027,37 @@ def main():
         console.print(f"Timeout per trial: {args.timeout}s")
         console.print(f"Output directory: {args.output_dir}\n")
 
+    summary_file = args.output_dir / "summary.json"
+    previous_results: dict[str, dict[str, Any]] = {}
+    if args.resume and summary_file.exists():
+        try:
+            summary_data = json.loads(summary_file.read_text())
+            if isinstance(summary_data, list):
+                previous_results = {entry.get("name"): entry for entry in summary_data if entry.get("name")}
+        except json.JSONDecodeError:
+            previous_results = {}
+
+    # Apply resume policy if requested
+    skipped_results: list[dict[str, Any]] = []
+    if args.resume:
+        status_records = collect_status_records(args.output_dir, [t["name"] for t in all_trials])
+        trials, skipped_results = apply_resume_policy(all_trials, status_records, args.resume_failures_only)
+        if not trials:
+            console.print("[yellow]No trials to run after applying resume policy.[/yellow]")
+            merged = list(previous_results.values()) + skipped_results
+            with open(summary_file, "w") as f:
+                json.dump(merged, f, indent=2)
+            sys.exit(0)
+
     # Run trials based on execution mode
     start_time = time.time()
-    
+
     if args.max_concurrent > 1 and CONCURRENT_SUPPORT:
         # Concurrent execution mode
         console.print(f"\n[bold blue]Running trials concurrently on {args.max_concurrent} GPUs[/bold blue]")
         results = run_trials_concurrent(
             trials, template_data, args.output_dir, args.timeout,
-            args.capture_debug_logs, args.max_concurrent, 
+            args.capture_debug_logs, args.max_concurrent,
             args.gpu_assignment, args.stagger_delay
         )
     else:
@@ -1355,17 +2081,32 @@ def main():
             if args.exit_on_failure and result["status"] != "success":
                 console.print("[red]Exiting due to trial failure (--exit-on-failure)[/red]")
                 break
-    
+
     total_time = time.time() - start_time
 
     # Save summary
-    summary_file = args.output_dir / "summary.json"
+    results_by_name = previous_results.copy()
+    for entry in skipped_results:
+        if entry.get("name") and entry["name"] not in results_by_name:
+            results_by_name[entry["name"]] = entry
+    for entry in results:
+        if entry.get("name"):
+            results_by_name[entry["name"]] = entry
+    ordered_results = []
+    for trial in all_trials:
+        name = trial.get("name")
+        if name and name in results_by_name:
+            ordered_results.append(results_by_name[name])
+    for name, entry in results_by_name.items():
+        if entry not in ordered_results:
+            ordered_results.append(entry)
+
     with open(summary_file, "w") as f:
-        json.dump(results, f, indent=2)
+        json.dump(ordered_results, f, indent=2)
 
     # Print summary
-    successful = sum(1 for r in results if r["status"] == "success")
-    total = len(results)
+    successful = sum(1 for r in ordered_results if r.get("status") == "success")
+    total = len(ordered_results)
 
     if Panel and Text:
         summary_text = Text()
