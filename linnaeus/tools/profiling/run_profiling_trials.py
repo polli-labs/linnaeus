@@ -796,6 +796,87 @@ def modify_compose_file(template_data: dict[str, Any], trial: dict[str, Any], ou
     return data
 
 
+def _parse_compose_environment(service_env: Any) -> dict[str, str]:
+    """Normalize docker-compose environment to a dict of strings."""
+    if isinstance(service_env, dict):
+        return {str(k): str(v) for k, v in service_env.items()}
+    if isinstance(service_env, list):
+        env_map: dict[str, str] = {}
+        for entry in service_env:
+            if isinstance(entry, str) and "=" in entry:
+                key, value = entry.split("=", 1)
+                env_map[key] = value
+        return env_map
+    return {}
+
+
+def _count_visible_devices(value: str | None) -> int | None:
+    if value is None:
+        return None
+    value = str(value).strip()
+    if not value:
+        return None
+    if value.lower() == "all":
+        # Unknown count; rely on deploy.resources if available.
+        return None
+    if "," in value:
+        return len([v for v in value.split(",") if v.strip()])
+    if value.isdigit():
+        return 1
+    return None
+
+
+def _infer_compose_gpu_count(template_data: dict[str, Any]) -> int | None:
+    """Infer the number of GPUs expected per trial from the compose template."""
+    service = template_data.get("services", {}).get(DOCKER_SERVICE_NAME)
+    if not isinstance(service, dict):
+        return None
+
+    gpu_count = 0
+    devices = (
+        service.get("deploy", {})
+        .get("resources", {})
+        .get("reservations", {})
+        .get("devices")
+    )
+    if isinstance(devices, list):
+        for device in devices:
+            if not isinstance(device, dict):
+                continue
+            capabilities = device.get("capabilities")
+            has_gpu_cap = isinstance(capabilities, list) and "gpu" in capabilities
+            if device.get("driver") == "nvidia" or has_gpu_cap:
+                if isinstance(device.get("device_ids"), list):
+                    gpu_count = max(gpu_count, len(device["device_ids"]))
+                elif isinstance(device.get("count"), int):
+                    gpu_count = max(gpu_count, device["count"])
+
+    env_map = _parse_compose_environment(service.get("environment"))
+    for key in ("CUDA_VISIBLE_DEVICES", "NVIDIA_VISIBLE_DEVICES"):
+        count = _count_visible_devices(env_map.get(key))
+        if count:
+            gpu_count = max(gpu_count, count)
+
+    return gpu_count if gpu_count > 0 else None
+
+
+def _validate_concurrent_settings(*, max_concurrent: int, template_gpu_count: int | None, compose_template: Path) -> None:
+    """Fail fast for unsafe concurrent configs (e.g., multi-GPU DDP templates)."""
+    if max_concurrent <= 1:
+        return
+
+    if template_gpu_count is None:
+        return
+
+    if template_gpu_count > 1:
+        raise ValueError(
+            "Concurrent execution is not supported for multi-GPU compose templates. "
+            f"Detected {template_gpu_count} GPUs per trial in {compose_template}. "
+            "Use --max-concurrent 1, or switch to a single-GPU template. "
+            "If you need multi-GPU concurrency on larger hosts, we need GPU-group allocation support."
+        )
+
+
 def check_docker_compose():
     """Check if docker compose is available."""
     try:
@@ -1209,6 +1290,18 @@ def main():
     # Load compose template
     with open(args.compose_template) as f:
         template_data = yaml.safe_load(f)
+
+    # Guard concurrent execution against multi-GPU templates.
+    template_gpu_count = _infer_compose_gpu_count(template_data)
+    try:
+        _validate_concurrent_settings(
+            max_concurrent=args.max_concurrent,
+            template_gpu_count=template_gpu_count,
+            compose_template=args.compose_template,
+        )
+    except ValueError as exc:
+        console.print(f"[red]{exc}[/red]")
+        sys.exit(2)
 
     # Display trial plan
     if Panel:
