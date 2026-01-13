@@ -2180,6 +2180,15 @@ if __name__ == "__main__":
         torch.manual_seed(seed_val)
         np.random.seed(seed_val)
         cudnn.benchmark = bool(getattr(config.MISC, "CUDNN_BENCHMARK", True))
+        allow_tf32 = bool(getattr(config.MISC, "ALLOW_TF32", False))
+        torch.backends.cuda.matmul.allow_tf32 = allow_tf32
+        torch.backends.cudnn.allow_tf32 = allow_tf32
+        matmul_precision = getattr(config.MISC, "MATMUL_PRECISION", None)
+        if matmul_precision is not None:
+            try:
+                torch.set_float32_matmul_precision(str(matmul_precision))
+            except Exception as exc:
+                _main_logger.warning(f"[MAIN] Failed to set MATMUL_PRECISION={matmul_precision!r}: {exc}")
 
         # Possibly just do throughput test
         if getattr(config, "THROUGHPUT", False):
