@@ -314,8 +314,8 @@ class GPUSelectiveCutMix(SelectiveCutMix):
 
                         # Compare lam value with the mixing effect
                         if self.config and check_debug_flag(self.config, "DEBUG.AUGMENTATION"):
-                        if lam_adjusted_value is not None:
-                            logger.debug(f"  - Mixing coefficient lam_adjusted={lam_adjusted_value:.4f}")
+                            if lam_adjusted_value is not None:
+                                logger.debug(f"  - Mixing coefficient lam_adjusted={lam_adjusted_value:.4f}")
 
                         # Show a detailed example of how the mixing worked on the first sample
                         if sample_size > 0 and len(valid_indices) > 0:
