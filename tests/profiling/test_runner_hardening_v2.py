@@ -1,6 +1,7 @@
 """Tests for profiling runner hardening v2 features."""
 
 import json
+import sys
 from pathlib import Path
 
 from linnaeus.profiling.gpu_pool import GPUPoolManager
@@ -9,6 +10,7 @@ from linnaeus.tools.profiling.run_profiling_trials import (
     build_gpu_allocation_plan,
     collect_status_records,
     infer_trial_gpu_requirement,
+    parse_args,
 )
 
 
@@ -120,3 +122,12 @@ def test_collect_status_records_reads_log_tail(tmp_path: Path):
 
     records = collect_status_records(tmp_path, trial_names=["trial_a"], tail_lines=2)
     assert records["trial_a"]["log_tail"] == ["line2", "line3"]
+
+
+def test_parse_args_status_only_does_not_require_trial_inputs(monkeypatch, tmp_path: Path):
+    argv = ["run_profiling_trials.py", "--status", "--output-dir", str(tmp_path)]
+    monkeypatch.setattr(sys, "argv", argv)
+    args = parse_args()
+    assert args.status is True
+    assert args.trial_params_file is None
+    assert args.compose_template is None
