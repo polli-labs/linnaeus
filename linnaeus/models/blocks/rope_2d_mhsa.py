@@ -489,6 +489,10 @@ class RoPE2DMHSABlock(nn.Module):
         act_layer: nn.Module = nn.GELU,
         norm_layer: nn.Module = nn.LayerNorm,
         use_flash_attn: bool = False,  # Whether to use Flash Attention
+        disable_attn: bool = False,
+        disable_mlp: bool = False,
+        disable_residual_attn: bool = False,
+        disable_residual_mlp: bool = False,
         # Removed stride, input_dim, output_dim - assume dim is constant
         # and downsampling is handled by external ConvNeXtDownsampleLayer
     ):
@@ -502,6 +506,10 @@ class RoPE2DMHSABlock(nn.Module):
         self.img_grid_size = tuple(img_grid_size)  # Expected H, W for RoPE freqs
         self.extra_token_num = extra_token_num
         self.use_flash_attn = use_flash_attn
+        self.disable_attn = disable_attn
+        self.disable_mlp = disable_mlp
+        self.disable_residual_attn = disable_residual_attn
+        self.disable_residual_mlp = disable_residual_mlp
 
         # Layer Normalization
         self.norm1 = norm_layer(dim)
@@ -538,6 +546,26 @@ class RoPE2DMHSABlock(nn.Module):
             drop=drop,  # MLP uses the proj_drop rate
         )
 
+        if self.disable_attn:
+            for p in self.norm1.parameters():
+                p.requires_grad = False
+            for p in self.attn.parameters():
+                p.requires_grad = False
+        if self.disable_mlp:
+            for p in self.norm2.parameters():
+                p.requires_grad = False
+            for p in self.mlp.parameters():
+                p.requires_grad = False
+
+    def _prof_block(self, name: str) -> str:
+        if self.prof_prefix:
+            return f"{self.prof_prefix}/block/{name}"
+        return f"rope_block/{name}"
+
+    def _prof_residual(self, name: str) -> str:
+        if self.prof_prefix:
+            return f"{self.prof_prefix}/{name}"
+        return f"rope/{name}"
     def _attn_impl(self, x_norm: torch.Tensor, H: int, W: int) -> torch.Tensor:
         """Attention forward for checkpointing."""
         return self.attn(x_norm, H, W)
@@ -567,46 +595,56 @@ class RoPE2DMHSABlock(nn.Module):
         identity = x
 
         # --- Attention + Residual ---
-        with prof("rope_block/norm1", level=3):
-            x_norm1 = self.norm1(x)
-        # Check if grid size changed unexpectedly - triggers recompute in attn if needed
-        if (H, W) != self.img_grid_size:
-            # Log only if size actually changed from expected block init size
-            if not hasattr(self, "_logged_grid_warning") or self._logged_grid_warning != (H, W):
-                self.logger.warning(
-                    f"RoPE Block input H,W ({H},{W}) differs from expected grid size {self.img_grid_size}. RoPE freqs might be recomputed."
-                )
-                self._logged_grid_warning = (H, W)  # Log only once per size change
+        if not self.disable_attn:
+            with prof(self._prof_block("norm1"), level=3):
+                x_norm1 = self.norm1(x)
+            # Check if grid size changed unexpectedly - triggers recompute in attn if needed
+            if (H, W) != self.img_grid_size:
+                # Log only if size actually changed from expected block init size
+                if not hasattr(self, "_logged_grid_warning") or self._logged_grid_warning != (H, W):
+                    self.logger.warning(
+                        f"RoPE Block input H,W ({H},{W}) differs from expected grid size {self.img_grid_size}. RoPE freqs might be recomputed."
+                    )
+                    self._logged_grid_warning = (H, W)  # Log only once per size change
 
-        with prof("rope_block/attn", level=3):
-            if use_checkpoint and self.training:
-                # self.logger.debug(f"[GC_INTERNAL RoPE Block] Applying CHECKPOINT to Attention")
-                attn_output = torch.utils.checkpoint.checkpoint(
-                    self._attn_impl,
-                    x_norm1,
-                    H,
-                    W,  # Pass current H, W
-                    use_reentrant=False,
-                    preserve_rng_state=True,
-                )
-            else:
-                attn_output = self._attn_impl(x_norm1, H, W)
+            with prof(self._prof_block("attn"), level=3):
+                if use_checkpoint and self.training:
+                    # self.logger.debug(f"[GC_INTERNAL RoPE Block] Applying CHECKPOINT to Attention")
+                    attn_output = torch.utils.checkpoint.checkpoint(
+                        self._attn_impl,
+                        x_norm1,
+                        H,
+                        W,  # Pass current H, W
+                        use_reentrant=False,
+                        preserve_rng_state=True,
+                    )
+                else:
+                    attn_output = self._attn_impl(x_norm1, H, W)
 
-        with prof("rope/residual_add_attn", level=3):
-            x = identity + self.drop_path_attn(attn_output)
+            with prof(self._prof_residual("residual_add_attn"), level=3):
+                if self.disable_residual_attn:
+                    attn_output = attn_output * 0.0
+                x = identity + self.drop_path_attn(attn_output)
+        else:
+            x = identity
 
         # --- MLP + Residual ---
-        identity_mlp = x  # Store identity for the MLP residual
-        with prof("rope_block/norm2", level=3):
-            x_norm2 = self.norm2(x)
-        with prof("rope_block/mlp", level=3):
-            if use_checkpoint and self.training:
-                # logger.debug(f"[GC_INTERNAL RoPE Block] Applying CHECKPOINT to MLP")
-                mlp_output = torch.utils.checkpoint.checkpoint(self._mlp_impl, x_norm2, use_reentrant=False, preserve_rng_state=True)
-            else:
-                mlp_output = self._mlp_impl(x_norm2)
+        if not self.disable_mlp:
+            identity_mlp = x  # Store identity for the MLP residual
+            with prof(self._prof_block("norm2"), level=3):
+                x_norm2 = self.norm2(x)
+            with prof(self._prof_block("mlp"), level=3):
+                if use_checkpoint and self.training:
+                    # logger.debug(f"[GC_INTERNAL RoPE Block] Applying CHECKPOINT to MLP")
+                    mlp_output = torch.utils.checkpoint.checkpoint(
+                        self._mlp_impl, x_norm2, use_reentrant=False, preserve_rng_state=True
+                    )
+                else:
+                    mlp_output = self._mlp_impl(x_norm2)
 
-        with prof("rope/residual_add_mlp", level=3):
-            x = identity_mlp + self.drop_path_mlp(mlp_output)
+            with prof(self._prof_residual("residual_add_mlp"), level=3):
+                if self.disable_residual_mlp:
+                    mlp_output = mlp_output * 0.0
+                x = identity_mlp + self.drop_path_mlp(mlp_output)
 
         return x

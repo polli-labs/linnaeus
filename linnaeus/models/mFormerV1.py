@@ -67,6 +67,10 @@ class mFormerV1(BaseModel):
         rope_mlp_ratio = rs.MLP_RATIO  # e.g., [4.0, 4.0]
         self.rope_theta = rs.get("ROPE_THETA", 10000.0)
         self.rope_mixed = rs.get("ROPE_MIXED", True)
+        stage3_disable_attn = rs.get("STAGE3_DISABLE_ATTN", False)
+        stage3_disable_mlp = rs.get("STAGE3_DISABLE_MLP", False)
+        stage3_disable_residual_attn = rs.get("STAGE3_DISABLE_RESIDUAL_ATTN", False)
+        stage3_disable_residual_mlp = rs.get("STAGE3_DISABLE_RESIDUAL_MLP", False)
         if len(rope_depths) != 2 or len(rope_dims) != 2 or len(rope_num_heads) != 2 or len(rope_mlp_ratio) != 2:
             raise ValueError("ROPE_STAGES depths, dims, num_heads, mlp_ratio must be lists of length 2.")
 
@@ -113,6 +117,14 @@ class mFormerV1(BaseModel):
         logger.info(f"  RoPE depths: {rope_depths}")
         logger.info(f"  RoPE dims: {rope_dims}")
         logger.info(f"  Model will use {sum(convnext_depths[:2])} ConvNeXt + {sum(rope_depths)} RoPE blocks")
+        if stage3_disable_attn or stage3_disable_mlp or stage3_disable_residual_attn or stage3_disable_residual_mlp:
+            logger.warning(
+                "[mFormerV1] Stage3 toggles: disable_attn=%s disable_mlp=%s disable_residual_attn=%s disable_residual_mlp=%s",
+                stage3_disable_attn,
+                stage3_disable_mlp,
+                stage3_disable_residual_attn,
+                stage3_disable_residual_mlp,
+            )
 
         # Flash Attention configuration
         # Check if explicitly configured via YACS, otherwise default to True for backward compatibility
@@ -229,6 +241,10 @@ class mFormerV1(BaseModel):
                     norm_layer=nn.LayerNorm,  # Use LayerNorm for RoPE stages
                     act_layer=nn.GELU,
                     use_flash_attn=self.use_flash_attn,  # Pass flash attention flag
+                    disable_attn=stage3_disable_attn,
+                    disable_mlp=stage3_disable_mlp,
+                    disable_residual_attn=stage3_disable_residual_attn,
+                    disable_residual_mlp=stage3_disable_residual_mlp,
                 )
             )
         self.stages.append(nn.ModuleList(stage3_blocks))  # Use ModuleList for RoPE blocks

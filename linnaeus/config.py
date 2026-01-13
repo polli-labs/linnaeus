@@ -482,6 +482,10 @@ _C.MODEL.ROPE_STAGES.MLP_RATIO = [4.0, 4.0]  # MLP expansion ratios per RoPE sta
 _C.MODEL.ROPE_STAGES.ROPE_THETA = 10000.0  # RoPE base frequency
 _C.MODEL.ROPE_STAGES.ROPE_MIXED = True  # Use mixed RoPE (interleaved vs block)
 _C.MODEL.ROPE_STAGES.USE_FLASH_ATTN = True  # Enable Flash Attention if available in environment
+_C.MODEL.ROPE_STAGES.STAGE3_DISABLE_ATTN = False  # Profiling: skip RoPE stage3 attention compute
+_C.MODEL.ROPE_STAGES.STAGE3_DISABLE_MLP = False  # Profiling: skip RoPE stage3 MLP compute
+_C.MODEL.ROPE_STAGES.STAGE3_DISABLE_RESIDUAL_ATTN = False  # Profiling: skip stage3 attn residual add
+_C.MODEL.ROPE_STAGES.STAGE3_DISABLE_RESIDUAL_MLP = False  # Profiling: skip stage3 MLP residual add
 
 # Feature Resolver Subconfig (e.g. LearnedProjection)
 _C.MODEL.FEATURE_RESOLVER = CN()
