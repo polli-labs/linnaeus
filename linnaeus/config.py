@@ -905,6 +905,7 @@ _C.MISC.OUTPUT = "output"
 _C.MISC.SAVE_FREQ = 1
 _C.MISC.PRINT_FREQ = 50
 _C.MISC.PIPELINE_METRICS_FREQ = 30.0  # seconds (DEPRECATED: use SCHEDULE.METRICS.PIPELINE_INTERVAL instead)
+_C.MISC.CUDNN_BENCHMARK = True  # Enable cudnn autotuning for fixed-shape workloads
 
 # ----------------------------------------------------------------------------
 # Distributed Training Settings

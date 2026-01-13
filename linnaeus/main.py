@@ -2179,7 +2179,7 @@ if __name__ == "__main__":
         seed_val = config.MISC.SEED + (dist.get_rank() if dist.is_initialized() else 0)
         torch.manual_seed(seed_val)
         np.random.seed(seed_val)
-        cudnn.benchmark = True
+        cudnn.benchmark = bool(getattr(config.MISC, "CUDNN_BENCHMARK", True))
 
         # Possibly just do throughput test
         if getattr(config, "THROUGHPUT", False):
