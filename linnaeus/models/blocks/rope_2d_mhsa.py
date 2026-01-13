@@ -557,6 +557,17 @@ class RoPE2DMHSABlock(nn.Module):
             drop=drop,  # MLP uses the proj_drop rate
         )
 
+        if self.disable_attn:
+            for p in self.norm1.parameters():
+                p.requires_grad = False
+            for p in self.attn.parameters():
+                p.requires_grad = False
+        if self.disable_mlp:
+            for p in self.norm2.parameters():
+                p.requires_grad = False
+            for p in self.mlp.parameters():
+                p.requires_grad = False
+
     def _prof_block(self, name: str) -> str:
         if self.prof_prefix:
             return f"{self.prof_prefix}/block/{name}"
@@ -624,9 +635,8 @@ class RoPE2DMHSABlock(nn.Module):
 
             with prof(self._prof_residual("residual_add_attn"), level=3):
                 if self.disable_residual_attn:
-                    x = identity
-                else:
-                    x = identity + self.drop_path_attn(attn_output)
+                    attn_output = attn_output * 0.0
+                x = identity + self.drop_path_attn(attn_output)
         else:
             x = identity
 
@@ -646,8 +656,7 @@ class RoPE2DMHSABlock(nn.Module):
 
             with prof(self._prof_residual("residual_add_mlp"), level=3):
                 if self.disable_residual_mlp:
-                    x = identity_mlp
-                else:
-                    x = identity_mlp + self.drop_path_mlp(mlp_output)
+                    mlp_output = mlp_output * 0.0
+                x = identity_mlp + self.drop_path_mlp(mlp_output)
 
         return x
