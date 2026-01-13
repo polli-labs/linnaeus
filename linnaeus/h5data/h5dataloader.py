@@ -1697,10 +1697,16 @@ class H5DataLoader(DataLoader):
                                 )
 
                 # Transfer tensors to GPU using the centralized utility function
+                memory_format = torch.contiguous_format
+                if hasattr(self, "config") and self.config is not None:
+                    if getattr(self.config.TRAIN, "MEMORY_FORMAT", "contiguous") == "channels_last":
+                        memory_format = torch.channels_last
+
                 images = transfer_to_gpu(
                     images,
                     torch.device("cuda"),
                     non_blocking_default=True,
+                    memory_format=memory_format,
                     sync_for_debug=sync_gpu_for_debug,
                     debug_dataloader_enabled=debug_dataloader_enabled,
                     tensor_name_for_log="images",

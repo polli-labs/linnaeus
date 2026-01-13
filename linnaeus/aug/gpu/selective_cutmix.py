@@ -206,8 +206,10 @@ class GPUSelectiveCutMix(SelectiveCutMix):
         img_area = H * W
         lam_adjusted = 1.0 - (box_area / img_area)
 
+        lam_adjusted_value = None
         if debug_flag:
-            logger.debug(f"[GPUSelectiveCutMix] Original lam: {lam.item():.4f}, Adjusted lam: {lam_adjusted:.4f}")
+            lam_adjusted_value = float(lam_adjusted) if isinstance(lam_adjusted, torch.Tensor) else lam_adjusted
+            logger.debug(f"[GPUSelectiveCutMix] Original lam: {lam.item():.4f}, Adjusted lam: {lam_adjusted_value:.4f}")
             logger.debug(
                 f"[GPUSelectiveCutMix] Box: ({bbx1}, {bby1}) to ({bbx2}, {bby2}), Area: {box_area}/{img_area} = {box_area / img_area:.4f}"
             )
@@ -220,8 +222,28 @@ class GPUSelectiveCutMix(SelectiveCutMix):
             valid_indices = valid_mask.nonzero(as_tuple=True)[0]
             valid_perm_indices = perm[valid_indices]
 
-            # Apply CutMix to valid samples only
-            mixed_images[valid_indices, :, bbx1:bbx2, bby1:bby2] = images[valid_perm_indices, :, bbx1:bbx2, bby1:bby2]
+            use_mask = (
+                self.config is not None
+                and hasattr(self.config, "AUG")
+                and hasattr(self.config.AUG, "SELECTIVE_MIXING")
+                and getattr(self.config.AUG.SELECTIVE_MIXING, "CUTMIX_USE_MASK", False)
+            )
+
+            if use_mask:
+                # Build a broadcastable mask to avoid CPU syncs from .item()
+                yy = torch.arange(H, device=images.device).view(1, 1, H, 1)
+                xx = torch.arange(W, device=images.device).view(1, 1, 1, W)
+                # NOTE: maintain legacy axis ordering (bbx on dim=2, bby on dim=3)
+                mask = (yy >= bbx1) & (yy < bbx2) & (xx >= bby1) & (xx < bby2)
+                mixed_images[valid_indices] = torch.where(mask, images[valid_perm_indices], images[valid_indices])
+            else:
+                bbx1_i = int(bbx1)
+                bby1_i = int(bby1)
+                bbx2_i = int(bbx2)
+                bby2_i = int(bby2)
+                mixed_images[valid_indices, :, bbx1_i:bbx2_i, bby1_i:bby2_i] = images[
+                    valid_perm_indices, :, bbx1_i:bbx2_i, bby1_i:bby2_i
+                ]
 
             # Mix targets proportionally to adjusted lambda for valid samples
             for k in targets.keys():
@@ -292,7 +314,8 @@ class GPUSelectiveCutMix(SelectiveCutMix):
 
                         # Compare lam value with the mixing effect
                         if self.config and check_debug_flag(self.config, "DEBUG.AUGMENTATION"):
-                            logger.debug(f"  - Mixing coefficient lam_adjusted={lam_adjusted:.4f}")
+                        if lam_adjusted_value is not None:
+                            logger.debug(f"  - Mixing coefficient lam_adjusted={lam_adjusted_value:.4f}")
 
                         # Show a detailed example of how the mixing worked on the first sample
                         if sample_size > 0 and len(valid_indices) > 0:
@@ -303,7 +326,7 @@ class GPUSelectiveCutMix(SelectiveCutMix):
                                 logger.debug(f"    Original: index 0 = {targets[k][idx, 0].item():.4f}")
                                 logger.debug(f"    Permuted: index 0 = {targets[k][perm_idx, 0].item():.4f}")
                                 logger.debug(
-                                    f"    Mixed:    index 0 = {mixed_targets[k][idx, 0].item():.4f} (formula: {lam_adjusted:.4f} * {targets[k][idx, 0].item():.4f} + {1 - lam_adjusted:.4f} * {targets[k][perm_idx, 0].item():.4f})"
+                                    f"    Mixed:    index 0 = {mixed_targets[k][idx, 0].item():.4f} (formula: {lam_adjusted_value:.4f} * {targets[k][idx, 0].item():.4f} + {1 - lam_adjusted_value:.4f} * {targets[k][perm_idx, 0].item():.4f})"
                                 )
                     else:
                         # For hard labels
@@ -367,7 +390,7 @@ class GPUSelectiveCutMix(SelectiveCutMix):
                                         f"  - Sample {global_idx}: orig={orig_val:.4f}, perm={perm_val:.4f}, mixed={mixed_val:.4f}"
                                     )
                                     logger.debug(
-                                        f"    Formula: {lam_adjusted:.4f} * {orig_val:.4f} + {1 - lam_adjusted:.4f} * {perm_val:.4f} = {mixed_val:.4f}"
+                                        f"    Formula: {lam_adjusted_value:.4f} * {orig_val:.4f} + {1 - lam_adjusted_value:.4f} * {perm_val:.4f} = {mixed_val:.4f}"
                                     )
 
         # 6) Enforce all-or-nothing chunks
@@ -581,5 +604,4 @@ class GPUSelectiveCutMix(SelectiveCutMix):
         bbx2 = (cx + cut_w // 2).clamp(0, W)
         bby2 = (cy + cut_h // 2).clamp(0, H)
 
-        # Convert to Python ints for indexing (necessary for now)
-        return bbx1.item(), bby1.item(), bbx2.item(), bby2.item()
+        return bbx1, bby1, bbx2, bby2

@@ -442,6 +442,7 @@ _C.AUG.GPU_COMPILE.MODE = "default"  # Options: 'default', 'reduce-overhead', 'm
 # Configuration for selective mixing (mixup/cutmix) optimization
 _C.AUG.SELECTIVE_MIXING = CN()
 _C.AUG.SELECTIVE_MIXING.USE_TRITON_KERNEL = False  # Use Triton-optimized kernel for selective mixing
+_C.AUG.SELECTIVE_MIXING.CUTMIX_USE_MASK = False  # Use mask-based CutMix to avoid CPU syncs
 
 # ----------------------------------------------------------------------------
 # Model Settings
@@ -466,6 +467,12 @@ _C.MODEL.EXTRA_TOKEN_NUM = 3
 _C.MODEL.META_DIMS = [4, 3]  # Legacy metadata dimensions (deprecated)
 _C.MODEL.IMG_SIZE = 384
 _C.MODEL.IN_CHANS = 3
+# Optional torch.compile for model/forward_features
+_C.MODEL.TORCH_COMPILE = CN()
+_C.MODEL.TORCH_COMPILE.ENABLED = False
+_C.MODEL.TORCH_COMPILE.BACKEND = "inductor"
+_C.MODEL.TORCH_COMPILE.MODE = "default"  # Options: 'default', 'reduce-overhead', 'max-autotune'
+_C.MODEL.TORCH_COMPILE.TARGET = "model"  # Options: 'model' or 'forward_features'
 # _C.MODEL.FIND_UNUSED_PARAMETERS removed - use DISTRIBUTED.DDP.find_unused_parameters instead
 
 # mFormerV1 Architecture-specific configurations
@@ -649,6 +656,7 @@ _C.TRAIN.PRESERVE_CHECKPOINT_SCHEDULE = False  # Use current config's schedule p
 # - O1 reduces memory usage from ~16GB to ~9GB for same batch size
 # - O1 provides ~40-50% training speedup with minimal accuracy impact
 _C.TRAIN.AMP_OPT_LEVEL = "O1"  # Default to mixed precision training
+_C.TRAIN.MEMORY_FORMAT = "contiguous"  # Options: 'contiguous', 'channels_last'
 
 # Early-stop configuration
 ## FUTURE: PATIENCE_EPOCHS, PATIENCE_FRACTION (in addition to PATIENCE_STEPS)

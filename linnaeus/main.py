@@ -635,6 +635,35 @@ def main(config, args=None, resolved_env=None):
     if check_debug_flag(config, "DEBUG.MODEL_BUILD"):
         logger.debug("Model moved to CUDA")
 
+    # Optional memory format change (e.g., channels_last for Conv-heavy models)
+    memory_format = getattr(config.TRAIN, "MEMORY_FORMAT", "contiguous")
+    if memory_format == "channels_last":
+        model = model.to(memory_format=torch.channels_last)
+        logger.info("Model converted to channels_last memory format")
+    elif memory_format != "contiguous":
+        logger.warning(f"Unknown TRAIN.MEMORY_FORMAT='{memory_format}', using contiguous")
+
+    # Optional torch.compile on the model or forward_features
+    compile_cfg = getattr(config.MODEL, "TORCH_COMPILE", None)
+    if compile_cfg and getattr(compile_cfg, "ENABLED", False):
+        compile_backend = getattr(compile_cfg, "BACKEND", "inductor")
+        compile_mode = getattr(compile_cfg, "MODE", "default")
+        compile_target = getattr(compile_cfg, "TARGET", "model")
+        try:
+            if compile_target == "forward_features" and hasattr(model, "forward_features"):
+                model.forward_features = torch.compile(
+                    model.forward_features, backend=compile_backend, mode=compile_mode, dynamic=False
+                )
+                logger.info(
+                    "torch.compile enabled on model.forward_features "
+                    f"(backend={compile_backend}, mode={compile_mode})"
+                )
+            else:
+                model = torch.compile(model, backend=compile_backend, mode=compile_mode, dynamic=False)
+                logger.info(f"torch.compile enabled on model (backend={compile_backend}, mode={compile_mode})")
+        except Exception as e:
+            logger.warning(f"torch.compile failed; continuing in eager mode. Error: {e}")
+
     # Build optimizer
     optimizer = build_optimizer(config, model)
     logger.info(f"Optimizer built: {type(optimizer).__name__}")
