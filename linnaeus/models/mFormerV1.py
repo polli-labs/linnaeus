@@ -229,6 +229,7 @@ class mFormerV1(BaseModel):
                     norm_layer=nn.LayerNorm,  # Use LayerNorm for RoPE stages
                     act_layer=nn.GELU,
                     use_flash_attn=self.use_flash_attn,  # Pass flash attention flag
+                    prof_prefix="model/rope_stage_3",
                 )
             )
         self.stages.append(nn.ModuleList(stage3_blocks))  # Use ModuleList for RoPE blocks
@@ -259,6 +260,7 @@ class mFormerV1(BaseModel):
                     norm_layer=nn.LayerNorm,
                     act_layer=nn.GELU,
                     use_flash_attn=self.use_flash_attn,  # Pass flash attention flag
+                    prof_prefix="model/rope_stage_4",
                 )
             )
         self.stages.append(nn.ModuleList(stage4_blocks))
