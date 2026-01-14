@@ -2150,7 +2150,22 @@ if __name__ == "__main__":
         seed_val = config.MISC.SEED + (dist.get_rank() if dist.is_initialized() else 0)
         torch.manual_seed(seed_val)
         np.random.seed(seed_val)
-        cudnn.benchmark = True
+        cudnn_benchmark = getattr(config.MISC, "CUDNN_BENCHMARK", None)
+        if cudnn_benchmark is not None:
+            cudnn.benchmark = bool(cudnn_benchmark)
+            _main_logger.info(f"[MAIN] cudnn.benchmark={cudnn.benchmark}")
+
+        allow_tf32 = getattr(config.MISC, "ALLOW_TF32", None)
+        if allow_tf32 is not None:
+            allow_tf32 = bool(allow_tf32)
+            torch.backends.cuda.matmul.allow_tf32 = allow_tf32
+            cudnn.allow_tf32 = allow_tf32
+            _main_logger.info(f"[MAIN] allow_tf32={allow_tf32}")
+
+        matmul_precision = getattr(config.MISC, "MATMUL_PRECISION", None)
+        if matmul_precision:
+            torch.set_float32_matmul_precision(matmul_precision)
+            _main_logger.info(f"[MAIN] matmul_precision={matmul_precision}")
 
         # Possibly just do throughput test
         if getattr(config, "THROUGHPUT", False):
