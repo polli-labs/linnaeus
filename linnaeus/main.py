@@ -429,6 +429,16 @@ def main(config, args=None, resolved_env=None):
         )
     # --- End validation block ---
 
+    # Guard against unsupported GradNorm usage for mFormerV1
+    from linnaeus.utils.training_consistency import validate_gradnorm_config, validate_loss_config
+
+    gradnorm_errors = validate_gradnorm_config(config)
+    loss_errors = validate_loss_config(config)
+    if gradnorm_errors or loss_errors:
+        for error in gradnorm_errors + loss_errors:
+            logger.error(error)
+        raise ValueError("Invalid loss configuration for current model.")
+
     # Possibly compute meta chunk bounds for mixup
     chunk_bounds = compute_meta_chunk_bounds(config)
     if rank == 0:
