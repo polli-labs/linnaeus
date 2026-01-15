@@ -63,9 +63,9 @@ cpu = [
 ]
 cuda = [
     # GPU-only stack (Linux/x86_64)
-    "torch>=2.7.1,<2.8 ; (platform_system=='Linux' and platform_machine=='x86_64')",
-    "torchvision>=0.22.1 ; (platform_system=='Linux' and platform_machine=='x86_64')",
-    "torchaudio>=2.7.1 ; (platform_system=='Linux' and platform_machine=='x86_64')",
+    "torch>=2.7.1,<2.8 ; (sys_platform=='linux' and platform_machine=='x86_64')",
+    "torchvision>=0.22.1 ; (sys_platform=='linux' and platform_machine=='x86_64')",
+    "torchaudio>=2.7.1 ; (sys_platform=='linux' and platform_machine=='x86_64')",
 ]
 triton = [
     "triton>=2.1.0",
@@ -86,7 +86,7 @@ profiling = [
 cuda-fa = [
     # Note: flash-attn is an optional dependency for GPU environments.
     # It is handled automatically in the official Docker images.
-    "flash-attn>=2.7.4.post1 ; (platform_system=='Linux' and platform_machine=='x86_64')"
+    "flash-attn>=2.7.4.post1 ; (sys_platform=='linux' and platform_machine=='x86_64')"
 ]
 
 rl = [
@@ -94,7 +94,8 @@ rl = [
 ]
 
 all = [
-  # re-export everything so 'uv pip install .[all]' pulls it in one go. cuda-fa excluded (system-dependent, needs separate toolchain)
+  # re-export everything so 'uv pip install .[all]' pulls it in one go.
+  # CPU is included by default; CUDA remains opt-in via linnaeus[cuda].
   "linnaeus[dev]",
   "linnaeus[cpu]",
   "linnaeus[inference]",

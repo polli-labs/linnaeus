@@ -1,3 +1,14 @@
+---
+title: "UV Local Dev (Golden Path)"
+summary: "Repeatable uv-based CPU and CUDA setup for Linnaeus without Docker."
+tags: [docs, dev, uv]
+date: 2026-01-15
+lastmod: 2026-01-15
+x:
+  project: linnaeus
+  doc_type: docs_page
+---
+
 # UV Local Dev (Golden Path)
 
 This is the recommended non-container setup for Linnaeus. It is designed to be repeatable in
@@ -11,6 +22,7 @@ ephemeral environments (CI-like, or local dev without Docker).
 
 > Notes:
 > - The `cpu` and `cuda` extras are **mutually exclusive**.
+> - `linnaeus[all]` includes **CPU** by default. CUDA is always opt-in.
 > - On macOS, `cpu` installs PyTorch from PyPI. On Linux/Windows, `cpu` uses the PyTorch CPU index.
 
 ## CPU-only (recommended for pytest / macOS / CI-like)
