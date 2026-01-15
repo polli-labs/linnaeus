@@ -161,6 +161,55 @@ def validate_training_schedule(config: CN, world_size: int, accumulation_steps: 
     return errors, warnings
 
 
+def validate_gradnorm_config(config: CN) -> list[str]:
+    """
+    Validate that GradNorm is not enabled for configs where it is unsupported.
+
+    Returns:
+        List of error strings (empty if no issues).
+    """
+    errors: list[str] = []
+
+    model_type = getattr(config.MODEL, "TYPE", None)
+    task_cfg = getattr(config.LOSS.GRAD_WEIGHTING, "TASK", None) if hasattr(config, "LOSS") else None
+    if model_type == "mFormerV1" and task_cfg is not None:
+        gradnorm_enabled = bool(getattr(task_cfg, "GRADNORM_ENABLED", False))
+        gradnorm_type = str(getattr(task_cfg, "TYPE", "static")).lower()
+        if gradnorm_enabled or gradnorm_type in ["gradnorm", "gradnorm_periodic"]:
+            errors.append(
+                "GradNorm is not supported for mFormerV1. "
+                "Set LOSS.GRAD_WEIGHTING.TASK.TYPE='static' and LOSS.GRAD_WEIGHTING.TASK.GRADNORM_ENABLED=False."
+            )
+
+    return errors
+
+
+def validate_loss_config(config: CN) -> list[str]:
+    """
+    Validate loss configuration for ambiguous or unsafe combinations.
+
+    Returns:
+        List of error strings (empty if no issues).
+    """
+    errors: list[str] = []
+
+    class_cfg = getattr(getattr(config, "LOSS", None), "GRAD_WEIGHTING", None)
+    class_cfg = getattr(class_cfg, "CLASS", None) if class_cfg is not None else None
+    if class_cfg is not None:
+        apply_flags = [
+            bool(getattr(class_cfg, "APPLY_IN_CRITERION", False)),
+            bool(getattr(class_cfg, "APPLY_IN_MASKING", False)),
+            bool(getattr(class_cfg, "APPLY_IN_TASK_WEIGHTING", False)),
+        ]
+        if sum(apply_flags) > 1:
+            errors.append(
+                "Class weighting apply flags are mutually exclusive. "
+                "Set only one of APPLY_IN_CRITERION, APPLY_IN_MASKING, APPLY_IN_TASK_WEIGHTING."
+            )
+
+    return errors
+
+
 class TrainingConsistencyChecker:
     """
     Runtime consistency checker for training progress.

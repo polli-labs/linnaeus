@@ -6,6 +6,7 @@ the core loss, masking, and task weighting modules.
 """
 
 import logging
+import time
 from typing import Any
 
 import torch
@@ -83,6 +84,41 @@ def weighted_hierarchical_loss(
     # Verbose logging flag for GradNorm/hierarchical loss details
     verbose_logging = check_debug_flag(config, "DEBUG.LOSS.VERBOSE_GRADNORM_LOGGING")
 
+    # Lightweight loss timing (no torch profiler)
+    timing_enabled = bool(config is not None and getattr(config.DEBUG.LOSS, "TIMERS", False))
+    timing_every = int(getattr(config.DEBUG.LOSS, "TIMER_LOG_EVERY_N_STEPS", 0)) if config is not None else 0
+    should_time = timing_enabled and (timing_every == 0 or (current_step is not None and current_step % timing_every == 0))
+    timings_ms: dict[str, float] = {}
+
+    def _sync_cuda():
+        if torch.cuda.is_available():
+            torch.cuda.synchronize()
+
+    # Class-weighting routing (apply exactly once)
+    class_cfg = config.LOSS.GRAD_WEIGHTING.CLASS if config is not None else None
+    class_weighting_enabled = False
+    apply_in_criterion = False
+    apply_in_masking = False
+    apply_in_task_weighting = False
+    if class_cfg is not None:
+        class_weighting_enabled = bool(class_cfg.TRAIN if not is_validation else class_cfg.VAL)
+        apply_in_criterion = bool(getattr(class_cfg, "APPLY_IN_CRITERION", False))
+        apply_in_masking = bool(getattr(class_cfg, "APPLY_IN_MASKING", False))
+        apply_in_task_weighting = bool(getattr(class_cfg, "APPLY_IN_TASK_WEIGHTING", False))
+
+    class_weighting_masking = class_weighting_enabled and apply_in_masking
+    masking_impl = "unknown"
+
+    # Taxonomy-guided label smoothing detection
+    taxonomy_smoothing_tasks: list[str] = []
+    if config is not None:
+        try:
+            from linnaeus.loss.taxonomy_label_smoothing import TaxonomyAwareLabelSmoothingCE
+
+            taxonomy_smoothing_tasks = [k for k, crit in criteria.items() if isinstance(crit, TaxonomyAwareLabelSmoothingCE)]
+        except Exception:
+            taxonomy_smoothing_tasks = []
+
     # Always log the basic shape information to diagnose
     if rank == 0 and verbose_logging:
         log.debug(f"[HIERARCHICAL_LOSS] Processing hierarchical loss at step {current_step}")
@@ -128,7 +164,13 @@ def weighted_hierarchical_loss(
         if rank == 0 and verbose_logging:
             log.debug("[HIERARCHICAL_LOSS] Step 1: Computing raw per-sample losses")
         with prof("loss/core_loss", level=2):
+            if should_time:
+                _sync_cuda()
+                t0 = time.perf_counter()
             per_task_losses = compute_core_loss(outputs, targets, criteria, config)
+            if should_time:
+                _sync_cuda()
+                timings_ms["core_loss_ms"] = (time.perf_counter() - t0) * 1000.0
 
         # Store raw per-sample losses only when null vs non-null tracking is enabled
         track_null_metrics = True
@@ -136,7 +178,13 @@ def weighted_hierarchical_loss(
             track_null_metrics = getattr(config.METRICS, "TRACK_NULL_VS_NON_NULL", False)
         raw_per_task_losses = None
         if track_null_metrics:
+            if should_time:
+                _sync_cuda()
+                t0 = time.perf_counter()
             raw_per_task_losses = {k: v.detach() for k, v in per_task_losses.items()}
+            if should_time:
+                _sync_cuda()
+                timings_ms["raw_per_sample_capture_ms"] = (time.perf_counter() - t0) * 1000.0
 
         if rank == 0 and verbose_logging:
             # Log per-task loss statistics
@@ -151,6 +199,9 @@ def weighted_hierarchical_loss(
             log.debug("[HIERARCHICAL_LOSS] Step 2: Applying null masking and class weighting")
 
         with prof("loss/masking", level=2):
+            if should_time:
+                _sync_cuda()
+                t0 = time.perf_counter()
             # Add detailed debug logging for targets to diagnose null masking issues
             debug_null_masking = False
             force_mask_all_nulls = False
@@ -197,6 +248,7 @@ def weighted_hierarchical_loss(
 
             # 2A. Apply EITHER deterministic null masking (Phase 1) OR scheduled null masking
             if force_mask_all_nulls and not is_validation:
+                masking_impl = "phase1_deterministic"
                 if rank == 0 and debug_null_masking:
                     log.debug(f"[PHASE1_MASK_LOSS] Applying deterministic null loss masking at step {current_step}.")
 
@@ -236,28 +288,32 @@ def weighted_hierarchical_loss(
 
                 # Check if optimized path is enabled
                 use_optimized = getattr(config.LOSS, "USE_OPTIMIZED_PATH", False)
-                
+
+                class_weights_for_masking = task_weighting.class_weights if class_weighting_masking else None
+
                 if use_optimized:
                     # Use hybrid approach: original null masking + optimized class weighting
+                    masking_impl = "scheduled_hybrid"
                     from linnaeus.loss.masking_hybrid import apply_loss_masking_hybrid
                     masked_losses, null_stats = apply_loss_masking_hybrid(
                         per_task_losses,
                         targets,
                         ops_schedule,
                         current_step,
-                        task_weighting.class_weights,
+                        class_weights_for_masking,
                         is_validation,
                         logger=log,
                         config=config,
                     )
                 else:
                     # Standard path - use apply_loss_masking
+                    masking_impl = "scheduled_standard"
                     masked_losses, null_stats = apply_loss_masking(
                         per_task_losses,
                         targets,
                         ops_schedule,
                         current_step,
-                        task_weighting.class_weights,
+                        class_weights_for_masking,
                         is_validation,
                         logger=log,
                         config=config,
@@ -284,12 +340,27 @@ def weighted_hierarchical_loss(
             if getattr(config.LOSS, "USE_OPTIMIZED_PATH", False) and rank == 0 and debug_null_masking:
                 log.debug("[PHASE1_MASK_LOSS] Used hybrid approach with optimized class weighting.")
 
+            if should_time:
+                _sync_cuda()
+                timings_ms["masking_ms"] = (time.perf_counter() - t0) * 1000.0
+
         # 3. Apply task-level weighting
         if rank == 0 and verbose_logging:
             log.debug("[HIERARCHICAL_LOSS] Step 3: Applying task-level weighting")
         with prof("loss/weighting", level=2):
             num_valid_samples_per_task = null_stats.get("num_valid_samples_per_task", {})
-            weighted_dict, task_weights = task_weighting(losses_after_cw, targets, num_valid_samples_per_task=num_valid_samples_per_task)
+            if should_time:
+                _sync_cuda()
+                t0 = time.perf_counter()
+            weighted_dict, task_weights = task_weighting(
+                losses_after_cw,
+                targets,
+                num_valid_samples_per_task=num_valid_samples_per_task,
+                is_validation=is_validation,
+            )
+            if should_time:
+                _sync_cuda()
+                timings_ms["task_weighting_ms"] = (time.perf_counter() - t0) * 1000.0
 
         if rank == 0 and verbose_logging:
             # Log task weights
@@ -302,10 +373,17 @@ def weighted_hierarchical_loss(
         if rank == 0 and verbose_logging:
             log.debug("[HIERARCHICAL_LOSS] Step 4: Computing total loss")
         with prof("loss/aggregation", level=2):
+            if should_time:
+                _sync_cuda()
+                t0 = time.perf_counter()
             total_loss = sum(weighted_dict.values())
 
             if rank == 0 and verbose_logging:
                 log.debug(f"[HIERARCHICAL_LOSS] Total loss: {total_loss.item():.4f}")
+
+            if should_time:
+                _sync_cuda()
+                timings_ms["aggregation_ms"] = (time.perf_counter() - t0) * 1000.0
 
             # Build a logging dictionary with string task keys
             loss_components = {
@@ -321,6 +399,30 @@ def weighted_hierarchical_loss(
 
             # Add null masking statistics to the loss components
             loss_components["null_masking"] = null_stats
+
+        if rank == 0 and should_time:
+            class_weighting_criterion = class_weighting_enabled and apply_in_criterion
+            class_weighting_task = class_weighting_enabled and apply_in_task_weighting
+            taxonomy_active = len(taxonomy_smoothing_tasks) > 0
+            null_mask_prob = null_stats.get("null_mask_prob", None)
+            log.info(
+                "[LOSS_TIMING] step=%s core_ms=%.3f mask_ms=%.3f weight_ms=%.3f agg_ms=%.3f raw_capture_ms=%.3f "
+                "mask_impl=%s null_mask_prob=%s class_weighting(criterion=%s,masking=%s,task=%s) "
+                "taxonomy_smoothing=%s task_weighting=%s",
+                current_step,
+                timings_ms.get("core_loss_ms", 0.0),
+                timings_ms.get("masking_ms", 0.0),
+                timings_ms.get("task_weighting_ms", 0.0),
+                timings_ms.get("aggregation_ms", 0.0),
+                timings_ms.get("raw_per_sample_capture_ms", 0.0),
+                masking_impl,
+                f"{null_mask_prob:.3f}" if isinstance(null_mask_prob, (int, float)) else "n/a",
+                class_weighting_criterion,
+                class_weighting_masking,
+                class_weighting_task,
+                taxonomy_active,
+                getattr(task_weighting, "task_weighting_type", "unknown"),
+            )
 
         if rank == 0 and verbose_logging:
             log.debug("[HIERARCHICAL_LOSS] Successfully completed hierarchical loss computation")

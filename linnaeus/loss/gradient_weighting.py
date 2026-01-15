@@ -270,6 +270,7 @@ class GradientWeighting(nn.Module):
         subset_ids: torch.Tensor = None,
         mixed_subset_ids: torch.Tensor = None,
         num_valid_samples_per_task: dict[str, int] | None = None,
+        is_validation: bool = False,
     ):
         """
         Compute final weighted losses for each task (for normal training steps).
@@ -277,6 +278,14 @@ class GradientWeighting(nn.Module):
         """
         device = next(iter(per_task_losses.values())).device
         dtype = next(iter(per_task_losses.values())).dtype
+
+        class_cfg = self.config.LOSS.GRAD_WEIGHTING.CLASS if self.config is not None else None
+        class_weighting_enabled = False
+        apply_in_task_weighting = False
+        if class_cfg is not None:
+            class_weighting_enabled = bool(class_cfg.VAL if is_validation else class_cfg.TRAIN)
+            apply_in_task_weighting = bool(getattr(class_cfg, "APPLY_IN_TASK_WEIGHTING", False))
+        apply_class_weights = class_weighting_enabled and apply_in_task_weighting
 
         if self.gradnorm is not None:
             norm_w = self.gradnorm.task_weights.to(device=device, dtype=dtype)
@@ -294,7 +303,7 @@ class GradientWeighting(nn.Module):
                 num_valid = loss_vec.size(0)
 
             # Optionally apply class weighting
-            if self.class_weights and (tkey in self.class_weights):
+            if apply_class_weights and self.class_weights and (tkey in self.class_weights):
                 cw_dict = self.class_weights[tkey]
                 tgt = targets[tkey]
                 if tgt.dim() == 1:

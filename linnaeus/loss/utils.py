@@ -149,7 +149,8 @@ def get_loss_function(
     logger.debug(f"Creating loss function '{loss_type}' for task '{task_key}' (is_train={is_train}, ignore_index={ignore_index})")
 
     # Determine whether to apply class weights based on training or validation phase
-    apply_class_weights = config.LOSS.GRAD_WEIGHTING.CLASS.TRAIN if is_train else config.LOSS.GRAD_WEIGHTING.CLASS.VAL
+    class_cfg = config.LOSS.GRAD_WEIGHTING.CLASS
+    apply_class_weights = (class_cfg.TRAIN if is_train else class_cfg.VAL) and getattr(class_cfg, "APPLY_IN_CRITERION", False)
 
     # Convert class_weights dict to a sorted torch.Tensor if needed
     weight_tensor = None

@@ -574,6 +574,9 @@ _C.LOSS.GRAD_WEIGHTING.TAXALIGN = CN(new_allowed=True)  # DEPRECATED
 _C.LOSS.GRAD_WEIGHTING.CLASS = CN(new_allowed=True)
 _C.LOSS.GRAD_WEIGHTING.CLASS.TRAIN = True
 _C.LOSS.GRAD_WEIGHTING.CLASS.VAL = False
+_C.LOSS.GRAD_WEIGHTING.CLASS.APPLY_IN_CRITERION = False
+_C.LOSS.GRAD_WEIGHTING.CLASS.APPLY_IN_MASKING = True
+_C.LOSS.GRAD_WEIGHTING.CLASS.APPLY_IN_TASK_WEIGHTING = False
 
 # Taxonomy-aware Label Smoothing
 _C.LOSS.TAXONOMY_SMOOTHING = CN()
@@ -944,6 +947,8 @@ _C.DEBUG.LOSS.CLASS_WEIGHTING = False  # For debugging class weighting interacti
 _C.DEBUG.LOSS.GRADNORM_MEMORY = False  # For detailed memory profiling of GradNorm reforward
 _C.DEBUG.LOSS.GRADNORM_METRICS = False  # For debugging GradNorm metrics tracking
 _C.DEBUG.LOSS.VERBOSE_GRADNORM_LOGGING = False  # Extra verbose logging for GradNorm metrics flow
+_C.DEBUG.LOSS.TIMERS = False  # Lightweight loss timing logs (no torch profiler)
+_C.DEBUG.LOSS.TIMER_LOG_EVERY_N_STEPS = 0  # 0 disables; otherwise log every N steps
 
 # Metrics debugging flags
 _C.DEBUG.METRICS = CN()
