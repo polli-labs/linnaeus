@@ -24,6 +24,7 @@ ephemeral environments (CI-like, or local dev without Docker).
 > - The `cpu` and `cuda` extras are **mutually exclusive**.
 > - `linnaeus[all]` includes **CPU** by default. CUDA is always opt-in.
 > - On macOS, `cpu` installs PyTorch from PyPI. On Linux/Windows, `cpu` uses the PyTorch CPU index.
+> - Apple Silicon can use MPS via PyTorch (`torch.backends.mps.is_available()`), but it’s experimental.
 
 ## CPU-only (recommended for pytest / macOS / CI-like)
 
@@ -61,3 +62,5 @@ Helpful build knobs:
 Known limitation:
 - On Ubuntu 20.04 / glibc 2.31, `flash-attn` 2.7.x may fail to import
   (`GLIBC_2.32` missing). Use Docker or a newer host (e.g., Ubuntu 22.04).
+- On blade (Ubuntu 20.04), prefer **containerized** runs for Flash-Attention
+  and any profiling/training that depends on it.

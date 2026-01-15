@@ -109,6 +109,8 @@ print("Installation verified successfully!")
    - Use `MAX_JOBS=4` (or similar) to reduce memory spikes during compile
    - On Ubuntu 20.04 / glibc 2.31, `flash-attn` 2.7.x may fail to import
      (`GLIBC_2.32` missing). Use Docker or a newer host (e.g., Ubuntu 22.04).
+   - On blade (Ubuntu 20.04), use containerized runs for Flash-Attention
+     profiling/training until the host is upgraded.
 
 2. **CUDA Version Mismatch**
    - Ensure PyTorch CUDA version matches system CUDA
