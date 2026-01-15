@@ -16,7 +16,7 @@ import os
 import time
 import logging
 import yaml
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Callable
 from pathlib import Path
 
 from .gpu_pool import GPUPoolManager
@@ -71,7 +71,7 @@ def _sanitize_identifier(value: str, *, fallback: str) -> str:
     return lowered or fallback
 
 
-def _make_compose_project_name(*, trial_name: str, gpu_id: int) -> str:
+def _make_compose_project_name(*, trial_name: str, gpu_ids: list[int]) -> str:
     """
     Create a docker-compose safe project name.
 
@@ -83,10 +83,11 @@ def _make_compose_project_name(*, trial_name: str, gpu_id: int) -> str:
     """
     safe_trial = _sanitize_identifier(trial_name, fallback="trial")
     timestamp = datetime.datetime.now(tz=datetime.timezone.utc).strftime("%Y%m%d%H%M%S")
-    digest = hashlib.sha1(f"{trial_name}|{gpu_id}|{time.time_ns()}".encode("utf-8")).hexdigest()[:8]
+    gpu_ids_str = ",".join(str(gid) for gid in gpu_ids)
+    digest = hashlib.sha1(f"{trial_name}|{gpu_ids_str}|{time.time_ns()}".encode("utf-8")).hexdigest()[:8]
 
     prefix = "linprof"
-    suffix = f"gpu{gpu_id}_{timestamp}_{digest}"
+    suffix = f"g{len(gpu_ids)}_{timestamp}_{digest}"
 
     # Keep under typical limits (docker frequently truncates around 63 chars).
     max_trial_len = max(8, 63 - (len(prefix) + 1 + len(suffix) + 1))
@@ -94,57 +95,49 @@ def _make_compose_project_name(*, trial_name: str, gpu_id: int) -> str:
     return f"{prefix}_{safe_trial}_{suffix}"
 
 
-def _normalize_environment_for_gpu(environment: Any, *, gpu_id: int) -> Any:
+def _normalize_environment_for_gpu(environment: Any, *, gpu_ids: list[int]) -> Any:
     """
     Normalize a docker-compose service 'environment' entry to ensure:
-    - exactly one CUDA_VISIBLE_DEVICES entry that is compatible with single-GPU
-      containers launched via NVIDIA_VISIBLE_DEVICES pinning
-    - if NVIDIA_VISIBLE_DEVICES is already present, update it to match the
-      requested host GPU id
+    - CUDA_VISIBLE_DEVICES and NVIDIA_VISIBLE_DEVICES are set consistently for
+      the selected host GPU ids
     - supports list[str] and dict[str, str] representations
     """
+    if not gpu_ids:
+        return environment
+
+    gpu_ids_str = ",".join(str(gid) for gid in gpu_ids)
+    container_ids = ",".join(str(idx) for idx in range(len(gpu_ids)))
+
     if environment is None:
         environment = []
 
     if isinstance(environment, dict):
         env_dict = dict(environment)
-        if "NVIDIA_VISIBLE_DEVICES" in env_dict:
-            # When NVIDIA_VISIBLE_DEVICES pins a single host GPU, that GPU is
-            # exposed as device 0 inside the container. Setting
-            # CUDA_VISIBLE_DEVICES=<host id> (e.g., 1) would hide the only
-            # device and make torch/triton think there are zero GPUs.
-            env_dict["NVIDIA_VISIBLE_DEVICES"] = str(gpu_id)
-            env_dict["CUDA_VISIBLE_DEVICES"] = "0"
-        else:
-            env_dict["CUDA_VISIBLE_DEVICES"] = str(gpu_id)
+        env_dict["NVIDIA_VISIBLE_DEVICES"] = gpu_ids_str
+        env_dict["CUDA_VISIBLE_DEVICES"] = container_ids
         return env_dict
 
     if isinstance(environment, list):
         cleaned: list[Any] = []
-        saw_nvidia = False
         for item in environment:
             if isinstance(item, str) and item.startswith("CUDA_VISIBLE_DEVICES="):
                 continue
             if isinstance(item, str) and item.startswith("NVIDIA_VISIBLE_DEVICES="):
-                saw_nvidia = True
                 continue
             cleaned.append(item)
 
-        if saw_nvidia:
-            cleaned.append("CUDA_VISIBLE_DEVICES=0")
-            cleaned.append(f"NVIDIA_VISIBLE_DEVICES={gpu_id}")
-        else:
-            cleaned.append(f"CUDA_VISIBLE_DEVICES={gpu_id}")
+        cleaned.append(f"CUDA_VISIBLE_DEVICES={container_ids}")
+        cleaned.append(f"NVIDIA_VISIBLE_DEVICES={gpu_ids_str}")
         return cleaned
 
     # Unknown type: coerce to list and apply conservatively.
-    return [f"CUDA_VISIBLE_DEVICES={gpu_id}"]
+    return [f"CUDA_VISIBLE_DEVICES={container_ids}", f"NVIDIA_VISIBLE_DEVICES={gpu_ids_str}"]
 
 
-def _pin_service_to_single_gpu(service: Dict[str, Any], *, gpu_id: int) -> None:
+def _pin_service_to_gpu_ids(service: Dict[str, Any], *, gpu_ids: list[int]) -> None:
     """
     Pin the docker-compose service to a specific host GPU id by setting
-    `deploy.resources.reservations.devices[].device_ids = ["<gpu_id>"]` and
+    `deploy.resources.reservations.devices[].device_ids = ["<gpu_id>", ...]` and
     removing `count` (they are mutually exclusive).
 
     On some docker-compose setups, relying on `NVIDIA_VISIBLE_DEVICES` alone is
@@ -173,7 +166,7 @@ def _pin_service_to_single_gpu(service: Dict[str, Any], *, gpu_id: int) -> None:
         has_gpu_cap = isinstance(capabilities, list) and "gpu" in capabilities
         if device.get("driver") == "nvidia" or has_gpu_cap:
             device.pop("count", None)
-            device["device_ids"] = [str(gpu_id)]
+            device["device_ids"] = [str(gpu_id) for gpu_id in gpu_ids]
             return
 
 
@@ -191,7 +184,8 @@ class ConcurrentTrialExecutor:
     def __init__(self, 
                  gpu_pool: GPUPoolManager,
                  max_workers: int = 2,
-                 stagger_delay: float = 5.0):
+                 stagger_delay: float = 5.0,
+                 status_callback: Optional[Callable[[str, Dict[str, Any]], None]] = None):
         """
         Initialize concurrent trial executor.
         
@@ -203,19 +197,25 @@ class ConcurrentTrialExecutor:
         self.gpu_pool = gpu_pool
         self.max_workers = max_workers
         self.stagger_delay = stagger_delay
+        self.status_callback = status_callback
         self.executor = concurrent.futures.ThreadPoolExecutor(max_workers=max_workers)
         self.results = []
         self.active_trials = {}
         self.completed_count = 0
         self.total_count = 0
         
+    def _emit_status(self, trial_name: str, payload: Dict[str, Any]) -> None:
+        if self.status_callback:
+            self.status_callback(trial_name, payload)
+
     def run_trial_on_gpu(self,
                         trial: Dict[str, Any],
                         template_data: Dict[str, Any],
                         output_dir: str,
                         timeout: int,
                         capture_debug_logs: bool = False,
-                        gpu_id: Optional[int] = None,
+                        gpu_ids: Optional[list[int]] = None,
+                        required_gpus: int = 1,
                         modify_compose_fn=None) -> Dict[str, Any]:
         """
         Execute a single trial on a specific GPU.
@@ -243,15 +243,16 @@ class ConcurrentTrialExecutor:
         
         # Acquire GPU if not specified
         acquired_gpu = False
-        if gpu_id is None:
-            gpu_id = self.gpu_pool.acquire_gpu(trial_name, timeout=3600)
-            if gpu_id is None:
+        if gpu_ids is None:
+            gpu_ids = self.gpu_pool.acquire_gpus(trial_name, count=required_gpus, timeout=3600)
+            if gpu_ids is None:
                 return {
                     'name': trial_name,
                     'status': 'timeout',
-                    'error': 'Failed to acquire GPU within timeout'
+                    'error': f'Failed to acquire {required_gpus} GPU(s) within timeout',
                 }
             acquired_gpu = True
+        gpu_ids = list(gpu_ids)
             
         try:
             # Create per-trial output directory for artifacts (compose file, logs, etc.)
@@ -261,11 +262,12 @@ class ConcurrentTrialExecutor:
             trial_output_dir.mkdir(parents=True, exist_ok=True)
 
             # Unique compose project name to avoid cross-trial collisions under concurrency.
-            compose_project_name = _make_compose_project_name(trial_name=trial_name, gpu_id=gpu_id)
+            compose_project_name = _make_compose_project_name(trial_name=trial_name, gpu_ids=gpu_ids)
 
             # Ensure templating sees the selected GPU without mutating shared trial data.
             trial_for_compose = dict(trial)
-            trial_for_compose["gpu_rank"] = gpu_id
+            if len(gpu_ids) == 1:
+                trial_for_compose["gpu_rank"] = gpu_ids[0]
 
             # Modify compose data for this trial without cross-thread mutation.
             if modify_compose_fn:
@@ -294,9 +296,9 @@ class ConcurrentTrialExecutor:
             service = services.setdefault(_DOCKER_SERVICE_NAME, {})
             service["environment"] = _normalize_environment_for_gpu(
                 service.get("environment"),
-                gpu_id=gpu_id,
+                gpu_ids=gpu_ids,
             )
-            _pin_service_to_single_gpu(service, gpu_id=gpu_id)
+            _pin_service_to_gpu_ids(service, gpu_ids=gpu_ids)
 
             # Write compose file to per-trial output dir so cleanup can always target the right project.
             compose_path = trial_output_dir / f"docker-compose.{compose_project_name}.yml"
@@ -318,13 +320,22 @@ class ConcurrentTrialExecutor:
             ]
             
             # Execute trial with proper UID/GID
-            logger.info(f"Starting trial {trial_name} on GPU {gpu_id}")
+            logger.info(f"Starting trial {trial_name} on GPUs {gpu_ids}")
+
+            self._emit_status(
+                trial_name,
+                {
+                    "status": "running",
+                    "gpu_ids": gpu_ids,
+                    "started_at": datetime.datetime.now(tz=datetime.timezone.utc).isoformat(),
+                },
+            )
             
             # Set environment with current user's UID/GID
             env = os.environ.copy()
             env['UID'] = str(os.getuid())
             env['GID'] = str(os.getgid())
-            env['CUDA_VISIBLE_DEVICES'] = str(gpu_id)
+            env['CUDA_VISIBLE_DEVICES'] = ",".join(str(gid) for gid in gpu_ids)
             
             process = subprocess.Popen(
                 docker_cmd,
@@ -338,7 +349,7 @@ class ConcurrentTrialExecutor:
             # Track active process
             self.active_trials[trial_name] = {
                 'process': process,
-                'gpu_id': gpu_id,
+                'gpu_ids': gpu_ids,
                 'compose_project_name': compose_project_name,
                 'compose_file': str(compose_path),
                 'start_time': start_time
@@ -362,7 +373,7 @@ class ConcurrentTrialExecutor:
                 'name': trial_name,
                 'status': 'completed' if returncode == 0 else 'error',
                 'returncode': returncode,
-                'gpu_id': gpu_id,
+                'gpu_ids': gpu_ids,
                 'elapsed_time': time.time() - start_time,
                 'stdout': stdout[-5000:] if stdout else '',  # Last 5000 chars
                 'stderr': stderr[-5000:] if stderr else '',   # Last 5000 chars
@@ -375,7 +386,9 @@ class ConcurrentTrialExecutor:
             
             # Capture debug logs if requested
             if capture_debug_logs and returncode != 0:
-                result['debug_log'] = self._capture_debug_log(trial, output_dir)
+                debug_log = self._capture_debug_log(trial, output_dir)
+                if debug_log:
+                    result['debug_log'] = debug_log
                 
         except subprocess.TimeoutExpired:
             logger.warning(f"Trial {trial_name} exceeded timeout of {timeout}s, terminating...")
@@ -393,7 +406,7 @@ class ConcurrentTrialExecutor:
             result = {
                 'name': trial_name,
                 'status': 'timeout',
-                'gpu_id': gpu_id,
+                'gpu_ids': gpu_ids,
                 'elapsed_time': timeout,
                 'error': f'Trial exceeded timeout of {timeout}s'
             }
@@ -405,7 +418,7 @@ class ConcurrentTrialExecutor:
             result = {
                 'name': trial_name,
                 'status': 'error',
-                'gpu_id': gpu_id,
+                'gpu_ids': gpu_ids,
                 'elapsed_time': time.time() - start_time,
                 'error': str(e),
                 'traceback': traceback.format_exc()
@@ -427,16 +440,27 @@ class ConcurrentTrialExecutor:
             # Release GPU back to the pool *after* docker cleanup so a newly
             # scheduled trial can't overlap with a still-tearing-down container.
             if acquired_gpu:
-                self.gpu_pool.release_gpu(gpu_id)
+                self.gpu_pool.release_gpus(gpu_ids)
             
         if result is None:
             return {
                 "name": trial_name,
                 "status": "error",
-                "gpu_id": gpu_id,
+                "gpu_ids": gpu_ids,
                 "elapsed_time": time.time() - start_time,
                 "error": "Unknown error (no result produced)",
             }
+
+        self._emit_status(
+            trial_name,
+            {
+                "status": result.get("status", "error"),
+                "gpu_ids": gpu_ids,
+                "completed_at": datetime.datetime.now(tz=datetime.timezone.utc).isoformat(),
+                "returncode": result.get("returncode"),
+                "error": result.get("error"),
+            },
+        )
 
         return result
         
@@ -474,7 +498,11 @@ class ConcurrentTrialExecutor:
                 time.sleep(self.stagger_delay)
                 
             # Determine GPU assignment
-            gpu_id = trial.get('gpu_rank')  # Manual assignment if specified
+            gpu_ids = trial.get('gpu_ids')
+            required_gpus = trial.get('required_gpus', 1)
+
+            if gpu_ids is None and trial.get('gpu_rank') is not None and required_gpus == 1:
+                gpu_ids = [trial.get('gpu_rank')]
             
             # Submit trial
             future = self.executor.submit(
@@ -484,8 +512,9 @@ class ConcurrentTrialExecutor:
                 output_dir,
                 timeout,
                 capture_debug_logs,
-                gpu_id,
-                modify_compose_fn
+                gpu_ids,
+                required_gpus,
+                modify_compose_fn,
             )
             futures.append(future)
             
@@ -500,7 +529,9 @@ class ConcurrentTrialExecutor:
                 logger.info(f"Trial {result['name']} completed ({self.completed_count}/{self.total_count})")
                 logger.info(f"Progress: {self.completed_count}/{self.total_count} trials "
                           f"({100*self.completed_count/self.total_count:.1f}%)")
-                logger.info(f"GPU utilization: {self.gpu_pool.available_gpus.qsize()}/{self.gpu_pool.total_gpus} available")
+                logger.info(
+                    f"GPU utilization: {self.gpu_pool.available_count()}/{self.gpu_pool.total_gpus} available"
+                )
                 
             except Exception as e:
                 logger.error(f"Error collecting trial result: {e}")
@@ -519,9 +550,9 @@ class ConcurrentTrialExecutor:
         Returns:
             Debug log content or error message
         """
-        # This would need to be implemented based on where linnaeus saves logs
-        # For now, return placeholder
-        return "Debug log capture not implemented"
+        # Placeholder for backward compatibility; debug log capture is handled
+        # by the profiling runner after resolving host paths from compose files.
+        return ""
         
     def _cleanup_docker(self, compose_project_name: str, compose_path: Path) -> None:
         """
