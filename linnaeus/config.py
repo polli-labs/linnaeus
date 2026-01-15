@@ -897,7 +897,7 @@ _C.MISC.OUTPUT = "output"
 _C.MISC.SAVE_FREQ = 1
 _C.MISC.PRINT_FREQ = 50
 _C.MISC.PIPELINE_METRICS_FREQ = 30.0  # seconds (DEPRECATED: use SCHEDULE.METRICS.PIPELINE_INTERVAL instead)
-_C.MISC.CUDNN_BENCHMARK = True  # Set cudnn.benchmark. None leaves default.
+_C.MISC.CUDNN_BENCHMARK = None  # None leaves default; otherwise sets cudnn.benchmark.
 _C.MISC.ALLOW_TF32 = None  # None leaves defaults; otherwise sets matmul/cudnn allow_tf32.
 _C.MISC.MATMUL_PRECISION = None  # None leaves default. Options: "highest", "high", "medium".
 
