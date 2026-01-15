@@ -948,7 +948,7 @@ _C.DEBUG.LOSS.GRADNORM_MEMORY = False  # For detailed memory profiling of GradNo
 _C.DEBUG.LOSS.GRADNORM_METRICS = False  # For debugging GradNorm metrics tracking
 _C.DEBUG.LOSS.VERBOSE_GRADNORM_LOGGING = False  # Extra verbose logging for GradNorm metrics flow
 _C.DEBUG.LOSS.TIMERS = False  # Lightweight loss timing logs (no torch profiler)
-_C.DEBUG.LOSS.TIMER_LOG_EVERY_N_STEPS = 0  # 0 disables; otherwise log every N steps
+_C.DEBUG.LOSS.TIMER_LOG_EVERY_N_STEPS = 100  # 0 disables; otherwise log every N steps
 
 # Metrics debugging flags
 _C.DEBUG.METRICS = CN()

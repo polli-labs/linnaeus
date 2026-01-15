@@ -87,12 +87,38 @@ def weighted_hierarchical_loss(
     # Lightweight loss timing (no torch profiler)
     timing_enabled = bool(config is not None and getattr(config.DEBUG.LOSS, "TIMERS", False))
     timing_every = int(getattr(config.DEBUG.LOSS, "TIMER_LOG_EVERY_N_STEPS", 0)) if config is not None else 0
-    should_time = timing_enabled and (timing_every == 0 or (current_step is not None and current_step % timing_every == 0))
+    should_time = (
+        timing_enabled
+        and timing_every > 0
+        and current_step is not None
+        and current_step % timing_every == 0
+    )
     timings_ms: dict[str, float] = {}
+    use_cuda_timing = should_time and torch.cuda.is_available()
+    cuda_events: dict[str, tuple[torch.cuda.Event, torch.cuda.Event]] = {}
 
-    def _sync_cuda():
-        if torch.cuda.is_available():
-            torch.cuda.synchronize()
+    def _start_timer(name: str) -> float | None:
+        if not should_time:
+            return None
+        if use_cuda_timing:
+            start = torch.cuda.Event(enable_timing=True)
+            end = torch.cuda.Event(enable_timing=True)
+            start.record()
+            cuda_events[name] = (start, end)
+            return None
+        return time.perf_counter()
+
+    def _stop_timer(name: str, start: float | None) -> None:
+        if not should_time:
+            return
+        if use_cuda_timing:
+            event_pair = cuda_events.get(name)
+            if event_pair is not None:
+                _, end = event_pair
+                end.record()
+            return
+        if start is not None:
+            timings_ms[name] = (time.perf_counter() - start) * 1000.0
 
     # Class-weighting routing (apply exactly once)
     class_cfg = config.LOSS.GRAD_WEIGHTING.CLASS if config is not None else None
@@ -165,12 +191,10 @@ def weighted_hierarchical_loss(
             log.debug("[HIERARCHICAL_LOSS] Step 1: Computing raw per-sample losses")
         with prof("loss/core_loss", level=2):
             if should_time:
-                _sync_cuda()
-                t0 = time.perf_counter()
+                t0 = _start_timer("core_loss_ms")
             per_task_losses = compute_core_loss(outputs, targets, criteria, config)
             if should_time:
-                _sync_cuda()
-                timings_ms["core_loss_ms"] = (time.perf_counter() - t0) * 1000.0
+                _stop_timer("core_loss_ms", t0)
 
         # Store raw per-sample losses only when null vs non-null tracking is enabled
         track_null_metrics = True
@@ -179,12 +203,10 @@ def weighted_hierarchical_loss(
         raw_per_task_losses = None
         if track_null_metrics:
             if should_time:
-                _sync_cuda()
-                t0 = time.perf_counter()
+                t0 = _start_timer("raw_per_sample_capture_ms")
             raw_per_task_losses = {k: v.detach() for k, v in per_task_losses.items()}
             if should_time:
-                _sync_cuda()
-                timings_ms["raw_per_sample_capture_ms"] = (time.perf_counter() - t0) * 1000.0
+                _stop_timer("raw_per_sample_capture_ms", t0)
 
         if rank == 0 and verbose_logging:
             # Log per-task loss statistics
@@ -200,8 +222,7 @@ def weighted_hierarchical_loss(
 
         with prof("loss/masking", level=2):
             if should_time:
-                _sync_cuda()
-                t0 = time.perf_counter()
+                t0 = _start_timer("masking_ms")
             # Add detailed debug logging for targets to diagnose null masking issues
             debug_null_masking = False
             force_mask_all_nulls = False
@@ -341,8 +362,7 @@ def weighted_hierarchical_loss(
                 log.debug("[PHASE1_MASK_LOSS] Used hybrid approach with optimized class weighting.")
 
             if should_time:
-                _sync_cuda()
-                timings_ms["masking_ms"] = (time.perf_counter() - t0) * 1000.0
+                _stop_timer("masking_ms", t0)
 
         # 3. Apply task-level weighting
         if rank == 0 and verbose_logging:
@@ -350,8 +370,7 @@ def weighted_hierarchical_loss(
         with prof("loss/weighting", level=2):
             num_valid_samples_per_task = null_stats.get("num_valid_samples_per_task", {})
             if should_time:
-                _sync_cuda()
-                t0 = time.perf_counter()
+                t0 = _start_timer("task_weighting_ms")
             weighted_dict, task_weights = task_weighting(
                 losses_after_cw,
                 targets,
@@ -359,8 +378,7 @@ def weighted_hierarchical_loss(
                 is_validation=is_validation,
             )
             if should_time:
-                _sync_cuda()
-                timings_ms["task_weighting_ms"] = (time.perf_counter() - t0) * 1000.0
+                _stop_timer("task_weighting_ms", t0)
 
         if rank == 0 and verbose_logging:
             # Log task weights
@@ -374,16 +392,14 @@ def weighted_hierarchical_loss(
             log.debug("[HIERARCHICAL_LOSS] Step 4: Computing total loss")
         with prof("loss/aggregation", level=2):
             if should_time:
-                _sync_cuda()
-                t0 = time.perf_counter()
+                t0 = _start_timer("aggregation_ms")
             total_loss = sum(weighted_dict.values())
 
             if rank == 0 and verbose_logging:
                 log.debug(f"[HIERARCHICAL_LOSS] Total loss: {total_loss.item():.4f}")
 
             if should_time:
-                _sync_cuda()
-                timings_ms["aggregation_ms"] = (time.perf_counter() - t0) * 1000.0
+                _stop_timer("aggregation_ms", t0)
 
             # Build a logging dictionary with string task keys
             loss_components = {
@@ -399,6 +415,12 @@ def weighted_hierarchical_loss(
 
             # Add null masking statistics to the loss components
             loss_components["null_masking"] = null_stats
+
+        if rank == 0 and should_time and use_cuda_timing:
+            torch.cuda.synchronize()
+            for name, events in cuda_events.items():
+                start, end = events
+                timings_ms[name] = start.elapsed_time(end)
 
         if rank == 0 and should_time:
             class_weighting_criterion = class_weighting_enabled and apply_in_criterion
