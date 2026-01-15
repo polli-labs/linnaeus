@@ -510,6 +510,8 @@ class RoPE2DMHSABlock(nn.Module):
         self.disable_mlp = disable_mlp
         self.disable_residual_attn = disable_residual_attn
         self.disable_residual_mlp = disable_residual_mlp
+        # Optional profiling prefix; defaults to None for generic block tags.
+        self.prof_prefix = None
 
         # Layer Normalization
         self.norm1 = norm_layer(dim)
