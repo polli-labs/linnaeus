@@ -147,6 +147,8 @@ def apply_loss_masking_optimized(
     is_validation: bool = False,
     logger: logging.Logger | None = None,
     config: CN | None = None,
+    timing_start=None,
+    timing_stop=None,
 ) -> tuple[dict[str, torch.Tensor], dict[str, Any]]:
     """
     Optimized combined null masking and class weighting.
@@ -167,9 +169,12 @@ def apply_loss_masking_optimized(
         null_mask_prob = 0.0 if force_mask_all_nulls else ops_schedule.get_null_mask_prob(current_step)
     
     # Apply optimized null masking
+    t0 = timing_start("null_masking_ms") if timing_start is not None else None
     masked_losses, null_stats = apply_null_masking_optimized(
         per_task_losses, targets, null_mask_prob, logger=log, config=config
     )
+    if timing_stop is not None:
+        timing_stop("null_masking_ms", t0)
     
     # Count valid samples efficiently
     num_valid_samples_per_task = {
@@ -180,7 +185,10 @@ def apply_loss_masking_optimized(
     
     # Apply optimized class weighting if provided
     if class_weights is not None:
+        t0 = timing_start("class_weighting_ms") if timing_start is not None else None
         weighted_losses = apply_class_weighting_optimized(masked_losses, targets, class_weights)
+        if timing_stop is not None:
+            timing_stop("class_weighting_ms", t0)
         return weighted_losses, null_stats
     
     return masked_losses, null_stats

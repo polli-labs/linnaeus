@@ -95,30 +95,31 @@ def weighted_hierarchical_loss(
     )
     timings_ms: dict[str, float] = {}
     use_cuda_timing = should_time and torch.cuda.is_available()
-    cuda_events: dict[str, tuple[torch.cuda.Event, torch.cuda.Event]] = {}
+    cuda_events: dict[str, list[tuple[torch.cuda.Event, torch.cuda.Event]]] = {}
 
-    def _start_timer(name: str) -> float | None:
+    def _start_timer(name: str) -> float | torch.cuda.Event | None:
         if not should_time:
             return None
         if use_cuda_timing:
             start = torch.cuda.Event(enable_timing=True)
             end = torch.cuda.Event(enable_timing=True)
             start.record()
-            cuda_events[name] = (start, end)
-            return None
+            cuda_events.setdefault(name, []).append((start, end))
+            return end
         return time.perf_counter()
 
-    def _stop_timer(name: str, start: float | None) -> None:
+    def _stop_timer(name: str, token: float | torch.cuda.Event | None) -> None:
         if not should_time:
             return
         if use_cuda_timing:
-            event_pair = cuda_events.get(name)
-            if event_pair is not None:
-                _, end = event_pair
-                end.record()
+            if isinstance(token, torch.cuda.Event):
+                token.record()
             return
-        if start is not None:
-            timings_ms[name] = (time.perf_counter() - start) * 1000.0
+        if token is not None:
+            timings_ms[name] = timings_ms.get(name, 0.0) + (time.perf_counter() - token) * 1000.0
+
+    timing_start = _start_timer if should_time else None
+    timing_stop = _stop_timer if should_time else None
 
     # Class-weighting routing (apply exactly once)
     class_cfg = config.LOSS.GRAD_WEIGHTING.CLASS if config is not None else None
@@ -192,7 +193,14 @@ def weighted_hierarchical_loss(
         with prof("loss/core_loss", level=2):
             if should_time:
                 t0 = _start_timer("core_loss_ms")
-            per_task_losses = compute_core_loss(outputs, targets, criteria, config)
+            per_task_losses = compute_core_loss(
+                outputs,
+                targets,
+                criteria,
+                config,
+                timing_start=timing_start,
+                timing_stop=timing_stop,
+            )
             if should_time:
                 _stop_timer("core_loss_ms", t0)
 
@@ -325,6 +333,8 @@ def weighted_hierarchical_loss(
                         is_validation,
                         logger=log,
                         config=config,
+                        timing_start=timing_start,
+                        timing_stop=timing_stop,
                     )
                 else:
                     # Standard path - use apply_loss_masking
@@ -338,6 +348,8 @@ def weighted_hierarchical_loss(
                         is_validation,
                         logger=log,
                         config=config,
+                        timing_start=timing_start,
+                        timing_stop=timing_stop,
                     )
                 # REMOVED: null_stats["phase1_active"] = False
 
@@ -419,31 +431,63 @@ def weighted_hierarchical_loss(
         if rank == 0 and should_time and use_cuda_timing:
             torch.cuda.synchronize()
             for name, events in cuda_events.items():
-                start, end = events
-                timings_ms[name] = start.elapsed_time(end)
+                total_ms = 0.0
+                for start, end in events:
+                    total_ms += start.elapsed_time(end)
+                timings_ms[name] = timings_ms.get(name, 0.0) + total_ms
 
         if rank == 0 and should_time:
             class_weighting_criterion = class_weighting_enabled and apply_in_criterion
             class_weighting_task = class_weighting_enabled and apply_in_task_weighting
+            if class_weighting_enabled:
+                if class_weighting_criterion:
+                    class_weighting_location = "criterion"
+                elif class_weighting_masking:
+                    class_weighting_location = "masking"
+                elif class_weighting_task:
+                    class_weighting_location = "task_weighting"
+                else:
+                    class_weighting_location = "disabled"
+            else:
+                class_weighting_location = "none"
             taxonomy_active = len(taxonomy_smoothing_tasks) > 0
             null_mask_prob = null_stats.get("null_mask_prob", None)
+            track_null_metrics_flag = bool(
+                config is not None
+                and hasattr(config, "METRICS")
+                and getattr(config.METRICS, "TRACK_NULL_VS_NON_NULL", False)
+            )
+            gradnorm_enabled = bool(
+                config is not None
+                and hasattr(config, "LOSS")
+                and hasattr(config.LOSS, "GRAD_WEIGHTING")
+                and hasattr(config.LOSS.GRAD_WEIGHTING, "TASK")
+                and config.LOSS.GRAD_WEIGHTING.TASK.get("GRADNORM_ENABLED", False)
+            )
             log.info(
-                "[LOSS_TIMING] step=%s core_ms=%.3f mask_ms=%.3f weight_ms=%.3f agg_ms=%.3f raw_capture_ms=%.3f "
-                "mask_impl=%s null_mask_prob=%s class_weighting(criterion=%s,masking=%s,task=%s) "
-                "taxonomy_smoothing=%s task_weighting=%s",
+                "[LOSS_TIMING] step=%s core_ms=%.3f tax_ms=%.3f null_mask_ms=%.3f class_weight_ms=%.3f "
+                "mask_ms=%.3f weight_ms=%.3f agg_ms=%.3f raw_capture_ms=%.3f "
+                "mask_impl=%s null_mask_prob=%s class_weight_loc=%s class_weighting(criterion=%s,masking=%s,task=%s) "
+                "taxonomy_smoothing=%s task_weighting=%s gradnorm=%s raw_capture=%s",
                 current_step,
                 timings_ms.get("core_loss_ms", 0.0),
+                timings_ms.get("taxonomy_smoothing_ms", 0.0),
+                timings_ms.get("null_masking_ms", 0.0),
+                timings_ms.get("class_weighting_ms", 0.0),
                 timings_ms.get("masking_ms", 0.0),
                 timings_ms.get("task_weighting_ms", 0.0),
                 timings_ms.get("aggregation_ms", 0.0),
                 timings_ms.get("raw_per_sample_capture_ms", 0.0),
                 masking_impl,
                 f"{null_mask_prob:.3f}" if isinstance(null_mask_prob, (int, float)) else "n/a",
+                class_weighting_location,
                 class_weighting_criterion,
                 class_weighting_masking,
                 class_weighting_task,
                 taxonomy_active,
                 getattr(task_weighting, "task_weighting_type", "unknown"),
+                gradnorm_enabled,
+                track_null_metrics_flag,
             )
 
         if rank == 0 and verbose_logging:

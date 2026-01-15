@@ -5,7 +5,7 @@ This module is responsible for computing the raw losses for each task
 without any weighting, masking, or aggregation.
 """
 
-from typing import Any
+from typing import Any, Callable
 
 import torch
 import torch.nn as nn
@@ -17,7 +17,12 @@ logger = get_main_logger()
 
 
 def compute_core_loss(
-    outputs: dict[str, torch.Tensor], targets: dict[str, torch.Tensor], criteria: dict[str, nn.Module], config: Any | None = None
+    outputs: dict[str, torch.Tensor],
+    targets: dict[str, torch.Tensor],
+    criteria: dict[str, nn.Module],
+    config: Any | None = None,
+    timing_start: Callable[[str], object] | None = None,
+    timing_stop: Callable[[str, object], None] | None = None,
 ) -> dict[str, torch.Tensor]:
     """
     Compute raw per-sample loss for each task.
@@ -29,6 +34,8 @@ def compute_core_loss(
         outputs: Dict mapping task_key -> model output tensor or nested dict
         targets: Dict mapping task_key -> target tensor
         criteria: Dict mapping task_key -> loss criterion (e.g. CrossEntropyLoss)
+        timing_start: Optional callable to start a named timer (used for lightweight timing)
+        timing_stop: Optional callable to stop a named timer
 
     Returns:
         Dict mapping task_key -> per-sample loss tensor of shape [B]
@@ -43,6 +50,14 @@ def compute_core_loss(
     sorted_task_keys = sorted(outputs.keys(), key=lambda k: int(k.split("_L")[-1]))
 
     losses = {}
+    taxonomy_loss_cls = None
+    if timing_start is not None and timing_stop is not None:
+        try:
+            from linnaeus.loss.taxonomy_label_smoothing import TaxonomyAwareLabelSmoothingCE
+
+            taxonomy_loss_cls = TaxonomyAwareLabelSmoothingCE
+        except Exception:
+            taxonomy_loss_cls = None
     for task_key in sorted_task_keys:
         try:
             # Get corresponding outputs, targets, and criterion for this task
@@ -63,7 +78,12 @@ def compute_core_loss(
                 logger.debug(f"[CORE_LOSS] Criterion type: {type(crit).__name__}")
 
             # crit returns shape [B]
-            per_sample_vec = crit(out, tgt)
+            if taxonomy_loss_cls is not None and isinstance(crit, taxonomy_loss_cls):
+                t0 = timing_start("taxonomy_smoothing_ms")
+                per_sample_vec = crit(out, tgt)
+                timing_stop("taxonomy_smoothing_ms", t0)
+            else:
+                per_sample_vec = crit(out, tgt)
             losses[task_key] = per_sample_vec
 
             if rank == 0 and debug_verbose:

@@ -66,3 +66,15 @@ def test_taxonomy_aware_loss_identity_matrix_matches_nll():
 
     out = loss_fn(logits, targets)
     assert torch.allclose(out, expected, atol=1e-6)
+
+
+def test_taxonomy_aware_loss_respects_ignore_index():
+    soft_labels = torch.eye(3, dtype=torch.float32)
+    loss_fn = TaxonomyAwareLabelSmoothingCE(soft_labels, apply_class_weights=False, ignore_index=0)
+
+    logits = torch.tensor([[2.0, 0.0, -1.0], [0.0, 2.0, 1.0]], dtype=torch.float32)
+    targets = torch.tensor([0, 1], dtype=torch.long)
+
+    out = loss_fn(logits, targets)
+    assert out.shape == targets.shape
+    assert out[0].item() == pytest.approx(0.0, abs=1e-6)
