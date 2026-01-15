@@ -821,22 +821,25 @@ class BasePrefetchingDataset(ABC):
     # Helpers
     # ------------------------------------------------------------------------
     def _ensure_sentinel_propagated(self, q: queue.Queue, sentinel: Any, q_name_debug: str):
-        """Tries to put sentinel into queue. If full, drains and tries again with timeout."""
-        try:
-            q.put_nowait(sentinel)
-            # Successfully enqueued
-        except queue.Full:
-            self.main_logger.warning(f"[{self.__class__.__name__}] Queue {q_name_debug} was full. Draining to propagate sentinel.")
-            self._drain_queue(q)  # Drain to make space
+        """Enqueue sentinel without dropping queued batches."""
+        warned = False
+        while not self._shutdown_event.is_set():
             try:
-                q.put(sentinel, block=True, timeout=1.0)  # Try putting again, with timeout
-                # Successfully enqueued after drain
+                q.put(sentinel, block=True, timeout=0.5)
+                return
             except queue.Full:
-                self.main_logger.error(
-                    f"[{self.__class__.__name__}] CRITICAL: Could not enqueue sentinel to {q_name_debug} even after drain. Pipeline might hang."
-                )
-        except Exception as e:
-            self.main_logger.error(f"[{self.__class__.__name__}] Error propagating sentinel to {q_name_debug}: {e}", exc_info=True)
+                if not warned:
+                    self.main_logger.warning(
+                        f"[{self.__class__.__name__}] Queue {q_name_debug} was full. Waiting to enqueue sentinel without draining."
+                    )
+                    warned = True
+                continue
+            except Exception as e:
+                self.main_logger.error(f"[{self.__class__.__name__}] Error propagating sentinel to {q_name_debug}: {e}", exc_info=True)
+                return
+        self.main_logger.warning(
+            f"[{self.__class__.__name__}] Shutdown set before sentinel could be enqueued to {q_name_debug}."
+        )
 
     def _drain_queue(self, q: queue.Queue):
         """Drain any leftover items from a queue without blocking."""
