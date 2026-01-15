@@ -130,8 +130,13 @@ def weighted_hierarchical_loss(
         with prof("loss/core_loss", level=2):
             per_task_losses = compute_core_loss(outputs, targets, criteria, config)
 
-        # Store the raw per-sample losses for null vs non-null metrics tracking
-        raw_per_task_losses = {k: v.clone() for k, v in per_task_losses.items()}
+        # Store raw per-sample losses only when null vs non-null tracking is enabled
+        track_null_metrics = True
+        if config is not None:
+            track_null_metrics = getattr(config.METRICS, "TRACK_NULL_VS_NON_NULL", False)
+        raw_per_task_losses = None
+        if track_null_metrics:
+            raw_per_task_losses = {k: v.detach() for k, v in per_task_losses.items()}
 
         if rank == 0 and verbose_logging:
             # Log per-task loss statistics
@@ -308,9 +313,11 @@ def weighted_hierarchical_loss(
                 "tasks": {task_key: per_task_losses[task_key].mean().item() for task_key in sorted_task_keys},
                 "masked_tasks": {task_key: losses_after_cw[task_key].mean().item() for task_key in sorted_task_keys},
                 "weighted_tasks": {task_key: weighted_dict[task_key].item() for task_key in sorted_task_keys},
-                # Add raw per-sample losses for null vs non-null metrics tracking
-                "raw_per_sample_losses": raw_per_task_losses,
             }
+
+            # Add raw per-sample losses only if null tracking is enabled
+            if raw_per_task_losses is not None:
+                loss_components["raw_per_sample_losses"] = raw_per_task_losses
 
             # Add null masking statistics to the loss components
             loss_components["null_masking"] = null_stats
