@@ -331,10 +331,10 @@ def apply_null_masking(
         inclusion_pct = 100.0 * null_samples_included / null_samples_total
 
         # Log null masking stats at debug level
-        logger.debug(
-            f"Null masking: included {null_samples_included}/{null_samples_total} null samples "
-            f"({inclusion_pct:.1f}%) with prob={null_mask_prob:.3f}"
-        )
+            log.debug(
+                f"Null masking: included {null_samples_included}/{null_samples_total} null samples "
+                f"({inclusion_pct:.1f}%) with prob={null_mask_prob:.3f}"
+            )
 
         if debug_null_masking:
             log.debug("[DEBUG_NULL_MASKING] Summary of null masking across all tasks:")
