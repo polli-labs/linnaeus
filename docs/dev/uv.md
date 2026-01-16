@@ -25,6 +25,8 @@ ephemeral environments (CI-like, or local dev without Docker).
 > - `linnaeus[all]` includes **CPU** by default. CUDA is always opt-in.
 > - On macOS, `cpu` installs PyTorch from PyPI. On Linux/Windows, `cpu` uses the PyTorch CPU index.
 > - Apple Silicon can use MPS via PyTorch (`torch.backends.mps.is_available()`), but it’s experimental.
+> - CUDA wheels are pinned to **cu126** to match our training containers. If you need a different CUDA
+>   version, adjust the `[tool.uv.index]`/`[tool.uv.sources]` entries or use the container workflow.
 
 ## CPU-only (recommended for pytest / macOS / CI-like)
 

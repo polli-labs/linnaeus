@@ -34,6 +34,9 @@ uv sync --extra dev --extra cuda
 uv run python -c "import torch; print(torch.__version__, torch.cuda.is_available(), torch.version.cuda)"
 ```
 
+Note: CUDA wheels are pinned to **cu126** to match the training containers. If you need a
+different CUDA version, adjust the uv indices/sources in `pyproject.toml` or use Docker.
+
 Optional Flash-Attention (FA2/FA3):
 
 ```bash
