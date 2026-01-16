@@ -30,20 +30,12 @@ We are excited to announce that Polli Linnaeus is fully open-source and will be 
 ```bash
 # Create and activate a project-specific virtual environment
 uv venv .venv
-source .venv/bin/activate  # On Unix/macOS
-# or
-.venv\Scripts\activate  # On Windows
-
-# Via uv pip from GitHub (recommended)
-uv pip install git+https://github.com/polli-labs/linnaeus.git
-
-# Development installation
-git clone https://github.com/polli-labs/linnaeus.git
-cd linnaeus
-uv pip install -e .
+uv sync --extra dev --extra cpu
+uv run pytest -q
 ```
 
-For detailed installation instructions, see [Installation Guide](docs/installation.md).
+For detailed installation instructions, see [Installation Guide](docs/installation.md) and
+the [UV golden path](docs/dev/uv.md).
 
 ## Docker Images
 

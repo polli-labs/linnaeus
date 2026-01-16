@@ -4,28 +4,45 @@ This guide covers installing Linnaeus and its dependencies in various environmen
 
 ## Requirements
 
-- Python ≥ 3.9
-- PyTorch ≥ 2.6.0 with CUDA ≥ 12.1
-- NVIDIA GPU with compute capability ≥ 8.0 (Ampere or newer) for full performance
-- polli-typus >= 0.1.7
-- huggingface-hub
-- python-dateutil
-- For specific versions of other core dependencies, please see `pyproject.toml`.
+- Python ≥ 3.10
+- For specific versions of core dependencies, see `pyproject.toml`
 
-## Recommended Installation Method
+## Recommended Installation Method (uv)
 
-We recommend using `uv`, a fast, reliable Python package installer and resolver.
+We recommend using `uv`, a fast, reliable Python package installer and resolver. The
+golden-path instructions are documented in `docs/dev/uv.md`.
+These instructions require **uv >= 0.5.3**.
+
+### CPU-only (recommended for pytest / macOS / CI-like)
 
 ```bash
 # Install uv (if not already installed)
 curl -LsSf https://astral.sh/uv/install.sh | sh
 
-# Create virtual environment
+rm -rf .venv
 uv venv .venv
-source .venv/bin/activate
+uv sync --extra dev --extra cpu
+uv run pytest -q
+```
 
-# Install Linnaeus
-uv pip install git+https://github.com/polli-labs/linnaeus.git
+### CUDA (Linux + GPU)
+
+```bash
+rm -rf .venv
+uv venv .venv
+uv sync --extra dev --extra cuda
+uv run python -c "import torch; print(torch.__version__, torch.cuda.is_available(), torch.version.cuda)"
+```
+
+Note: CUDA wheels are pinned to **cu126** to match the training containers. If you need a
+different CUDA version, adjust the uv indices/sources in `pyproject.toml` or use Docker.
+
+Optional Flash-Attention (FA2/FA3):
+
+```bash
+uv sync --extra dev --extra cuda
+MAX_JOBS=4 uv sync --extra dev --extra cuda --extra cuda-fa
+uv run python -c "import flash_attn; print('flash_attn ok')"
 ```
 
 ## Installation from Source
@@ -37,31 +54,14 @@ For development or customization, install from source:
 git clone https://github.com/polli-labs/linnaeus.git
 cd linnaeus
 
-# Create virtual environment
 uv venv .venv
-source .venv/bin/activate
-
-# Install in development mode
-uv pip install -e .
-
-### TODO illustrate optional dependency sets: [profiling, inference, etc.]
-uv pip install -e ".[profiling, inference]"
+uv sync --extra dev --extra cpu
 ```
 
 ## Manual Dependency Management
 
-If you need specific versions of dependencies:
-
-```bash
-# Install PyTorch first (specific CUDA version)
-uv pip install torch==2.6.0+cu124 torchvision==0.21.0+cu124 --index-url https://download.pytorch.org/whl/cu124
-
-# Install flash-attention (must be installed after PyTorch)
-uv pip install flash-attn>=2.5.9.post1 --no-build-isolation
-
-# Install Linnaeus and remaining dependencies
-uv pip install -e .
-```
+If you need to pin specific PyTorch builds, prefer `uv sync` with `cpu` / `cuda` extras
+and adjust versions in `pyproject.toml` so the lockfile stays consistent.
 
 ## Docker Installation
 
@@ -108,8 +108,12 @@ print("Installation verified successfully!")
 
 1. **FlashAttention Installation Fails**
    - Ensure you have CUDA toolkit installed
-   - Install PyTorch before flash-attention
-   - Use `--no-build-isolation` flag with flash-attention
+   - Ensure `nvcc` is on PATH
+   - Use `MAX_JOBS=4` (or similar) to reduce memory spikes during compile
+   - On Ubuntu 20.04 / glibc 2.31, `flash-attn` 2.7.x may fail to import
+     (`GLIBC_2.32` missing). Use Docker or a newer host (e.g., Ubuntu 22.04).
+   - On blade (Ubuntu 20.04), use containerized runs for Flash-Attention
+     profiling/training until the host is upgraded.
 
 2. **CUDA Version Mismatch**
    - Ensure PyTorch CUDA version matches system CUDA

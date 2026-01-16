@@ -5,7 +5,9 @@ The `linnaeus-prof-run` command orchestrates multiple training trials with diffe
 ## Installation
 
 ```bash
-uv pip install -e ".[profiling]"
+uv sync --extra dev --extra cpu --extra profiling
+# Or, on Linux + GPU:
+# uv sync --extra dev --extra cuda --extra profiling
 linnaeus-prof-run --help
 ```
 
