@@ -542,6 +542,7 @@ _C.LOSS.TASK_SPECIFIC.VAL.FUNCS = ["CrossEntropyLoss"] * len(_C.DATA.TASK_KEYS_H
 
 # Gradient Weighting
 _C.LOSS.GRAD_WEIGHTING = CN()
+_C.LOSS.GRAD_WEIGHTING.ENABLED = True  # Profiling/debug toggle; when False, skip task weighting (uniform weights)
 _C.LOSS.GRAD_WEIGHTING.TASK = CN()
 _C.LOSS.GRAD_WEIGHTING.TASK.TYPE = "gradnorm"  # Options: 'static', 'gradnorm'
 _C.LOSS.GRAD_WEIGHTING.TASK.ALPHA = 1.5  # GradNorm alpha parameter (set to 0 for pure equalization)

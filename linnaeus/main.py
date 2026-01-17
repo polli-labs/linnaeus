@@ -45,7 +45,7 @@ import linnaeus.h5data.base_prefetching_dataset as bpd
 # linnaeus imports
 from linnaeus.config import get_default_config
 from linnaeus.h5data.build import build_datasets, build_loaders
-from linnaeus.loss.gradient_weighting import GradientWeighting
+from linnaeus.loss.gradient_weighting import GradientWeighting, NoOpTaskWeighting
 from linnaeus.loss.utils import calculate_class_weights, prepare_loss_functions
 from linnaeus.lr_schedulers import build_scheduler
 from linnaeus.models import build_model
@@ -859,31 +859,36 @@ def main(config, args=None, resolved_env=None):
             if t in dataset_metadata.num_classes:
                 num_classes_from_meta[t] = dataset_metadata.num_classes[t]
 
-    grad_weighting = GradientWeighting(
-        task_keys=config.DATA.TASK_KEYS_H5,
-        config=config,
-        task_weighting_type=config.LOSS.GRAD_WEIGHTING.TASK.TYPE,
-        init_weights=config.LOSS.GRAD_WEIGHTING.TASK.INIT_WEIGHTS if config.LOSS.GRAD_WEIGHTING.TASK.INIT_WEIGHTS else None,
-        class_weights=grad_class_weights,
-        use_subset_weights=False,
-        alpha=config.LOSS.GRAD_WEIGHTING.TASK.ALPHA,
-        label_densities=label_densities,
-        num_classes=num_classes_from_meta,  # Use the renamed variable
-        init_strategy=config.LOSS.GRAD_WEIGHTING.TASK.INIT_STRATEGY,
-        update_interval=config.LOSS.GRAD_WEIGHTING.TASK.UPDATE_INTERVAL,
-        exclude_patterns=config.LOSS.GRAD_WEIGHTING.TASK.EXCLUDE_PATTERNS,
-    )
-    grad_weighting.cuda()
-    logger.info("[main] GradientWeighting module moved to CUDA")
+    grad_weighting_enabled = getattr(config.LOSS.GRAD_WEIGHTING, "ENABLED", True)
+    if grad_weighting_enabled:
+        grad_weighting = GradientWeighting(
+            task_keys=config.DATA.TASK_KEYS_H5,
+            config=config,
+            task_weighting_type=config.LOSS.GRAD_WEIGHTING.TASK.TYPE,
+            init_weights=config.LOSS.GRAD_WEIGHTING.TASK.INIT_WEIGHTS if config.LOSS.GRAD_WEIGHTING.TASK.INIT_WEIGHTS else None,
+            class_weights=grad_class_weights,
+            use_subset_weights=False,
+            alpha=config.LOSS.GRAD_WEIGHTING.TASK.ALPHA,
+            label_densities=label_densities,
+            num_classes=num_classes_from_meta,  # Use the renamed variable
+            init_strategy=config.LOSS.GRAD_WEIGHTING.TASK.INIT_STRATEGY,
+            update_interval=config.LOSS.GRAD_WEIGHTING.TASK.UPDATE_INTERVAL,
+            exclude_patterns=config.LOSS.GRAD_WEIGHTING.TASK.EXCLUDE_PATTERNS,
+        )
+        grad_weighting.cuda()
+        logger.info("[main] GradientWeighting module moved to CUDA")
 
-    if config.LOSS.GRAD_WEIGHTING.TASK.TYPE in ["gradnorm", "gradnorm_periodic"]:
-        grad_weighting.set_model(model)
-        logger.info("[main] GradNorm-based weighting => model set")
+        if config.LOSS.GRAD_WEIGHTING.TASK.TYPE in ["gradnorm", "gradnorm_periodic"]:
+            grad_weighting.set_model(model)
+            logger.info("[main] GradNorm-based weighting => model set")
 
-        # Log GradNorm warmup configuration
-        gradnorm_warmup = config.LOSS.GRAD_WEIGHTING.TASK.GRADNORM_WARMUP_STEPS
-        gradnorm_interval = config.LOSS.GRAD_WEIGHTING.TASK.UPDATE_INTERVAL
-        logger.info(f"[GradNorm] Warmup steps => {gradnorm_warmup}, update_interval => {gradnorm_interval}")
+            # Log GradNorm warmup configuration
+            gradnorm_warmup = config.LOSS.GRAD_WEIGHTING.TASK.GRADNORM_WARMUP_STEPS
+            gradnorm_interval = config.LOSS.GRAD_WEIGHTING.TASK.UPDATE_INTERVAL
+            logger.info(f"[GradNorm] Warmup steps => {gradnorm_warmup}, update_interval => {gradnorm_interval}")
+    else:
+        grad_weighting = NoOpTaskWeighting(task_keys=config.DATA.TASK_KEYS_H5, config=config)
+        logger.info("[main] GradientWeighting disabled (profiling); using uniform task weights")
 
     # Log gradient checkpointing configuration
     enable_normal_checkpointing = config.TRAIN.GRADIENT_CHECKPOINTING.ENABLED_NORMAL_STEPS

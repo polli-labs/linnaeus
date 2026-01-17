@@ -156,6 +156,54 @@ def reset_peak_memory_stats(rank: int = 0):
         torch.cuda.reset_peak_memory_stats()
 
 
+class NoOpTaskWeighting(nn.Module):
+    """
+    Profiling/debug helper that bypasses GradientWeighting and returns uniform weights.
+
+    This intentionally skips any class-weight application in the task-weighting stage.
+    Use only for profiling/overhead attribution.
+    """
+
+    def __init__(self, task_keys: list[str], config=None):
+        super().__init__()
+        self.task_keys = task_keys
+        self.config = config
+        self.task_weighting_type = "disabled"
+        self.class_weights = {}
+
+        if config is not None:
+            class_cfg = getattr(config.LOSS, "GRAD_WEIGHTING", None)
+            if class_cfg is not None and getattr(class_cfg.CLASS, "APPLY_IN_TASK_WEIGHTING", False):
+                logger.warning(
+                    "[GradientWeighting] Disabled but APPLY_IN_TASK_WEIGHTING=True; "
+                    "class weights will not be applied in task weighting."
+                )
+
+    def cuda(self):
+        return self
+
+    def forward(
+        self,
+        per_task_losses: dict[str, torch.Tensor],
+        targets: dict[str, torch.Tensor],
+        subset_ids: torch.Tensor = None,
+        mixed_subset_ids: torch.Tensor = None,
+        num_valid_samples_per_task: dict[str, int] | None = None,
+        is_validation: bool = False,
+    ):
+        weighted_losses = {}
+        for tkey in self.task_keys:
+            loss_vec = per_task_losses[tkey]
+            if num_valid_samples_per_task is not None:
+                num_valid = num_valid_samples_per_task.get(tkey, loss_vec.size(0))
+            else:
+                num_valid = loss_vec.size(0)
+            weighted_losses[tkey] = loss_vec.sum() / max(float(num_valid), 1e-6)
+
+        weight_dict = {tkey: 1.0 for tkey in self.task_keys}
+        return weighted_losses, weight_dict
+
+
 class GradientWeighting(nn.Module):
     """
     Handles task weighting for multi-task learning, including optional GradNorm updates.
