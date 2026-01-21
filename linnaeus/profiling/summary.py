@@ -61,6 +61,18 @@ class ProfilerMetrics:
     loss_weighting_ms: float = 0.0
     loss_aggregation_ms: float = 0.0
 
+    # Level 2 Profiling - Backward/Optimizer/Comms Components
+    backward_ddp_sync_ctx_ms: float = 0.0
+    backward_scale_backward_ms: float = 0.0
+    gradnorm_reforward_ms: float = 0.0
+    optimizer_unscale_ms: float = 0.0
+    optimizer_clip_grad_ms: float = 0.0
+    optimizer_step_ms: float = 0.0
+    optimizer_scaler_update_ms: float = 0.0
+    optimizer_zero_grad_ms: float = 0.0
+    optimizer_lr_step_ms: float = 0.0
+    comms_allreduce_ms: float = 0.0
+
     # Level 2 Profiling - Augmentation Components (enhanced from Level 1)
     augmentation_selective_mixing_ms: float = 0.0
     augmentation_gpu_batch_augmentations_ms: float = 0.0
@@ -296,6 +308,18 @@ def analyze_profiler_traces(trace_files: list[Path]) -> ProfilerMetrics:
         "loss/masking": 0.0,
         "loss/weighting": 0.0,
         "loss/aggregation": 0.0,
+        # Backward/optimizer components
+        "backward/ddp_sync_ctx": 0.0,
+        "backward/scale_backward": 0.0,
+        "gradnorm/reforward": 0.0,
+        "optimizer/unscale": 0.0,
+        "optimizer/clip_grad": 0.0,
+        "optimizer/step": 0.0,
+        "optimizer/scaler_update": 0.0,
+        "optimizer/zero_grad": 0.0,
+        "optimizer/lr_step": 0.0,
+        # DDP comms (prefix-matched below)
+        "comms/allreduce": 0.0,
         # Augmentation components
         "augmentation/selective_mixing": 0.0,
         "augmentation/gpu_batch_augmentations": 0.0,
@@ -341,6 +365,8 @@ def analyze_profiler_traces(trace_files: list[Path]) -> ProfilerMetrics:
 
             if name in l2_region_totals:
                 l2_region_totals[name] += dur_us / 1000.0  # us -> ms
+            elif name.startswith("comms/allreduce_"):
+                l2_region_totals["comms/allreduce"] += dur_us / 1000.0  # us -> ms
 
         # Estimate memory-bound operations
         memory_events = [e for e in events if e.get("cat") == "gpu_memcpy" or "memory" in e.get("name", "").lower()]
@@ -428,6 +454,17 @@ def analyze_profiler_traces(trace_files: list[Path]) -> ProfilerMetrics:
     total_loss_weighting = l2_region_totals["loss/weighting"] / step_divisor
     total_loss_aggregation = l2_region_totals["loss/aggregation"] / step_divisor
 
+    total_backward_ddp_sync_ctx = l2_region_totals["backward/ddp_sync_ctx"] / step_divisor
+    total_backward_scale_backward = l2_region_totals["backward/scale_backward"] / step_divisor
+    total_gradnorm_reforward = l2_region_totals["gradnorm/reforward"] / step_divisor
+    total_optimizer_unscale = l2_region_totals["optimizer/unscale"] / step_divisor
+    total_optimizer_clip_grad = l2_region_totals["optimizer/clip_grad"] / step_divisor
+    total_optimizer_step = l2_region_totals["optimizer/step"] / step_divisor
+    total_optimizer_scaler_update = l2_region_totals["optimizer/scaler_update"] / step_divisor
+    total_optimizer_zero_grad = l2_region_totals["optimizer/zero_grad"] / step_divisor
+    total_optimizer_lr_step = l2_region_totals["optimizer/lr_step"] / step_divisor
+    total_comms_allreduce = l2_region_totals["comms/allreduce"] / step_divisor
+
     total_augmentation_selective_mixing = l2_region_totals["augmentation/selective_mixing"] / step_divisor
     total_augmentation_gpu_batch_augmentations = l2_region_totals["augmentation/gpu_batch_augmentations"] / step_divisor
 
@@ -462,6 +499,16 @@ def analyze_profiler_traces(trace_files: list[Path]) -> ProfilerMetrics:
         loss_masking_ms=total_loss_masking,
         loss_weighting_ms=total_loss_weighting,
         loss_aggregation_ms=total_loss_aggregation,
+        backward_ddp_sync_ctx_ms=total_backward_ddp_sync_ctx,
+        backward_scale_backward_ms=total_backward_scale_backward,
+        gradnorm_reforward_ms=total_gradnorm_reforward,
+        optimizer_unscale_ms=total_optimizer_unscale,
+        optimizer_clip_grad_ms=total_optimizer_clip_grad,
+        optimizer_step_ms=total_optimizer_step,
+        optimizer_scaler_update_ms=total_optimizer_scaler_update,
+        optimizer_zero_grad_ms=total_optimizer_zero_grad,
+        optimizer_lr_step_ms=total_optimizer_lr_step,
+        comms_allreduce_ms=total_comms_allreduce,
         augmentation_selective_mixing_ms=total_augmentation_selective_mixing,
         augmentation_gpu_batch_augmentations_ms=total_augmentation_gpu_batch_augmentations,
         # Level 3 profiling metrics
@@ -560,6 +607,18 @@ def format_pretty(summary: RunSummary) -> Panel:
         add_component_row("Loss Masking", m.loss_masking_ms)
         add_component_row("Loss Weighting", m.loss_weighting_ms)
         add_component_row("Loss Aggregation", m.loss_aggregation_ms)
+
+        # Backward/optimizer/comms components
+        add_component_row("Backward DDP Sync Ctx", m.backward_ddp_sync_ctx_ms)
+        add_component_row("Backward Scale+Backward", m.backward_scale_backward_ms)
+        add_component_row("GradNorm Reforward", m.gradnorm_reforward_ms)
+        add_component_row("Optimizer Unscale", m.optimizer_unscale_ms)
+        add_component_row("Optimizer Clip Grad", m.optimizer_clip_grad_ms)
+        add_component_row("Optimizer Step", m.optimizer_step_ms)
+        add_component_row("Optimizer Scaler Update", m.optimizer_scaler_update_ms)
+        add_component_row("Optimizer Zero Grad", m.optimizer_zero_grad_ms)
+        add_component_row("Optimizer LR Step", m.optimizer_lr_step_ms)
+        add_component_row("Comms AllReduce", m.comms_allreduce_ms)
 
         # Augmentation components (Level 2)
         add_component_row("Aug Selective Mixing", m.augmentation_selective_mixing_ms)
@@ -704,6 +763,16 @@ def format_markdown(summary: RunSummary) -> str:
         add_component("Loss Masking", m.loss_masking_ms)
         add_component("Loss Weighting", m.loss_weighting_ms)
         add_component("Loss Aggregation", m.loss_aggregation_ms)
+        add_component("Backward DDP Sync Ctx", m.backward_ddp_sync_ctx_ms)
+        add_component("Backward Scale+Backward", m.backward_scale_backward_ms)
+        add_component("GradNorm Reforward", m.gradnorm_reforward_ms)
+        add_component("Optimizer Unscale", m.optimizer_unscale_ms)
+        add_component("Optimizer Clip Grad", m.optimizer_clip_grad_ms)
+        add_component("Optimizer Step", m.optimizer_step_ms)
+        add_component("Optimizer Scaler Update", m.optimizer_scaler_update_ms)
+        add_component("Optimizer Zero Grad", m.optimizer_zero_grad_ms)
+        add_component("Optimizer LR Step", m.optimizer_lr_step_ms)
+        add_component("Comms AllReduce", m.comms_allreduce_ms)
         add_component("Aug Selective Mixing", m.augmentation_selective_mixing_ms)
         add_component("Aug GPU Batch Augmentations", m.augmentation_gpu_batch_augmentations_ms)
 
