@@ -178,8 +178,21 @@ class GPUSelectiveMixup(SelectiveMixup):
             lam = torch.distributions.beta.Beta(alpha, alpha).sample().to(images.device)
 
         # 5) Mix images => standard numeric blend
+        # Use pairwise reshape when possible to avoid a full gather of images[perm].
+        # Falls back to lerp with perm when shape/contiguity assumptions aren't met.
         with prof("augmentation/selective_mixing/mix_images", level=3):
-            mixed_images = lam * images + (1 - lam) * images[perm]
+            weight = 1.0 - lam
+            if images.is_contiguous() and images.size(0) % 2 == 0:
+                B, C, H, W = images.shape
+                paired = images.view(-1, 2, C, H, W)
+                a = paired[:, 0]
+                b = paired[:, 1]
+                mixed_pairs = torch.empty_like(paired)
+                mixed_pairs[:, 0] = torch.lerp(a, b, weight=weight)
+                mixed_pairs[:, 1] = torch.lerp(b, a, weight=weight)
+                mixed_images = mixed_pairs.view_as(images)
+            else:
+                mixed_images = torch.lerp(images, images[perm], weight=weight)
 
         # 6) Mix targets => standard numeric blend
         mixed_targets = {}

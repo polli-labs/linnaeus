@@ -197,9 +197,10 @@ class GPUSelectiveCutMix(SelectiveCutMix):
             min_lam, max_lam = self.minmax
             lam = min_lam + (max_lam - min_lam) * lam
 
-        # 5) Apply CutMix - create copies of inputs for mixing
+        # 5) Apply CutMix - avoid full batch clone when possible (pairwise swap)
         B, C, H, W = images.shape
-        mixed_images = images.clone()
+        use_inplace_swap = images.is_contiguous() and B % 2 == 0
+        mixed_images = images  # default to in-place; fall back to clone if needed
         mixed_targets = {}  # We'll create new tensors when mixing
 
         # Generate random bounding box coordinates using tensor-based implementation
@@ -225,11 +226,39 @@ class GPUSelectiveCutMix(SelectiveCutMix):
             valid_indices = valid_mask.nonzero(as_tuple=True)[0]
             valid_perm_indices = perm[valid_indices]
 
+            mix_indices = valid_indices
+            mix_perm_indices = valid_perm_indices
+
             # Apply CutMix to valid samples only
             with prof("augmentation/selective_mixing/mix_images", level=3):
-                mixed_images[valid_indices, :, bbx1:bbx2, bby1:bby2] = images[
-                    valid_perm_indices, :, bbx1:bbx2, bby1:bby2
-                ]
+                if use_inplace_swap:
+                    # Only process the first element of each pair (0<->1, 2<->3, ...)
+                    # Ensure partner is also valid to avoid inconsistent mixing.
+                    primary_mask = (torch.arange(B, device=images.device) % 2 == 0) & valid_mask
+                    primary_mask = primary_mask & valid_mask[perm]
+                    primary_indices = primary_mask.nonzero(as_tuple=True)[0]
+                    partner_indices = perm[primary_indices]
+
+                    if primary_indices.numel() > 0 and primary_indices.numel() * 2 == valid_indices.numel():
+                        patch_temp = images[primary_indices, :, bbx1:bbx2, bby1:bby2].clone()
+                        images[primary_indices, :, bbx1:bbx2, bby1:bby2] = images[
+                            partner_indices, :, bbx1:bbx2, bby1:bby2
+                        ]
+                        images[partner_indices, :, bbx1:bbx2, bby1:bby2] = patch_temp
+
+                        mix_indices = torch.cat([primary_indices, partner_indices], dim=0)
+                        mix_perm_indices = perm[mix_indices]
+                    else:
+                        use_inplace_swap = False
+                        mixed_images = images.clone()
+                        mixed_images[valid_indices, :, bbx1:bbx2, bby1:bby2] = images[
+                            valid_perm_indices, :, bbx1:bbx2, bby1:bby2
+                        ]
+                else:
+                    mixed_images = images.clone()
+                    mixed_images[valid_indices, :, bbx1:bbx2, bby1:bby2] = images[
+                        valid_perm_indices, :, bbx1:bbx2, bby1:bby2
+                    ]
 
             # Mix targets proportionally to adjusted lambda for valid samples
             for k in targets.keys():
@@ -277,9 +306,10 @@ class GPUSelectiveCutMix(SelectiveCutMix):
                 # Initialize with a copy of original targets
                 with prof("augmentation/selective_mixing/mix_targets", level=3):
                     mixed_targets[k] = targets[k].clone()
-                    mixed_targets[k][valid_indices] = (
-                        lam_adjusted * targets[k][valid_indices] + (1 - lam_adjusted) * targets[k][valid_perm_indices]
-                    )
+                    if mix_indices.numel() > 0:
+                        mixed_targets[k][mix_indices] = (
+                            lam_adjusted * targets[k][mix_indices] + (1 - lam_adjusted) * targets[k][mix_perm_indices]
+                        )
 
                 # Debug logging after mixing to see the effect
                 if debug_flag:
