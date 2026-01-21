@@ -11,12 +11,22 @@ from linnaeus.utils.profiling_helpers import prof
 
 # Triton kernel imports (with graceful fallback)
 try:
-    from linnaeus.aug.gpu.triton_kernels import selective_mix_chunks_triton, triton_is_available
+    import os
+
+    if os.environ.get("TRITON_DISABLE", "").lower() in ("1", "true", "yes"):
+        raise ImportError("Triton disabled by environment variable")
+
+    from linnaeus.aug.gpu.triton_kernels import (
+        cutmix_images_triton,
+        selective_mix_chunks_triton,
+        triton_is_available,
+    )
 
     _TRITON_AVAILABLE = triton_is_available()
-except ImportError:
+except (ImportError, RuntimeError):
     _TRITON_AVAILABLE = False
     selective_mix_chunks_triton = None
+    cutmix_images_triton = None
 
 logger = get_main_logger()
 
@@ -197,7 +207,7 @@ class GPUSelectiveCutMix(SelectiveCutMix):
             min_lam, max_lam = self.minmax
             lam = min_lam + (max_lam - min_lam) * lam
 
-        # 5) Apply CutMix - avoid full batch clone when possible (pairwise swap)
+        # 5) Apply CutMix - avoid full batch clone when possible (pairwise swap or Triton)
         B, C, H, W = images.shape
         use_inplace_swap = images.is_contiguous() and B % 2 == 0
         mixed_images = images  # default to in-place; fall back to clone if needed
@@ -231,7 +241,17 @@ class GPUSelectiveCutMix(SelectiveCutMix):
 
             # Apply CutMix to valid samples only
             with prof("augmentation/selective_mixing/mix_images", level=3):
-                if use_inplace_swap:
+                use_triton_image = (
+                    _TRITON_AVAILABLE
+                    and self.config
+                    and getattr(self.config.AUG.SELECTIVE_MIXING, "USE_TRITON_IMAGE_KERNEL", False)
+                    and images.is_cuda
+                    and images.is_contiguous()
+                    and valid_mask.all()
+                )
+                if use_triton_image and cutmix_images_triton is not None:
+                    mixed_images = cutmix_images_triton(images, perm, bbx1, bbx2, bby1, bby2)
+                elif use_inplace_swap:
                     # Only process the first element of each pair (0<->1, 2<->3, ...)
                     # Ensure partner is also valid to avoid inconsistent mixing.
                     primary_mask = (torch.arange(B, device=images.device) % 2 == 0) & valid_mask

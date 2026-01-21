@@ -15,12 +15,17 @@ try:
     if os.environ.get('TRITON_DISABLE', '').lower() in ('1', 'true', 'yes'):
         raise ImportError("Triton disabled by environment variable")
     
-    from linnaeus.aug.gpu.triton_kernels import selective_mix_chunks_triton, triton_is_available
+    from linnaeus.aug.gpu.triton_kernels import (
+        mixup_images_triton,
+        selective_mix_chunks_triton,
+        triton_is_available,
+    )
 
     _TRITON_AVAILABLE = triton_is_available()
 except (ImportError, RuntimeError):
     _TRITON_AVAILABLE = False
     selective_mix_chunks_triton = None
+    mixup_images_triton = None
 
 logger = get_main_logger()
 
@@ -178,21 +183,32 @@ class GPUSelectiveMixup(SelectiveMixup):
             lam = torch.distributions.beta.Beta(alpha, alpha).sample().to(images.device)
 
         # 5) Mix images => standard numeric blend
-        # Use pairwise reshape when possible to avoid a full gather of images[perm].
-        # Falls back to lerp with perm when shape/contiguity assumptions aren't met.
+        # Use Triton kernel if enabled; otherwise use pairwise reshape when possible
+        # to avoid a full gather of images[perm]. Falls back to lerp with perm when
+        # shape/contiguity assumptions aren't met.
         with prof("augmentation/selective_mixing/mix_images", level=3):
-            weight = 1.0 - lam
-            if images.is_contiguous() and images.size(0) % 2 == 0:
-                B, C, H, W = images.shape
-                paired = images.view(-1, 2, C, H, W)
-                a = paired[:, 0]
-                b = paired[:, 1]
-                mixed_pairs = torch.empty_like(paired)
-                mixed_pairs[:, 0] = torch.lerp(a, b, weight=weight)
-                mixed_pairs[:, 1] = torch.lerp(b, a, weight=weight)
-                mixed_images = mixed_pairs.view_as(images)
+            use_triton_image = (
+                _TRITON_AVAILABLE
+                and self.config
+                and getattr(self.config.AUG.SELECTIVE_MIXING, "USE_TRITON_IMAGE_KERNEL", False)
+                and images.is_cuda
+                and images.is_contiguous()
+            )
+            if use_triton_image and mixup_images_triton is not None:
+                mixed_images = mixup_images_triton(images, perm, lam)
             else:
-                mixed_images = torch.lerp(images, images[perm], weight=weight)
+                weight = 1.0 - lam
+                if images.is_contiguous() and images.size(0) % 2 == 0:
+                    B, C, H, W = images.shape
+                    paired = images.view(-1, 2, C, H, W)
+                    a = paired[:, 0]
+                    b = paired[:, 1]
+                    mixed_pairs = torch.empty_like(paired)
+                    mixed_pairs[:, 0] = torch.lerp(a, b, weight=weight)
+                    mixed_pairs[:, 1] = torch.lerp(b, a, weight=weight)
+                    mixed_images = mixed_pairs.view_as(images)
+                else:
+                    mixed_images = torch.lerp(images, images[perm], weight=weight)
 
         # 6) Mix targets => standard numeric blend
         mixed_targets = {}
