@@ -19,6 +19,7 @@ from torch.optim import Optimizer
 from linnaeus.utils.debug_utils import check_debug_flag
 from linnaeus.utils.distributed import get_rank_safely
 from linnaeus.utils.logging.logger import get_main_logger
+from linnaeus.utils.profiling_helpers import prof
 
 logger = get_main_logger()
 
@@ -224,8 +225,9 @@ class MultiOptimizer:
         Args:
             set_to_none: If True, set gradients to None instead of zero
         """
-        for opt in self.optimizers.values():
-            opt.zero_grad(set_to_none=set_to_none)
+        for name, opt in self.optimizers.items():
+            with prof(f"optimizer/multi/{name}/zero_grad", level=2):
+                opt.zero_grad(set_to_none=set_to_none)
 
     def step(self, closure: Callable[[], float] | None = None) -> float | None:
         """
@@ -244,7 +246,8 @@ class MultiOptimizer:
 
         for name, opt in self.optimizers.items():
             try:
-                opt.step()
+                with prof(f"optimizer/multi/{name}/step", level=2):
+                    opt.step()
             except RuntimeError as e:
                 if "must match the size of tensor" in str(e):
                     # Log detailed debugging information

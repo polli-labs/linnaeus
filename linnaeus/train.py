@@ -201,9 +201,10 @@ def train_one_epoch(
                 bsz = images.size(0)
                 total_samples_for_epoch_avg += bsz
 
-                images = images.cuda(non_blocking=True)
-                aux_info = aux_info.cuda(non_blocking=True)
-                tdict_gpu = {k: v.cuda(non_blocking=True) for k, v in targets_dict.items()}
+                with prof("data/transfer", level=2):
+                    images = images.cuda(non_blocking=True)
+                    aux_info = aux_info.cuda(non_blocking=True)
+                    tdict_gpu = {k: v.cuda(non_blocking=True) for k, v in targets_dict.items()}
 
             # --- Forward Pass ---
             # The checkpoint flag for the forward pass is set *before* the loop
@@ -238,33 +239,35 @@ def train_one_epoch(
             )
             ddp_sync_ctx = nullcontext() if (not is_ddp or should_sync_ddp) else model.no_sync()
 
-            with ddp_sync_ctx:
-                with torch.cuda.amp.autocast(enabled=(config.TRAIN.AMP_OPT_LEVEL != "O0")):
-                    with prof("forward_pass", level=1):
-                        outputs = model(images, aux_info)  # GradNorm flag not needed here for normal fwd
-                    if emit_init_markers and rank == 0 and not init_first_forward_logged:
-                        emit_init_timing("first_forward_end", logger_override=logger)
-                        init_first_forward_logged = True
+            with prof("backward/ddp_sync_ctx", level=2):
+                with ddp_sync_ctx:
+                    with torch.cuda.amp.autocast(enabled=(config.TRAIN.AMP_OPT_LEVEL != "O0")):
+                        with prof("forward_pass", level=1):
+                            outputs = model(images, aux_info)  # GradNorm flag not needed here for normal fwd
+                        if emit_init_markers and rank == 0 and not init_first_forward_logged:
+                            emit_init_timing("first_forward_end", logger_override=logger)
+                            init_first_forward_logged = True
 
-                    with prof("loss_calculation", level=1):
-                        total_loss, loss_components, task_weights_dict = weighted_hierarchical_loss(
-                            outputs,
-                            tdict_gpu,
-                            criteria,
-                            grad_weighting,
-                            ops_schedule,
-                            training_progress.global_step,  # Use global_step for schedule
-                            is_validation=False,
-                            logger=logger,
-                            config=config,
-                        )
+                        with prof("loss_calculation", level=1):
+                            total_loss, loss_components, task_weights_dict = weighted_hierarchical_loss(
+                                outputs,
+                                tdict_gpu,
+                                criteria,
+                                grad_weighting,
+                                ops_schedule,
+                                training_progress.global_step,  # Use global_step for schedule
+                                is_validation=False,
+                                logger=logger,
+                                config=config,
+                            )
 
-                loss_to_backward = total_loss
-                if accumulation_steps > 1:
-                    loss_to_backward = loss_to_backward / accumulation_steps
+                    loss_to_backward = total_loss
+                    if accumulation_steps > 1:
+                        loss_to_backward = loss_to_backward / accumulation_steps
 
-                with prof("backward_pass", level=1):
-                    scaler.scale(loss_to_backward).backward()
+                    with prof("backward_pass", level=1):
+                        with prof("backward/scale_backward", level=2):
+                            scaler.scale(loss_to_backward).backward()
 
             null_stats = loss_components.get("null_masking", None)
             if null_stats:
@@ -322,13 +325,14 @@ def train_one_epoch(
                         )
 
                     data_for_gradnorm = (images, targets_dict, aux_info)  # Use original, unscaled aux_info from batch
-                    gradnorm_metrics_for_log = grad_weighting.update_gradnorm_weights_reforward(
-                        data_batch=data_for_gradnorm,
-                        criteria=criteria,
-                        amp_enabled=(config.TRAIN.AMP_OPT_LEVEL != "O0"),
-                        ops_schedule=ops_schedule,
-                        current_step=step_for_gradnorm_check,
-                    )
+                    with prof("gradnorm/reforward", level=2):
+                        gradnorm_metrics_for_log = grad_weighting.update_gradnorm_weights_reforward(
+                            data_batch=data_for_gradnorm,
+                            criteria=criteria,
+                            amp_enabled=(config.TRAIN.AMP_OPT_LEVEL != "O0"),
+                            ops_schedule=ops_schedule,
+                            current_step=step_for_gradnorm_check,
+                        )
                     gradnorm_run_this_optimizer_step = True  # Mark that GradNorm ran for this optimizer step
 
                     # Restore model checkpointing state
@@ -344,7 +348,8 @@ def train_one_epoch(
 
                 # --- Optimizer Step ---
                 if config.TRAIN.AMP_OPT_LEVEL != "O0":
-                    scaler.unscale_(optimizer)
+                    with prof("optimizer/unscale", level=2):
+                        scaler.unscale_(optimizer)
 
                 params_to_clip = [p for p in model.parameters() if p.grad is not None]
                 grad_norm_logging_cfg = getattr(config.TRAIN, "GRAD_NORM_LOGGING", None)
@@ -356,20 +361,25 @@ def train_one_epoch(
                     (not grad_norm_logging_rank0_only) or (rank == 0)
                 )
 
-                pre_clip_norm_val, post_clip_norm_val, norm_val_returned_from_clipfn = _clip_and_collect_grad_norm_metrics(
-                    params_to_clip,
-                    clip_grad=float(config.TRAIN.CLIP_GRAD),
-                    compute_metrics=should_compute_grad_norm_metrics,
-                    compute_post_clip_norm=grad_norm_logging_post_clip_norm,
-                )
+                with prof("optimizer/clip_grad", level=2):
+                    pre_clip_norm_val, post_clip_norm_val, norm_val_returned_from_clipfn = _clip_and_collect_grad_norm_metrics(
+                        params_to_clip,
+                        clip_grad=float(config.TRAIN.CLIP_GRAD),
+                        compute_metrics=should_compute_grad_norm_metrics,
+                        compute_post_clip_norm=grad_norm_logging_post_clip_norm,
+                    )
 
                 with prof("optimizer_step", level=1):
-                    scaler.step(optimizer)
-                    scaler.update()
-                    optimizer.zero_grad(set_to_none=True)
+                    with prof("optimizer/step", level=2):
+                        scaler.step(optimizer)
+                    with prof("optimizer/scaler_update", level=2):
+                        scaler.update()
+                    with prof("optimizer/zero_grad", level=2):
+                        optimizer.zero_grad(set_to_none=True)
 
                 # Scheduler step uses the global step *before* it's incremented for this optimizer update
-                lr_scheduler.step_update(training_progress.global_step)
+                with prof("optimizer/lr_step", level=2):
+                    lr_scheduler.step_update(training_progress.global_step)
 
                 # Increment global step counter in TrainingProgress *once per optimizer step*
                 training_progress.global_step += 1
@@ -394,20 +404,23 @@ def train_one_epoch(
                             final_gradnorm_metrics_to_log["gradnorm/total_norm_post_clip"] = post_clip_norm_val
                         final_gradnorm_metrics_to_log["gradnorm/total_norm_clip_fn_returned"] = norm_val_returned_from_clipfn
 
-                step_logger.log_step_metrics(
-                    current_step=training_progress.global_step,  # Use the NEW global step
-                    epoch=epoch,
-                    step_idx=idx,  # Batch index within epoch
-                    total_steps=dataloader_len,
-                    batch_loss_dict=batch_loss_dict_for_log,
-                    gradnorm_metrics=final_gradnorm_metrics_to_log if final_gradnorm_metrics_to_log else None,
-                    lr_value=lr_scheduler.get_last_lr()[0] if hasattr(lr_scheduler, "get_last_lr") else None,
-                    extra_info={"accum_steps": accumulation_steps, "is_gradnorm_step": is_gradnorm_update_step},
-                    actual_meta_stats=actual_meta_stats,
-                )
-                step_logger.log_learning_rates(lr_scheduler, training_progress.global_step)  # Use new global step
+                with prof("logging/step_metrics", level=2):
+                    step_logger.log_step_metrics(
+                        current_step=training_progress.global_step,  # Use the NEW global step
+                        epoch=epoch,
+                        step_idx=idx,  # Batch index within epoch
+                        total_steps=dataloader_len,
+                        batch_loss_dict=batch_loss_dict_for_log,
+                        gradnorm_metrics=final_gradnorm_metrics_to_log if final_gradnorm_metrics_to_log else None,
+                        lr_value=lr_scheduler.get_last_lr()[0] if hasattr(lr_scheduler, "get_last_lr") else None,
+                        extra_info={"accum_steps": accumulation_steps, "is_gradnorm_step": is_gradnorm_update_step},
+                        actual_meta_stats=actual_meta_stats,
+                    )
+                with prof("logging/lr_metrics", level=2):
+                    step_logger.log_learning_rates(lr_scheduler, training_progress.global_step)  # Use new global step
                 if hasattr(data_loader.dataset, "metrics"):
-                    step_logger.log_pipeline_metrics(data_loader.dataset.metrics, training_progress.global_step)
+                    with prof("logging/pipeline_metrics", level=2):
+                        step_logger.log_pipeline_metrics(data_loader.dataset.metrics, training_progress.global_step)
 
                 inner_accum_count = 0  # Reset accumulation counter
                 gradnorm_run_this_optimizer_step = False  # Reset GradNorm flag
@@ -424,17 +437,22 @@ def train_one_epoch(
             if rank == 0:
                 logger.info(f"Processing leftover accumulated gradients ({inner_accum_count}/{accumulation_steps}) at end of epoch {epoch}")
             if config.TRAIN.AMP_OPT_LEVEL != "O0":
-                scaler.unscale_(optimizer)
+                with prof("optimizer/unscale", level=2):
+                    scaler.unscale_(optimizer)
 
             params_to_clip = [p for p in model.parameters() if p.grad is not None]
             if config.TRAIN.CLIP_GRAD > 0.0 and params_to_clip:
                 torch.nn.utils.clip_grad_norm_(params_to_clip, float(config.TRAIN.CLIP_GRAD))
 
             with prof("optimizer_step", level=1):
-                scaler.step(optimizer)
-                scaler.update()
-                optimizer.zero_grad(set_to_none=True)
-            lr_scheduler.step_update(training_progress.global_step)  # Use global_step BEFORE increment for this final step
+                with prof("optimizer/step", level=2):
+                    scaler.step(optimizer)
+                with prof("optimizer/scaler_update", level=2):
+                    scaler.update()
+                with prof("optimizer/zero_grad", level=2):
+                    optimizer.zero_grad(set_to_none=True)
+            with prof("optimizer/lr_step", level=2):
+                lr_scheduler.step_update(training_progress.global_step)  # Use global_step BEFORE increment for this final step
 
             training_progress.global_step += 1  # Increment for this final optimizer step
             steps_run_in_this_epoch += 1
