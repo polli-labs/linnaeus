@@ -209,7 +209,128 @@ if _TRITON_AVAILABLE:
         """
         return _SelectiveMixChunksFn.apply(info1, info2, mask1, mask2, choose_orig, choose_partner, chunk_of_dim)
 
+    # ------------------------------------------------------------------
+    # Image mixing kernels (mixup / cutmix)
+    # ------------------------------------------------------------------
+
+    @triton.autotune(
+        configs=[
+            triton.Config({"BLOCK": 256}),
+            triton.Config({"BLOCK": 512}),
+            triton.Config({"BLOCK": 1024}),
+        ],
+        key=["D"],
+    )
+    @triton.jit
+    def mixup_images_kernel(
+        img_ptr,
+        perm_ptr,
+        out_ptr,
+        lam,
+        B: tl.constexpr,
+        D: tl.constexpr,
+        BLOCK: tl.constexpr,
+    ):
+        pid = tl.program_id(0)
+        offs = pid * BLOCK + tl.arange(0, BLOCK)
+        mask = offs < B * D
+
+        row = offs // D
+        col = offs - row * D
+
+        perm_row = tl.load(perm_ptr + row, mask=mask, other=0)
+        perm_idx = perm_row * D + col
+
+        v1 = tl.load(img_ptr + offs, mask=mask)
+        v2 = tl.load(img_ptr + perm_idx, mask=mask)
+
+        out = v1 * lam + v2 * (1.0 - lam)
+        tl.store(out_ptr + offs, out, mask=mask)
+
+    @triton.autotune(
+        configs=[
+            triton.Config({"BLOCK": 256}),
+            triton.Config({"BLOCK": 512}),
+            triton.Config({"BLOCK": 1024}),
+        ],
+        key=["D"],
+    )
+    @triton.jit
+    def cutmix_images_kernel(
+        img_ptr,
+        perm_ptr,
+        out_ptr,
+        bbx1,
+        bbx2,
+        bby1,
+        bby2,
+        B: tl.constexpr,
+        D: tl.constexpr,
+        H: tl.constexpr,
+        W: tl.constexpr,
+        BLOCK: tl.constexpr,
+    ):
+        pid = tl.program_id(0)
+        offs = pid * BLOCK + tl.arange(0, BLOCK)
+        mask = offs < B * D
+
+        row = offs // D
+        col = offs - row * D
+
+        perm_row = tl.load(perm_ptr + row, mask=mask, other=0)
+        perm_idx = perm_row * D + col
+
+        # Decode spatial indices from flattened NCHW
+        hw = H * W
+        hw_idx = col % hw
+        h = hw_idx // W
+        w = hw_idx - h * W
+
+        inside = (h >= bbx1) & (h < bbx2) & (w >= bby1) & (w < bby2)
+
+        v1 = tl.load(img_ptr + offs, mask=mask)
+        v2 = tl.load(img_ptr + perm_idx, mask=mask)
+
+        out = tl.where(inside, v2, v1)
+        tl.store(out_ptr + offs, out, mask=mask)
+
+    def _mixup_images_triton_impl(images: torch.Tensor, perm: torch.Tensor, lam: float) -> torch.Tensor:
+        B, C, H, W = images.shape
+        D = C * H * W
+        out = torch.empty_like(images)
+        grid = lambda meta: (triton.cdiv(B * D, meta["BLOCK"]),)
+        mixup_images_kernel[grid](images, perm, out, lam, B=B, D=D)
+        return out
+
+    def _cutmix_images_triton_impl(
+        images: torch.Tensor, perm: torch.Tensor, bbx1: int, bbx2: int, bby1: int, bby2: int
+    ) -> torch.Tensor:
+        B, C, H, W = images.shape
+        D = C * H * W
+        out = torch.empty_like(images)
+        grid = lambda meta: (triton.cdiv(B * D, meta["BLOCK"]),)
+        cutmix_images_kernel[grid](images, perm, out, bbx1, bbx2, bby1, bby2, B=B, D=D, H=H, W=W)
+        return out
+
+    def mixup_images_triton(images: torch.Tensor, perm: torch.Tensor, lam: float) -> torch.Tensor:
+        if not images.is_cuda or not images.is_contiguous():
+            raise RuntimeError("mixup_images_triton requires contiguous CUDA images")
+        return _mixup_images_triton_impl(images, perm, float(lam))
+
+    def cutmix_images_triton(
+        images: torch.Tensor, perm: torch.Tensor, bbx1: int, bbx2: int, bby1: int, bby2: int
+    ) -> torch.Tensor:
+        if not images.is_cuda or not images.is_contiguous():
+            raise RuntimeError("cutmix_images_triton requires contiguous CUDA images")
+        return _cutmix_images_triton_impl(images, perm, int(bbx1), int(bbx2), int(bby1), int(bby2))
+
 else:
     # Triton not available - provide stub functions
     def selective_mix_chunks_triton(*args, **kwargs):
+        raise RuntimeError("Triton is not available. Install with: pip install triton>=2.1.0")
+
+    def mixup_images_triton(*args, **kwargs):
+        raise RuntimeError("Triton is not available. Install with: pip install triton>=2.1.0")
+
+    def cutmix_images_triton(*args, **kwargs):
         raise RuntimeError("Triton is not available. Install with: pip install triton>=2.1.0")
