@@ -9,7 +9,6 @@ are not registered with the factory system themselves.
 
 Transformer Blocks:
 - RelativeMHSABlock: Multi-head self-attention block (relative positional encoding)
-- DiffTransformerBlock: Differential transformer block
 
 Neural Network Blocks:
 - Mlp: Multi-layer perceptron block
@@ -24,7 +23,6 @@ Regularization:
 
 # Transformer blocks
 from .convnext import ConvNeXtBlock, ConvNeXtDownsampleLayer
-from .diff_transformer import DiffTransformerBlock
 
 # Regularization
 from .drop_path import DropPath, drop_path

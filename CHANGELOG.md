@@ -1,5 +1,10 @@
 # Changelog
 
+## [Unreleased]
+
+### Removed
+- Deleted unused legacy attention implementations (EfficientSelfAttention, HierarchicalAttention, TaskSpecificAttention, DifferentialAttention) plus the DiffTransformer block and helper utilities to reduce maintenance surface.
+
 ## [0.3.6] - 2025-08-08
 
 ### Added
