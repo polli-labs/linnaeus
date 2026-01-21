@@ -250,17 +250,17 @@ class GPUSelectiveCutMix(SelectiveCutMix):
 
             # Apply CutMix to valid samples only
             with prof("augmentation/selective_mixing/mix_images", level=3):
-            use_triton_image = (
-                _TRITON_AVAILABLE
-                and self.config
-                and getattr(self.config.AUG.SELECTIVE_MIXING, "USE_TRITON_IMAGE_KERNEL", False)
-                and images_mix.is_cuda
-                and images_mix.is_contiguous()
-                and valid_mask.all()
-            )
-            if use_triton_image and cutmix_images_triton is not None:
-                mixed_images = cutmix_images_triton(images_mix, perm, bbx1, bbx2, bby1, bby2)
-            elif use_inplace_swap:
+                use_triton_image = (
+                    _TRITON_AVAILABLE
+                    and self.config
+                    and getattr(self.config.AUG.SELECTIVE_MIXING, "USE_TRITON_IMAGE_KERNEL", False)
+                    and images_mix.is_cuda
+                    and images_mix.is_contiguous()
+                    and valid_mask.all()
+                )
+                if use_triton_image and cutmix_images_triton is not None:
+                    mixed_images = cutmix_images_triton(images_mix, perm, bbx1, bbx2, bby1, bby2)
+                elif use_inplace_swap:
                     # Only process the first element of each pair (0<->1, 2<->3, ...)
                     # Ensure partner is also valid to avoid inconsistent mixing.
                     primary_mask = (torch.arange(B, device=images.device) % 2 == 0) & valid_mask
@@ -283,11 +283,11 @@ class GPUSelectiveCutMix(SelectiveCutMix):
                         mixed_images[valid_indices, :, bbx1:bbx2, bby1:bby2] = images_mix[
                             valid_perm_indices, :, bbx1:bbx2, bby1:bby2
                         ]
-            else:
-                mixed_images = images_mix.clone()
-                mixed_images[valid_indices, :, bbx1:bbx2, bby1:bby2] = images_mix[
-                    valid_perm_indices, :, bbx1:bbx2, bby1:bby2
-                ]
+                else:
+                    mixed_images = images_mix.clone()
+                    mixed_images[valid_indices, :, bbx1:bbx2, bby1:bby2] = images_mix[
+                        valid_perm_indices, :, bbx1:bbx2, bby1:bby2
+                    ]
 
             # Mix targets proportionally to adjusted lambda for valid samples
             for k in targets.keys():
