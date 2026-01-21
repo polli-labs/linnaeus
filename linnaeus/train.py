@@ -267,7 +267,13 @@ def train_one_epoch(
 
                     with prof("backward_pass", level=1):
                         with prof("backward/scale_backward", level=2):
-                            scaler.scale(loss_to_backward).backward()
+                            backward_region = (
+                                "backward/scale_backward_sync"
+                                if (is_ddp and should_sync_ddp)
+                                else "backward/scale_backward_nosync"
+                            )
+                            with prof(backward_region, level=3):
+                                scaler.scale(loss_to_backward).backward()
 
             null_stats = loss_components.get("null_masking", None)
             if null_stats:

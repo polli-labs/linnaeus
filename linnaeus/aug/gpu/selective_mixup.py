@@ -6,6 +6,7 @@ from linnaeus.aug.base import SelectiveMixup
 from linnaeus.aug.utils import exclude_null_samples_from_mixup
 from linnaeus.utils.debug_utils import check_debug_flag
 from linnaeus.utils.logging.logger import get_main_logger
+from linnaeus.utils.profiling_helpers import prof
 
 # Triton kernel imports (with graceful fallback)
 try:
@@ -112,7 +113,8 @@ class GPUSelectiveMixup(SelectiveMixup):
 
         # Optionally exclude null-category samples from mixup
         if exclude_null_samples:
-            batch = exclude_null_samples_from_mixup(batch, null_task_keys, config=self.config)
+            with prof("augmentation/selective_mixing/exclude_null", level=3):
+                batch = exclude_null_samples_from_mixup(batch, null_task_keys, config=self.config)
 
         images, targets, aux_info, meta_masks, group_ids = batch
 
@@ -167,52 +169,56 @@ class GPUSelectiveMixup(SelectiveMixup):
             return images, targets, aux_info, meta_masks
 
         # 3) Build in-group permutation
-        perm = self._get_ingroup_permutation(group_ids, debug_flag)
+        with prof("augmentation/selective_mixing/permute", level=3):
+            perm = self._get_ingroup_permutation(group_ids, debug_flag)
 
         # 4) Beta distribution => lam
         alpha = self.mix_config["ALPHA"]
-        lam = torch.distributions.beta.Beta(alpha, alpha).sample().to(images.device)
+        with prof("augmentation/selective_mixing/lam_sample", level=3):
+            lam = torch.distributions.beta.Beta(alpha, alpha).sample().to(images.device)
 
         # 5) Mix images => standard numeric blend
-        mixed_images = lam * images + (1 - lam) * images[perm]
+        with prof("augmentation/selective_mixing/mix_images", level=3):
+            mixed_images = lam * images + (1 - lam) * images[perm]
 
         # 6) Mix targets => standard numeric blend
         mixed_targets = {}
         for k, v in targets.items():
-            # Debug logging before mixing to understand the targets
-            if debug_flag:
-                sample_size = min(3, v.size(0))
-                if v.dim() > 1:
-                    # For one-hot targets, log the index 0 (null category) values
-                    logger.debug(f"[MIXUP_TARGET_DEBUG] Task {k} BEFORE mixing:")
-                    logger.debug(f"  - Shape: {v.shape}, dtype: {v.dtype}")
-                    logger.debug(f"  - First {sample_size} samples, index 0 values: {v[:sample_size, 0]}")
+            with prof("augmentation/selective_mixing/mix_targets", level=3):
+                # Debug logging before mixing to understand the targets
+                if debug_flag:
+                    sample_size = min(3, v.size(0))
+                    if v.dim() > 1:
+                        # For one-hot targets, log the index 0 (null category) values
+                        logger.debug(f"[MIXUP_TARGET_DEBUG] Task {k} BEFORE mixing:")
+                        logger.debug(f"  - Shape: {v.shape}, dtype: {v.dtype}")
+                        logger.debug(f"  - First {sample_size} samples, index 0 values: {v[:sample_size, 0]}")
 
-                    # Check null distribution in the original and permuted targets
-                    idx0_vals_orig = v[:, 0]
-                    idx0_vals_perm = v[perm][:, 0]
-                    null_orig = (idx0_vals_orig > 0.5).sum().item()
-                    null_perm = (idx0_vals_perm > 0.5).sum().item()
-                    logger.debug(
-                        f"  - Nulls in original targets: {null_orig}/{len(idx0_vals_orig)} ({100 * null_orig / len(idx0_vals_orig):.1f}%)"
-                    )
-                    logger.debug(
-                        f"  - Nulls in permuted targets: {null_perm}/{len(idx0_vals_perm)} ({100 * null_perm / len(idx0_vals_perm):.1f}%)"
-                    )
+                        # Check null distribution in the original and permuted targets
+                        idx0_vals_orig = v[:, 0]
+                        idx0_vals_perm = v[perm][:, 0]
+                        null_orig = (idx0_vals_orig > 0.5).sum().item()
+                        null_perm = (idx0_vals_perm > 0.5).sum().item()
+                        logger.debug(
+                            f"  - Nulls in original targets: {null_orig}/{len(idx0_vals_orig)} ({100 * null_orig / len(idx0_vals_orig):.1f}%)"
+                        )
+                        logger.debug(
+                            f"  - Nulls in permuted targets: {null_perm}/{len(idx0_vals_perm)} ({100 * null_perm / len(idx0_vals_perm):.1f}%)"
+                        )
 
-                    # Check for mixed null/non-null pairs
-                    orig_nulls = idx0_vals_orig > 0.5
-                    perm_nulls = idx0_vals_perm > 0.5
-                    mixed_types = (orig_nulls != perm_nulls).sum().item()
-                    logger.debug(
-                        f"  - Mixed null/non-null pairs: {mixed_types}/{len(orig_nulls)} ({100 * mixed_types / len(orig_nulls):.1f}%)"
-                    )
-                else:
-                    # For hard labels
-                    logger.debug(f"[MIXUP_TARGET_DEBUG] Task {k} BEFORE mixing (hard labels):")
-                    logger.debug(f"  - Shape: {v.shape}, dtype: {v.dtype}")
-                    logger.debug(f"  - First {sample_size} samples: {v[:sample_size]}")
-                    logger.debug(f"  - First {sample_size} permuted samples: {v[perm][:sample_size]}")
+                        # Check for mixed null/non-null pairs
+                        orig_nulls = idx0_vals_orig > 0.5
+                        perm_nulls = idx0_vals_perm > 0.5
+                        mixed_types = (orig_nulls != perm_nulls).sum().item()
+                        logger.debug(
+                            f"  - Mixed null/non-null pairs: {mixed_types}/{len(orig_nulls)} ({100 * mixed_types / len(orig_nulls):.1f}%)"
+                        )
+                    else:
+                        # For hard labels
+                        logger.debug(f"[MIXUP_TARGET_DEBUG] Task {k} BEFORE mixing (hard labels):")
+                        logger.debug(f"  - Shape: {v.shape}, dtype: {v.dtype}")
+                        logger.debug(f"  - First {sample_size} samples: {v[:sample_size]}")
+                        logger.debug(f"  - First {sample_size} permuted samples: {v[perm][:sample_size]}")
 
             # Perform the actual mixing operation (creates new tensor, no clone needed)
             mixed_targets[k] = lam * v + (1 - lam) * v[perm]
@@ -326,7 +332,10 @@ class GPUSelectiveMixup(SelectiveMixup):
             z1 = z2 = None
 
         # 9) Hard pick chunk by chunk with pre-computed zero flags
-        mixed_aux, mixed_masks = self._mix_aux_info_chunkwise(aux_info, aux_info[perm], meta_masks, meta_masks[perm], z1, z2)
+        with prof("augmentation/selective_mixing/mix_aux_info", level=3):
+            mixed_aux, mixed_masks = self._mix_aux_info_chunkwise(
+                aux_info, aux_info[perm], meta_masks, meta_masks[perm], z1, z2
+            )
 
         return mixed_images, mixed_targets, mixed_aux, mixed_masks
 
@@ -444,14 +453,18 @@ class GPUSelectiveMixup(SelectiveMixup):
         device = info1.device
 
         # expand chunk decisions to [B, D] - vectorized with torch.repeat_interleave
-        lens = torch.tensor([e - s for (s, e) in chunks], device=device)
-        full_orig_mask = torch.repeat_interleave(choose_orig, lens, dim=1)
-        full_partner_mask = torch.repeat_interleave(choose_partner, lens, dim=1)
+        with prof("augmentation/selective_mixing/aux_torch_expand", level=3):
+            lens = torch.tensor([e - s for (s, e) in chunks], device=device)
+            full_orig_mask = torch.repeat_interleave(choose_orig, lens, dim=1)
+            full_partner_mask = torch.repeat_interleave(choose_partner, lens, dim=1)
 
         # fused copy with torch.where
-        out_info = torch.where(full_orig_mask, info1, torch.where(full_partner_mask, info2, info1.new_zeros(()).expand_as(info1)))
+        with prof("augmentation/selective_mixing/aux_torch_where", level=3):
+            out_info = torch.where(full_orig_mask, info1, torch.where(full_partner_mask, info2, info1.new_zeros(()).expand_as(info1)))
 
-        out_mask = torch.where(full_orig_mask, mask1, torch.where(full_partner_mask, mask2, mask1.new_zeros(()).bool().expand_as(mask1)))
+            out_mask = torch.where(
+                full_orig_mask, mask1, torch.where(full_partner_mask, mask2, mask1.new_zeros(()).bool().expand_as(mask1))
+            )
 
         return out_info, out_mask
 
@@ -477,10 +490,12 @@ class GPUSelectiveMixup(SelectiveMixup):
 
         if chunk_of_dim is None:
             # Create mapping from dimension index to chunk index
-            chunk_of_dim = torch.empty(D, dtype=torch.int32, device=device)
-            for c, (start, end) in enumerate(self.chunk_bounds):
-                chunk_of_dim[start:end] = c
-            self._chunk_cache[cache_key] = chunk_of_dim
+            with prof("augmentation/selective_mixing/aux_chunk_map", level=3):
+                chunk_of_dim = torch.empty(D, dtype=torch.int32, device=device)
+                for c, (start, end) in enumerate(self.chunk_bounds):
+                    chunk_of_dim[start:end] = c
+                self._chunk_cache[cache_key] = chunk_of_dim
 
         # Call Triton kernel
-        return selective_mix_chunks_triton(info1, info2, mask1, mask2, choose_orig, choose_partner, chunk_of_dim)
+        with prof("augmentation/selective_mixing/aux_triton", level=3):
+            return selective_mix_chunks_triton(info1, info2, mask1, mask2, choose_orig, choose_partner, chunk_of_dim)
