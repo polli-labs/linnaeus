@@ -187,28 +187,40 @@ class GPUSelectiveMixup(SelectiveMixup):
         # to avoid a full gather of images[perm]. Falls back to lerp with perm when
         # shape/contiguity assumptions aren't met.
         with prof("augmentation/selective_mixing/mix_images", level=3):
+            use_fp16 = (
+                self.config
+                and getattr(self.config.AUG.SELECTIVE_MIXING, "MIX_IMAGES_FP16", False)
+                and images.dtype in (torch.float16, torch.float32)
+            )
+            images_mix = images
+            if use_fp16 and images.dtype != torch.float16:
+                images_mix = images.to(torch.float16)
+
             use_triton_image = (
                 _TRITON_AVAILABLE
                 and self.config
                 and getattr(self.config.AUG.SELECTIVE_MIXING, "USE_TRITON_IMAGE_KERNEL", False)
-                and images.is_cuda
-                and images.is_contiguous()
+                and images_mix.is_cuda
+                and images_mix.is_contiguous()
             )
             if use_triton_image and mixup_images_triton is not None:
-                mixed_images = mixup_images_triton(images, perm, lam)
+                mixed_images = mixup_images_triton(images_mix, perm, lam)
             else:
                 weight = 1.0 - lam
-                if images.is_contiguous() and images.size(0) % 2 == 0:
-                    B, C, H, W = images.shape
-                    paired = images.view(-1, 2, C, H, W)
+                if images_mix.is_contiguous() and images_mix.size(0) % 2 == 0:
+                    B, C, H, W = images_mix.shape
+                    paired = images_mix.view(-1, 2, C, H, W)
                     a = paired[:, 0]
                     b = paired[:, 1]
                     mixed_pairs = torch.empty_like(paired)
                     mixed_pairs[:, 0] = torch.lerp(a, b, weight=weight)
                     mixed_pairs[:, 1] = torch.lerp(b, a, weight=weight)
-                    mixed_images = mixed_pairs.view_as(images)
+                    mixed_images = mixed_pairs.view_as(images_mix)
                 else:
-                    mixed_images = torch.lerp(images, images[perm], weight=weight)
+                    mixed_images = torch.lerp(images_mix, images_mix[perm], weight=weight)
+
+            if images_mix is not images:
+                mixed_images = mixed_images.to(images.dtype)
 
         # 6) Mix targets => standard numeric blend
         mixed_targets = {}

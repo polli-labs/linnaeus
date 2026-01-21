@@ -143,6 +143,15 @@ class GPUSelectiveCutMix(SelectiveCutMix):
 
         images, targets, aux_info, meta_masks, group_ids = batch
 
+        use_fp16 = (
+            self.config
+            and getattr(self.config.AUG.SELECTIVE_MIXING, "MIX_IMAGES_FP16", False)
+            and images.dtype in (torch.float16, torch.float32)
+        )
+        images_mix = images
+        if use_fp16 and images.dtype != torch.float16:
+            images_mix = images.to(torch.float16)
+
         # Validate cutmix configuration for hierarchical labels
         if logger.isEnabledFor(logging.INFO) and len(targets) > 1:
             task_keys = list(targets.keys())
@@ -208,9 +217,9 @@ class GPUSelectiveCutMix(SelectiveCutMix):
             lam = min_lam + (max_lam - min_lam) * lam
 
         # 5) Apply CutMix - avoid full batch clone when possible (pairwise swap or Triton)
-        B, C, H, W = images.shape
-        use_inplace_swap = images.is_contiguous() and B % 2 == 0
-        mixed_images = images  # default to in-place; fall back to clone if needed
+        B, C, H, W = images_mix.shape
+        use_inplace_swap = images_mix.is_contiguous() and B % 2 == 0
+        mixed_images = images_mix  # default to in-place; fall back to clone if needed
         mixed_targets = {}  # We'll create new tensors when mixing
 
         # Generate random bounding box coordinates using tensor-based implementation
@@ -241,17 +250,17 @@ class GPUSelectiveCutMix(SelectiveCutMix):
 
             # Apply CutMix to valid samples only
             with prof("augmentation/selective_mixing/mix_images", level=3):
-                use_triton_image = (
-                    _TRITON_AVAILABLE
-                    and self.config
-                    and getattr(self.config.AUG.SELECTIVE_MIXING, "USE_TRITON_IMAGE_KERNEL", False)
-                    and images.is_cuda
-                    and images.is_contiguous()
-                    and valid_mask.all()
-                )
-                if use_triton_image and cutmix_images_triton is not None:
-                    mixed_images = cutmix_images_triton(images, perm, bbx1, bbx2, bby1, bby2)
-                elif use_inplace_swap:
+            use_triton_image = (
+                _TRITON_AVAILABLE
+                and self.config
+                and getattr(self.config.AUG.SELECTIVE_MIXING, "USE_TRITON_IMAGE_KERNEL", False)
+                and images_mix.is_cuda
+                and images_mix.is_contiguous()
+                and valid_mask.all()
+            )
+            if use_triton_image and cutmix_images_triton is not None:
+                mixed_images = cutmix_images_triton(images_mix, perm, bbx1, bbx2, bby1, bby2)
+            elif use_inplace_swap:
                     # Only process the first element of each pair (0<->1, 2<->3, ...)
                     # Ensure partner is also valid to avoid inconsistent mixing.
                     primary_mask = (torch.arange(B, device=images.device) % 2 == 0) & valid_mask
@@ -260,25 +269,25 @@ class GPUSelectiveCutMix(SelectiveCutMix):
                     partner_indices = perm[primary_indices]
 
                     if primary_indices.numel() > 0 and primary_indices.numel() * 2 == valid_indices.numel():
-                        patch_temp = images[primary_indices, :, bbx1:bbx2, bby1:bby2].clone()
-                        images[primary_indices, :, bbx1:bbx2, bby1:bby2] = images[
+                        patch_temp = images_mix[primary_indices, :, bbx1:bbx2, bby1:bby2].clone()
+                        images_mix[primary_indices, :, bbx1:bbx2, bby1:bby2] = images_mix[
                             partner_indices, :, bbx1:bbx2, bby1:bby2
                         ]
-                        images[partner_indices, :, bbx1:bbx2, bby1:bby2] = patch_temp
+                        images_mix[partner_indices, :, bbx1:bbx2, bby1:bby2] = patch_temp
 
                         mix_indices = torch.cat([primary_indices, partner_indices], dim=0)
                         mix_perm_indices = perm[mix_indices]
                     else:
                         use_inplace_swap = False
-                        mixed_images = images.clone()
-                        mixed_images[valid_indices, :, bbx1:bbx2, bby1:bby2] = images[
+                        mixed_images = images_mix.clone()
+                        mixed_images[valid_indices, :, bbx1:bbx2, bby1:bby2] = images_mix[
                             valid_perm_indices, :, bbx1:bbx2, bby1:bby2
                         ]
-                else:
-                    mixed_images = images.clone()
-                    mixed_images[valid_indices, :, bbx1:bbx2, bby1:bby2] = images[
-                        valid_perm_indices, :, bbx1:bbx2, bby1:bby2
-                    ]
+            else:
+                mixed_images = images_mix.clone()
+                mixed_images[valid_indices, :, bbx1:bbx2, bby1:bby2] = images_mix[
+                    valid_perm_indices, :, bbx1:bbx2, bby1:bby2
+                ]
 
             # Mix targets proportionally to adjusted lambda for valid samples
             for k in targets.keys():
@@ -464,6 +473,9 @@ class GPUSelectiveCutMix(SelectiveCutMix):
             mixed_aux, mixed_masks = self._mix_aux_info_chunkwise(
                 aux_info, aux_info[perm], meta_masks, meta_masks[perm], z1, z2
             )
+
+        if images_mix is not images:
+            mixed_images = mixed_images.to(images.dtype)
 
         return mixed_images, mixed_targets, mixed_aux, mixed_masks
 
