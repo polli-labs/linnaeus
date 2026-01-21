@@ -442,6 +442,9 @@ _C.AUG.GPU_COMPILE.MODE = "default"  # Options: 'default', 'reduce-overhead', 'm
 # Configuration for selective mixing (mixup/cutmix) optimization
 _C.AUG.SELECTIVE_MIXING = CN()
 _C.AUG.SELECTIVE_MIXING.USE_TRITON_KERNEL = False  # Use Triton-optimized kernel for selective mixing
+_C.AUG.SELECTIVE_MIXING.USE_TRITON_IMAGE_KERNEL = False  # Use Triton kernels for mixup/cutmix image mixing
+_C.AUG.SELECTIVE_MIXING.MIX_IMAGES_FP16 = False  # Mix images in fp16 (casts back to input dtype by default)
+_C.AUG.SELECTIVE_MIXING.MIX_IMAGES_STREAM = False  # Run image mixing on a side CUDA stream (experimental)
 
 # ----------------------------------------------------------------------------
 # Model Settings
