@@ -7,6 +7,7 @@ from linnaeus.aug.base import SelectiveCutMix
 from linnaeus.aug.utils import exclude_null_samples_from_mixup
 from linnaeus.utils.debug_utils import check_debug_flag
 from linnaeus.utils.logging.logger import get_main_logger
+from linnaeus.utils.profiling_helpers import prof
 
 # Triton kernel imports (with graceful fallback)
 try:
@@ -127,7 +128,8 @@ class GPUSelectiveCutMix(SelectiveCutMix):
 
         # Optionally exclude null-category samples from cutmix
         if exclude_null_samples:
-            batch = exclude_null_samples_from_mixup(batch, null_task_keys, config=self.config)
+            with prof("augmentation/selective_mixing/exclude_null", level=3):
+                batch = exclude_null_samples_from_mixup(batch, null_task_keys, config=self.config)
 
         images, targets, aux_info, meta_masks, group_ids = batch
 
@@ -182,24 +184,28 @@ class GPUSelectiveCutMix(SelectiveCutMix):
             return images, targets, aux_info, meta_masks
 
         # 3) Build in-group permutation
-        perm = self._get_ingroup_permutation(group_ids)
+        with prof("augmentation/selective_mixing/permute", level=3):
+            perm = self._get_ingroup_permutation(group_ids)
 
         # 4) Beta distribution => lam for cut size
         alpha = self.mix_config.get("ALPHA", 1.0)
-        lam = torch.distributions.beta.Beta(alpha, alpha).sample().to(images.device)
+        with prof("augmentation/selective_mixing/lam_sample", level=3):
+            lam = torch.distributions.beta.Beta(alpha, alpha).sample().to(images.device)
 
         # Optionally enforce min/max bounds on lam
         if self.minmax is not None:
             min_lam, max_lam = self.minmax
             lam = min_lam + (max_lam - min_lam) * lam
 
-        # 5) Apply CutMix - create copies of inputs for mixing
+        # 5) Apply CutMix - avoid full batch clone when possible (pairwise swap)
         B, C, H, W = images.shape
-        mixed_images = images.clone()
+        use_inplace_swap = images.is_contiguous() and B % 2 == 0
+        mixed_images = images  # default to in-place; fall back to clone if needed
         mixed_targets = {}  # We'll create new tensors when mixing
 
         # Generate random bounding box coordinates using tensor-based implementation
-        bbx1, bby1, bbx2, bby2 = self._rand_bbox_tensor((B, C, H, W), lam, images.device)
+        with prof("augmentation/selective_mixing/rand_bbox", level=3):
+            bbx1, bby1, bbx2, bby2 = self._rand_bbox_tensor((B, C, H, W), lam, images.device)
 
         # Calculate adjusted lambda based on actual box area
         box_area = (bbx2 - bbx1) * (bby2 - bby1)
@@ -220,8 +226,39 @@ class GPUSelectiveCutMix(SelectiveCutMix):
             valid_indices = valid_mask.nonzero(as_tuple=True)[0]
             valid_perm_indices = perm[valid_indices]
 
+            mix_indices = valid_indices
+            mix_perm_indices = valid_perm_indices
+
             # Apply CutMix to valid samples only
-            mixed_images[valid_indices, :, bbx1:bbx2, bby1:bby2] = images[valid_perm_indices, :, bbx1:bbx2, bby1:bby2]
+            with prof("augmentation/selective_mixing/mix_images", level=3):
+                if use_inplace_swap:
+                    # Only process the first element of each pair (0<->1, 2<->3, ...)
+                    # Ensure partner is also valid to avoid inconsistent mixing.
+                    primary_mask = (torch.arange(B, device=images.device) % 2 == 0) & valid_mask
+                    primary_mask = primary_mask & valid_mask[perm]
+                    primary_indices = primary_mask.nonzero(as_tuple=True)[0]
+                    partner_indices = perm[primary_indices]
+
+                    if primary_indices.numel() > 0 and primary_indices.numel() * 2 == valid_indices.numel():
+                        patch_temp = images[primary_indices, :, bbx1:bbx2, bby1:bby2].clone()
+                        images[primary_indices, :, bbx1:bbx2, bby1:bby2] = images[
+                            partner_indices, :, bbx1:bbx2, bby1:bby2
+                        ]
+                        images[partner_indices, :, bbx1:bbx2, bby1:bby2] = patch_temp
+
+                        mix_indices = torch.cat([primary_indices, partner_indices], dim=0)
+                        mix_perm_indices = perm[mix_indices]
+                    else:
+                        use_inplace_swap = False
+                        mixed_images = images.clone()
+                        mixed_images[valid_indices, :, bbx1:bbx2, bby1:bby2] = images[
+                            valid_perm_indices, :, bbx1:bbx2, bby1:bby2
+                        ]
+                else:
+                    mixed_images = images.clone()
+                    mixed_images[valid_indices, :, bbx1:bbx2, bby1:bby2] = images[
+                        valid_perm_indices, :, bbx1:bbx2, bby1:bby2
+                    ]
 
             # Mix targets proportionally to adjusted lambda for valid samples
             for k in targets.keys():
@@ -267,10 +304,12 @@ class GPUSelectiveCutMix(SelectiveCutMix):
 
                 # Apply CutMix to targets based on adjusted lambda
                 # Initialize with a copy of original targets
-                mixed_targets[k] = targets[k].clone()
-                mixed_targets[k][valid_indices] = (
-                    lam_adjusted * targets[k][valid_indices] + (1 - lam_adjusted) * targets[k][valid_perm_indices]
-                )
+                with prof("augmentation/selective_mixing/mix_targets", level=3):
+                    mixed_targets[k] = targets[k].clone()
+                    if mix_indices.numel() > 0:
+                        mixed_targets[k][mix_indices] = (
+                            lam_adjusted * targets[k][mix_indices] + (1 - lam_adjusted) * targets[k][mix_perm_indices]
+                        )
 
                 # Debug logging after mixing to see the effect
                 if debug_flag:
@@ -401,7 +440,10 @@ class GPUSelectiveCutMix(SelectiveCutMix):
             z1 = z2 = None
 
         # 8) Hard pick chunk by chunk with pre-computed zero flags
-        mixed_aux, mixed_masks = self._mix_aux_info_chunkwise(aux_info, aux_info[perm], meta_masks, meta_masks[perm], z1, z2)
+        with prof("augmentation/selective_mixing/mix_aux_info", level=3):
+            mixed_aux, mixed_masks = self._mix_aux_info_chunkwise(
+                aux_info, aux_info[perm], meta_masks, meta_masks[perm], z1, z2
+            )
 
         return mixed_images, mixed_targets, mixed_aux, mixed_masks
 
@@ -511,14 +553,18 @@ class GPUSelectiveCutMix(SelectiveCutMix):
         device = info1.device
 
         # expand chunk decisions to [B, D] - vectorized with torch.repeat_interleave
-        lens = torch.tensor([e - s for (s, e) in chunks], device=device)
-        full_orig_mask = torch.repeat_interleave(choose_orig, lens, dim=1)
-        full_partner_mask = torch.repeat_interleave(choose_partner, lens, dim=1)
+        with prof("augmentation/selective_mixing/aux_torch_expand", level=3):
+            lens = torch.tensor([e - s for (s, e) in chunks], device=device)
+            full_orig_mask = torch.repeat_interleave(choose_orig, lens, dim=1)
+            full_partner_mask = torch.repeat_interleave(choose_partner, lens, dim=1)
 
         # fused copy with torch.where
-        out_info = torch.where(full_orig_mask, info1, torch.where(full_partner_mask, info2, info1.new_zeros(()).expand_as(info1)))
+        with prof("augmentation/selective_mixing/aux_torch_where", level=3):
+            out_info = torch.where(full_orig_mask, info1, torch.where(full_partner_mask, info2, info1.new_zeros(()).expand_as(info1)))
 
-        out_mask = torch.where(full_orig_mask, mask1, torch.where(full_partner_mask, mask2, mask1.new_zeros(()).bool().expand_as(mask1)))
+            out_mask = torch.where(
+                full_orig_mask, mask1, torch.where(full_partner_mask, mask2, mask1.new_zeros(()).bool().expand_as(mask1))
+            )
 
         return out_info, out_mask
 
@@ -544,13 +590,15 @@ class GPUSelectiveCutMix(SelectiveCutMix):
 
         if chunk_of_dim is None:
             # Create mapping from dimension index to chunk index
-            chunk_of_dim = torch.empty(D, dtype=torch.int32, device=device)
-            for c, (start, end) in enumerate(self.chunk_bounds):
-                chunk_of_dim[start:end] = c
-            self._chunk_cache[cache_key] = chunk_of_dim
+            with prof("augmentation/selective_mixing/aux_chunk_map", level=3):
+                chunk_of_dim = torch.empty(D, dtype=torch.int32, device=device)
+                for c, (start, end) in enumerate(self.chunk_bounds):
+                    chunk_of_dim[start:end] = c
+                self._chunk_cache[cache_key] = chunk_of_dim
 
         # Call Triton kernel
-        return selective_mix_chunks_triton(info1, info2, mask1, mask2, choose_orig, choose_partner, chunk_of_dim)
+        with prof("augmentation/selective_mixing/aux_triton", level=3):
+            return selective_mix_chunks_triton(info1, info2, mask1, mask2, choose_orig, choose_partner, chunk_of_dim)
 
     def _rand_bbox_tensor(
         self, size: tuple[int, int, int, int], lam: torch.Tensor, device: torch.device
