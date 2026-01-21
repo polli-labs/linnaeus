@@ -239,7 +239,7 @@ def train_one_epoch(
             )
             ddp_sync_ctx = nullcontext() if (not is_ddp or should_sync_ddp) else model.no_sync()
 
-            with prof("ddp_sync_ctx", level=2):
+            with prof("backward/ddp_sync_ctx", level=2):
                 with ddp_sync_ctx:
                     with torch.cuda.amp.autocast(enabled=(config.TRAIN.AMP_OPT_LEVEL != "O0")):
                         with prof("forward_pass", level=1):
