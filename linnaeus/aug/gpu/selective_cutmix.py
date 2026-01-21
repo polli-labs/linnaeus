@@ -93,6 +93,7 @@ class GPUSelectiveCutMix(SelectiveCutMix):
 
         # Cache for Triton chunk_of_dim mappings
         self._chunk_cache = {}
+        self._mix_stream = None
 
         if self.config and check_debug_flag(self.config, "DEBUG.AUGMENTATION"):
             logger.debug("Initializing GPUSelectiveCutMix")
@@ -142,6 +143,23 @@ class GPUSelectiveCutMix(SelectiveCutMix):
                 batch = exclude_null_samples_from_mixup(batch, null_task_keys, config=self.config)
 
         images, targets, aux_info, meta_masks, group_ids = batch
+
+        use_fp16 = (
+            self.config
+            and getattr(self.config.AUG.SELECTIVE_MIXING, "MIX_IMAGES_FP16", False)
+            and images.dtype in (torch.float16, torch.float32)
+        )
+        images_mix = images
+        if use_fp16 and images.dtype != torch.float16:
+            images_mix = images.to(torch.float16)
+
+        use_stream = (
+            self.config
+            and getattr(self.config.AUG.SELECTIVE_MIXING, "MIX_IMAGES_STREAM", False)
+            and images_mix.is_cuda
+        )
+        if use_stream and self._mix_stream is None:
+            self._mix_stream = torch.cuda.Stream()
 
         use_fp16 = (
             self.config
@@ -250,44 +268,52 @@ class GPUSelectiveCutMix(SelectiveCutMix):
 
             # Apply CutMix to valid samples only
             with prof("augmentation/selective_mixing/mix_images", level=3):
-                use_triton_image = (
-                    _TRITON_AVAILABLE
-                    and self.config
-                    and getattr(self.config.AUG.SELECTIVE_MIXING, "USE_TRITON_IMAGE_KERNEL", False)
-                    and images_mix.is_cuda
-                    and images_mix.is_contiguous()
-                    and valid_mask.all()
-                )
-                if use_triton_image and cutmix_images_triton is not None:
-                    mixed_images = cutmix_images_triton(images_mix, perm, bbx1, bbx2, bby1, bby2)
-                elif use_inplace_swap:
-                    # Only process the first element of each pair (0<->1, 2<->3, ...)
-                    # Ensure partner is also valid to avoid inconsistent mixing.
-                    primary_mask = (torch.arange(B, device=images.device) % 2 == 0) & valid_mask
-                    primary_mask = primary_mask & valid_mask[perm]
-                    primary_indices = primary_mask.nonzero(as_tuple=True)[0]
-                    partner_indices = perm[primary_indices]
+                def _mix_images() -> torch.Tensor:
+                    use_triton_image = (
+                        _TRITON_AVAILABLE
+                        and self.config
+                        and getattr(self.config.AUG.SELECTIVE_MIXING, "USE_TRITON_IMAGE_KERNEL", False)
+                        and images_mix.is_cuda
+                        and images_mix.is_contiguous()
+                        and valid_mask.all()
+                    )
+                    if use_triton_image and cutmix_images_triton is not None:
+                        out = cutmix_images_triton(images_mix, perm, bbx1, bbx2, bby1, bby2)
+                    elif use_inplace_swap:
+                        # Only process the first element of each pair (0<->1, 2<->3, ...)
+                        # Ensure partner is also valid to avoid inconsistent mixing.
+                        primary_mask = (torch.arange(B, device=images.device) % 2 == 0) & valid_mask
+                        primary_mask = primary_mask & valid_mask[perm]
+                        primary_indices = primary_mask.nonzero(as_tuple=True)[0]
+                        partner_indices = perm[primary_indices]
 
-                    if primary_indices.numel() > 0 and primary_indices.numel() * 2 == valid_indices.numel():
-                        patch_temp = images_mix[primary_indices, :, bbx1:bbx2, bby1:bby2].clone()
-                        images_mix[primary_indices, :, bbx1:bbx2, bby1:bby2] = images_mix[
-                            partner_indices, :, bbx1:bbx2, bby1:bby2
-                        ]
-                        images_mix[partner_indices, :, bbx1:bbx2, bby1:bby2] = patch_temp
+                        if primary_indices.numel() > 0 and primary_indices.numel() * 2 == valid_indices.numel():
+                            patch_temp = images_mix[primary_indices, :, bbx1:bbx2, bby1:bby2].clone()
+                            images_mix[primary_indices, :, bbx1:bbx2, bby1:bby2] = images_mix[
+                                partner_indices, :, bbx1:bbx2, bby1:bby2
+                            ]
+                            images_mix[partner_indices, :, bbx1:bbx2, bby1:bby2] = patch_temp
 
-                        mix_indices = torch.cat([primary_indices, partner_indices], dim=0)
-                        mix_perm_indices = perm[mix_indices]
+                            mix_indices = torch.cat([primary_indices, partner_indices], dim=0)
+                            mix_perm_indices = perm[mix_indices]
+                            out = images_mix
+                        else:
+                            out = images_mix.clone()
+                            out[valid_indices, :, bbx1:bbx2, bby1:bby2] = images_mix[
+                                valid_perm_indices, :, bbx1:bbx2, bby1:bby2
+                            ]
                     else:
-                        use_inplace_swap = False
-                        mixed_images = images_mix.clone()
-                        mixed_images[valid_indices, :, bbx1:bbx2, bby1:bby2] = images_mix[
+                        out = images_mix.clone()
+                        out[valid_indices, :, bbx1:bbx2, bby1:bby2] = images_mix[
                             valid_perm_indices, :, bbx1:bbx2, bby1:bby2
                         ]
+                    return out
+
+                if use_stream and self._mix_stream is not None:
+                    with torch.cuda.stream(self._mix_stream):
+                        mixed_images = _mix_images()
                 else:
-                    mixed_images = images_mix.clone()
-                    mixed_images[valid_indices, :, bbx1:bbx2, bby1:bby2] = images_mix[
-                        valid_perm_indices, :, bbx1:bbx2, bby1:bby2
-                    ]
+                    mixed_images = _mix_images()
 
             # Mix targets proportionally to adjusted lambda for valid samples
             for k in targets.keys():
@@ -476,6 +502,12 @@ class GPUSelectiveCutMix(SelectiveCutMix):
 
         if images_mix is not images:
             mixed_images = mixed_images.to(images.dtype)
+
+        if images_mix is not images:
+            mixed_images = mixed_images.to(images.dtype)
+
+        if use_stream and self._mix_stream is not None and images_mix.is_cuda:
+            torch.cuda.current_stream().wait_stream(self._mix_stream)
 
         return mixed_images, mixed_targets, mixed_aux, mixed_masks
 

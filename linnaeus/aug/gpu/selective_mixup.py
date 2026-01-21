@@ -86,6 +86,7 @@ class GPUSelectiveMixup(SelectiveMixup):
 
         # Cache for Triton chunk_of_dim mappings
         self._chunk_cache = {}
+        self._mix_stream = None
 
         if self.config and check_debug_flag(self.config, "DEBUG.AUGMENTATION"):
             logger.debug("Initializing GPUSelectiveMixup")
@@ -196,31 +197,46 @@ class GPUSelectiveMixup(SelectiveMixup):
             if use_fp16 and images.dtype != torch.float16:
                 images_mix = images.to(torch.float16)
 
-            use_triton_image = (
-                _TRITON_AVAILABLE
-                and self.config
-                and getattr(self.config.AUG.SELECTIVE_MIXING, "USE_TRITON_IMAGE_KERNEL", False)
+            use_stream = (
+                self.config
+                and getattr(self.config.AUG.SELECTIVE_MIXING, "MIX_IMAGES_STREAM", False)
                 and images_mix.is_cuda
-                and images_mix.is_contiguous()
             )
-            if use_triton_image and mixup_images_triton is not None:
-                mixed_images = mixup_images_triton(images_mix, perm, lam)
-            else:
-                weight = 1.0 - lam
-                if images_mix.is_contiguous() and images_mix.size(0) % 2 == 0:
-                    B, C, H, W = images_mix.shape
-                    paired = images_mix.view(-1, 2, C, H, W)
-                    a = paired[:, 0]
-                    b = paired[:, 1]
-                    mixed_pairs = torch.empty_like(paired)
-                    mixed_pairs[:, 0] = torch.lerp(a, b, weight=weight)
-                    mixed_pairs[:, 1] = torch.lerp(b, a, weight=weight)
-                    mixed_images = mixed_pairs.view_as(images_mix)
-                else:
-                    mixed_images = torch.lerp(images_mix, images_mix[perm], weight=weight)
+            if use_stream and self._mix_stream is None:
+                self._mix_stream = torch.cuda.Stream()
 
-            if images_mix is not images:
-                mixed_images = mixed_images.to(images.dtype)
+            def _mix_images() -> torch.Tensor:
+                use_triton_image = (
+                    _TRITON_AVAILABLE
+                    and self.config
+                    and getattr(self.config.AUG.SELECTIVE_MIXING, "USE_TRITON_IMAGE_KERNEL", False)
+                    and images_mix.is_cuda
+                    and images_mix.is_contiguous()
+                )
+                if use_triton_image and mixup_images_triton is not None:
+                    out = mixup_images_triton(images_mix, perm, lam)
+                else:
+                    weight = 1.0 - lam
+                    if images_mix.is_contiguous() and images_mix.size(0) % 2 == 0:
+                        B, C, H, W = images_mix.shape
+                        paired = images_mix.view(-1, 2, C, H, W)
+                        a = paired[:, 0]
+                        b = paired[:, 1]
+                        mixed_pairs = torch.empty_like(paired)
+                        mixed_pairs[:, 0] = torch.lerp(a, b, weight=weight)
+                        mixed_pairs[:, 1] = torch.lerp(b, a, weight=weight)
+                        out = mixed_pairs.view_as(images_mix)
+                    else:
+                        out = torch.lerp(images_mix, images_mix[perm], weight=weight)
+                if images_mix is not images:
+                    out = out.to(images.dtype)
+                return out
+
+            if use_stream and self._mix_stream is not None:
+                with torch.cuda.stream(self._mix_stream):
+                    mixed_images = _mix_images()
+            else:
+                mixed_images = _mix_images()
 
         # 6) Mix targets => standard numeric blend
         mixed_targets = {}
@@ -377,6 +393,9 @@ class GPUSelectiveMixup(SelectiveMixup):
             mixed_aux, mixed_masks = self._mix_aux_info_chunkwise(
                 aux_info, aux_info[perm], meta_masks, meta_masks[perm], z1, z2
             )
+
+        if use_stream and self._mix_stream is not None and images_mix.is_cuda:
+            torch.cuda.current_stream().wait_stream(self._mix_stream)
 
         return mixed_images, mixed_targets, mixed_aux, mixed_masks
 
