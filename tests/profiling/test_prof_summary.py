@@ -25,6 +25,10 @@ def test_analyze_profiler_traces_level2_regions_are_averaged_per_step(tmp_path: 
         {"cat": "user_annotation", "name": "model/stem", "dur": 600, "ts": 2100},  # 0.6 ms
         {"cat": "user_annotation", "name": "model/downsample_0", "dur": 200, "ts": 300},  # 0.2 ms
         {"cat": "user_annotation", "name": "loss/core_loss", "dur": 100, "ts": 400},  # 0.1 ms
+        {"cat": "user_annotation", "name": "backward/scale_backward", "dur": 300, "ts": 450},  # 0.3 ms
+        {"cat": "user_annotation", "name": "optimizer/step", "dur": 200, "ts": 500},  # 0.2 ms
+        {"cat": "user_annotation", "name": "optimizer/zero_grad", "dur": 100, "ts": 520},  # 0.1 ms
+        {"cat": "user_annotation", "name": "comms/allreduce_bucket_0_size_4.0MB", "dur": 500, "ts": 700},  # 0.5 ms
         {"cat": "user_annotation", "name": "augmentation/selective_mixing", "dur": 50, "ts": 500},  # 0.05 ms
         # Some CPU/GPU events to keep utilization math sane
         {"cat": "cpu_op", "name": "aten::matmul", "dur": 500, "ts": 600},
@@ -46,6 +50,18 @@ def test_analyze_profiler_traces_level2_regions_are_averaged_per_step(tmp_path: 
 
     # total: core_loss = 0.1ms across 2 steps => 0.05ms/step
     assert metrics.loss_core_loss_ms == pytest.approx(0.05)
+
+    # total: backward/scale_backward = 0.3ms across 2 steps => 0.15ms/step
+    assert metrics.backward_scale_backward_ms == pytest.approx(0.15)
+
+    # total: optimizer/step = 0.2ms across 2 steps => 0.1ms/step
+    assert metrics.optimizer_step_ms == pytest.approx(0.1)
+
+    # total: optimizer/zero_grad = 0.1ms across 2 steps => 0.05ms/step
+    assert metrics.optimizer_zero_grad_ms == pytest.approx(0.05)
+
+    # total: comms/allreduce_* = 0.5ms across 2 steps => 0.25ms/step
+    assert metrics.comms_allreduce_ms == pytest.approx(0.25)
 
     # total: selective_mixing = 0.05ms across 2 steps => 0.025ms/step
     assert metrics.augmentation_selective_mixing_ms == pytest.approx(0.025)
@@ -74,4 +90,3 @@ def test_analyze_profiler_traces_level1_regions_are_averaged_per_step(tmp_path: 
 
     # totals: mixing = (0.2 + 0.4) ms across 2 steps => 0.3ms/step
     assert metrics.mixing_time_ms == pytest.approx(0.3)
-

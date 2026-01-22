@@ -141,6 +141,9 @@ def generate_summary(config_diffs: dict[str, MetricDiff], profiler_diffs: dict[s
             "augmentation_selective_mixing_ms": "Aug Selective Mixing",
             "loss_core_loss_ms": "Loss Core Loss",
             "loss_masking_ms": "Loss Masking",
+            "backward_scale_backward_ms": "Backward Scale+Backward",
+            "optimizer_step_ms": "Optimizer Step",
+            "comms_allreduce_ms": "Comms AllReduce",
         }
 
         for key, display_name in perf_metrics.items():
@@ -235,6 +238,16 @@ def format_pretty(comparison: RunComparison) -> Panel:
                 ("loss_masking_ms", "Loss Masking"),
                 ("loss_weighting_ms", "Loss Weighting"),
                 ("loss_aggregation_ms", "Loss Aggregation"),
+                ("backward_ddp_sync_ctx_ms", "Backward DDP Sync Ctx"),
+                ("backward_scale_backward_ms", "Backward Scale+Backward"),
+                ("gradnorm_reforward_ms", "GradNorm Reforward"),
+                ("optimizer_unscale_ms", "Optimizer Unscale"),
+                ("optimizer_clip_grad_ms", "Optimizer Clip Grad"),
+                ("optimizer_step_ms", "Optimizer Step"),
+                ("optimizer_scaler_update_ms", "Optimizer Scaler Update"),
+                ("optimizer_zero_grad_ms", "Optimizer Zero Grad"),
+                ("optimizer_lr_step_ms", "Optimizer LR Step"),
+                ("comms_allreduce_ms", "Comms AllReduce"),
                 ("augmentation_selective_mixing_ms", "Aug Selective Mixing"),
                 ("augmentation_gpu_batch_augmentations_ms", "Aug GPU Batch Augmentations"),
             ]
@@ -357,6 +370,16 @@ def format_markdown(comparison: RunComparison) -> str:
             ("loss_masking_ms", "Loss Masking"),
             ("loss_weighting_ms", "Loss Weighting"),
             ("loss_aggregation_ms", "Loss Aggregation"),
+            ("backward_ddp_sync_ctx_ms", "Backward DDP Sync Ctx"),
+            ("backward_scale_backward_ms", "Backward Scale+Backward"),
+            ("gradnorm_reforward_ms", "GradNorm Reforward"),
+            ("optimizer_unscale_ms", "Optimizer Unscale"),
+            ("optimizer_clip_grad_ms", "Optimizer Clip Grad"),
+            ("optimizer_step_ms", "Optimizer Step"),
+            ("optimizer_scaler_update_ms", "Optimizer Scaler Update"),
+            ("optimizer_zero_grad_ms", "Optimizer Zero Grad"),
+            ("optimizer_lr_step_ms", "Optimizer LR Step"),
+            ("comms_allreduce_ms", "Comms AllReduce"),
             ("augmentation_selective_mixing_ms", "Aug Selective Mixing"),
             ("augmentation_gpu_batch_augmentations_ms", "Aug GPU Batch Augmentations"),
         ]
