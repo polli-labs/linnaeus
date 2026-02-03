@@ -638,11 +638,24 @@ class H5DataLoader(DataLoader):
         # Define a flag for dataloader debugging for assertions
         debug_dataloader_enabled = hasattr(self, "config") and self.config is not None and check_debug_flag(self.config, "DEBUG.DATALOADER")
 
-        # Unzip the list of samples
-        # each sample => (img, targets, aux, group_id, subs_id, meta_mask)
-        images_list, targets_list, aux_list, gid_list, subs_list, mask_list = zip(*batch, strict=False)
+        # Unzip the list of samples.
+        #
+        # Base (single-view) samples are:
+        #   (img[C,H,W], targets, aux, group_id, subs_id, meta_mask)
+        #
+        # Bagged (multi-view) samples append:
+        #   view_mask[K] (True = real view, False = padding)
+        view_mask = None
+        sample_len = len(batch[0]) if batch else 0
+        if sample_len == 6:
+            images_list, targets_list, aux_list, gid_list, subs_list, mask_list = zip(*batch, strict=False)
+        elif sample_len == 7:
+            images_list, targets_list, aux_list, gid_list, subs_list, mask_list, view_mask_list = zip(*batch, strict=False)
+            view_mask = torch.stack(view_mask_list, dim=0)  # [B, K]
+        else:
+            raise ValueError(f"Unexpected sample tuple length in H5DataLoader.collate_fn: {sample_len}")
 
-        # Merge images => (B, C, H, W)
+        # Merge images => (B, C, H, W) or (B, K, C, H, W) for bagged data
         images = torch.stack(images_list, dim=0)
         group_ids = torch.tensor(gid_list, dtype=torch.long)
 
@@ -1233,6 +1246,14 @@ class H5DataLoader(DataLoader):
                 if rand_val < mixup_prob:
                     apply_mixing = True
 
+            # Bagged (multi-view) batches currently do not support mixup/cutmix.
+            # We still allow meta-masking schedules to run, but mixing should be skipped.
+            if images.ndim != 4 and apply_mixing:
+                self.main_logger.warning(
+                    "[H5DataLoader] Mixing requested but images are not 4D; skipping mixup/cutmix for bagged batches."
+                )
+                apply_mixing = False
+
             if apply_mixing:
                 self.main_logger.debug(f"[MIXUP_DEBUG] Mixing triggered at global_optimizer_step {current_global_optimizer_step}")
 
@@ -1724,6 +1745,16 @@ class H5DataLoader(DataLoader):
                     tensor_name_for_log="meta_validity_masks",
                 )
 
+                if view_mask is not None:
+                    view_mask = transfer_to_gpu(
+                        view_mask,
+                        images.device,
+                        non_blocking_default=False,  # Explicitly False for boolean masks
+                        sync_for_debug=sync_gpu_for_debug,
+                        debug_dataloader_enabled=debug_dataloader_enabled,
+                        tensor_name_for_log="view_mask",
+                    )
+
                 group_ids = transfer_to_gpu(
                     group_ids,
                     images.device,
@@ -1773,6 +1804,7 @@ class H5DataLoader(DataLoader):
                 self.is_training
                 and self.augmentation_pipeline is not None
                 and getattr(self.augmentation_pipeline, "is_batch_oriented_gpu_pipeline", False)
+                and images.ndim == 4
             ):
                 if debug_dataloader_enabled and self.batch_idx < 5:
                     self.main_logger.debug(f"[GPU_AUG] Applying GPU augmentation pipeline to batch of {images.shape[0]} images")
@@ -2034,7 +2066,10 @@ class H5DataLoader(DataLoader):
                                 f"[META_STATS_DEBUG] {comp_name}: actual={actual_pct:.1f}%, diff from schedule={diff:.1f}%"
                             )
 
-        return (images, merged_targets, aux_info, group_ids, merged_subset_ids, meta_validity_masks, actual_meta_stats)
+        out = (images, merged_targets, aux_info, group_ids, merged_subset_ids, meta_validity_masks, actual_meta_stats)
+        if view_mask is not None:
+            out = out + (view_mask,)
+        return out
 
         # --- Add logging for the tuple returned by collate_fn (specifically actual_meta_stats) ---
         if debug_enabled and self.batch_idx < 5:  # Limit logging
@@ -2168,18 +2203,19 @@ class H5DataLoader(DataLoader):
                     and batch_num == 0
                 ):
                     self.main_logger.debug("[H5DataLoader] Processed batch after collate_fn:")
-                    (
-                        images,
-                        merged_targets,
-                        aux_info,
-                        group_ids,
-                        merged_subset_ids,
-                        meta_validity_masks,
-                        actual_meta_stats,  # Add the missing 7th item
-                    ) = out_batch
+                    images = out_batch[0]
+                    merged_targets = out_batch[1]
+                    aux_info = out_batch[2]
+                    group_ids = out_batch[3]
+                    merged_subset_ids = out_batch[4]
+                    meta_validity_masks = out_batch[5]
+                    actual_meta_stats = out_batch[6]
+                    view_mask_dbg = out_batch[7] if len(out_batch) > 7 else None
                     self.main_logger.debug(f"  - Images tensor shape: {images.shape}")
                     self.main_logger.debug(f"  - Target keys: {list(merged_targets.keys())}")
                     self.main_logger.debug(f"  - Device: {images.device}")
+                    if view_mask_dbg is not None:
+                        self.main_logger.debug(f"  - View mask shape: {view_mask_dbg.shape}")
 
                     # Log the new item
                     self.main_logger.debug(
@@ -2209,18 +2245,19 @@ class H5DataLoader(DataLoader):
                     and batch_num == 0
                 ):
                     self.main_logger.debug("[H5DataLoader] Fallback mode - first batch processed:")
-                    (
-                        images,
-                        merged_targets,
-                        aux_info,
-                        group_ids,
-                        merged_subset_ids,
-                        meta_validity_masks,
-                        actual_meta_stats,  # Add the missing 7th item
-                    ) = out_batch
+                    images = out_batch[0]
+                    merged_targets = out_batch[1]
+                    aux_info = out_batch[2]
+                    group_ids = out_batch[3]
+                    merged_subset_ids = out_batch[4]
+                    meta_validity_masks = out_batch[5]
+                    actual_meta_stats = out_batch[6]
+                    view_mask_dbg = out_batch[7] if len(out_batch) > 7 else None
                     self.main_logger.debug(f"  - Images tensor shape: {images.shape}")
                     self.main_logger.debug(f"  - Target keys: {list(merged_targets.keys())}")
                     self.main_logger.debug(f"  - Device: {images.device}")
+                    if view_mask_dbg is not None:
+                        self.main_logger.debug(f"  - View mask shape: {view_mask_dbg.shape}")
 
                     # Log the new item
                     self.main_logger.debug(
