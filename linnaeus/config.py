@@ -224,6 +224,14 @@ _C.DATA.SAMPLER = CN()
 _C.DATA.SAMPLER.TYPE = "grouped"  # 'grouped' or 'standard'
 _C.DATA.SAMPLER.GROUPED_MODE = "strict-group"  # 'strict-group' or 'mixed-pairs'
 
+# Multi-view "bag-of-photos" support for MIL / tracked-entity inference.
+# Disabled by default to preserve existing per-photo training behavior.
+_C.DATA.BAGS = CN()
+_C.DATA.BAGS.ENABLED = False
+_C.DATA.BAGS.VIEWS_PER_BAG = 1
+_C.DATA.BAGS.VIEW_SELECTION = "first_k"  # first_k|random_k
+_C.DATA.BAGS.SEED = 0
+
 # HPC simulation / I/O usage:
 # - SIMULATE_HPC: whether to simulate HPC delays.
 # - IO_DELAY: seconds delay per sample (if simulating HPC).

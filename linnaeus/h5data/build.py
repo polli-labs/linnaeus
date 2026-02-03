@@ -103,6 +103,10 @@ from .grouped_batch_sampler import GroupedBatchSampler
 # DataLoader and Sampler
 from .h5dataloader import H5DataLoader
 
+# Bagged (multi-view) dataset support
+from .bag_dataset import BaggedPrefetchingDataset
+from .bag_index import BagIndex
+
 # Prefetch-based dataset classes only:
 from .prefetching_h5_dataset import PrefetchingH5Dataset
 from .prefetching_hybrid_dataset import PrefetchingHybridDataset
@@ -206,6 +210,15 @@ def build_datasets(
         main_logger.debug(f"  - H5.VAL_LABELS_PATH: {config.DATA.H5.VAL_LABELS_PATH}")
         main_logger.debug(f"  - H5.VAL_IMAGES_PATH: {config.DATA.H5.VAL_IMAGES_PATH}")
         main_logger.debug(f"  - HYBRID.USE_HYBRID: {config.DATA.HYBRID.USE_HYBRID}")
+
+    if getattr(config.DATA, "BAGS", CN()).get("ENABLED", False) and (single_file_pure or single_file_hybrid):
+        # Important: bag_offsets assumes observation-level contiguity; random splitting at the photo level
+        # breaks bag membership and leaks observations across train/val.
+        raise ValueError(
+            "DATA.BAGS.ENABLED=True is not supported with single-file random train/val splits. "
+            "Please export separate train/val labels with observation-level splitting (and bag_offsets), "
+            "or disable DATA.BAGS.ENABLED."
+        )
 
     # We'll parse HDF5 metadata from whichever path is available.
     if single_file_pure or single_file_hybrid:
@@ -570,6 +583,38 @@ def build_datasets(
             main_logger.debug(f"  - Task keys: {taxonomy_tree.task_keys}")
             main_logger.debug(f"  - Leaf count: {len(taxonomy_tree.leaves)}")
 
+    # Optionally wrap datasets to yield bag-of-views batches for MIL / tracked-entity inference.
+    if getattr(config.DATA, "BAGS", CN()).get("ENABLED", False):
+        def _labels_handle(ds) -> h5py.File:
+            if hasattr(ds, "labels_file"):
+                return ds.labels_file  # PrefetchingH5Dataset
+            if hasattr(ds, "labels_h5"):
+                return ds.labels_h5  # PrefetchingHybridDataset
+            if hasattr(ds, "base_dataset"):
+                return _labels_handle(ds.base_dataset)
+            raise AttributeError("Could not locate labels HDF5 handle on dataset for bag_offsets lookup")
+
+        train_labels_h5 = _labels_handle(dataset_train)
+        train_bag_index = BagIndex.from_labels_h5(train_labels_h5)
+        dataset_train = BaggedPrefetchingDataset(
+            dataset_train,
+            train_bag_index,
+            views_per_bag=int(config.DATA.BAGS.VIEWS_PER_BAG),
+            view_selection=str(config.DATA.BAGS.VIEW_SELECTION),
+            seed=int(config.DATA.BAGS.SEED) if config.DATA.BAGS.SEED is not None else None,
+        )
+
+        if dataset_val is not None and len(dataset_val) > 0:
+            val_labels_h5 = _labels_handle(dataset_val)
+            val_bag_index = BagIndex.from_labels_h5(val_labels_h5)
+            dataset_val = BaggedPrefetchingDataset(
+                dataset_val,
+                val_bag_index,
+                views_per_bag=int(config.DATA.BAGS.VIEWS_PER_BAG),
+                view_selection=str(config.DATA.BAGS.VIEW_SELECTION),
+                seed=int(config.DATA.BAGS.SEED) if config.DATA.BAGS.SEED is not None else None,
+            )
+
     return (
         dataset_train,
         dataset_val,
@@ -686,6 +731,12 @@ def build_loaders(
     # 2) Build the train data loader with appropriate sampler (grouped or standard).
     # -------------------------------------------------------------------------
     sampler_type = config.DATA.SAMPLER.TYPE.lower()
+    if getattr(config.DATA, "BAGS", CN()).get("ENABLED", False) and sampler_type == "grouped":
+        main_logger.warning(
+            "[build_loaders] DATA.BAGS.ENABLED=True requires sampling bags (not per-photo grouped mixing). "
+            "Overriding DATA.SAMPLER.TYPE from 'grouped' to 'standard' for this run."
+        )
+        sampler_type = "standard"
 
     # Adjust batch_size_train if 'mixed-pairs' sampler requires even batch size
     if sampler_type == "grouped" and config.DATA.SAMPLER.GROUPED_MODE == "mixed-pairs":
