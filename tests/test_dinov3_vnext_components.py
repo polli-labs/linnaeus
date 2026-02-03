@@ -17,6 +17,14 @@ def test_mask_weighted_pool_simple():
     assert torch.allclose(norm_weights.sum(dim=1), torch.tensor([1.0]))
 
 
+def test_mask_weighted_pool_all_zero_weights_falls_back():
+    patch_tokens = torch.randn(2, 4, 8)
+    weights = torch.zeros(2, 4)
+    fallback = torch.randn(2, 8)
+    pooled, _ = mask_weighted_pool(patch_tokens, weights, fallback=fallback, grid_size=(2, 2))
+    assert torch.allclose(pooled, fallback)
+
+
 def test_meta_token_encoder_missingness_gating():
     encoder = MetaTokenEncoder([2, 2], embed_dim=4)
     meta_a = torch.tensor([[1.0, 2.0, 3.0, 4.0]])
@@ -36,6 +44,28 @@ def test_mil_pooling_shapes():
     assert out_mean.shape == (2, 4)
     assert out_lse.shape == (2, 4)
 
+def test_mil_logsumexp_is_count_invariant_for_identical_views():
+    # Our "logsumexp" mode is implemented as count-normalized logsumexp (log-mean-exp),
+    # so duplicating identical views should not change the pooled embedding.
+    torch.manual_seed(0)
+    base = torch.randn(2, 1, 8)
+    dup = base.repeat(1, 2, 1)
+    pool = MILPooling(embed_dim=8, mode="logsumexp", temperature=1.0)
+    out_base = pool(base)
+    out_dup = pool(dup)
+    assert torch.allclose(out_base, out_dup, atol=1e-6, rtol=1e-6)
+
+
+def test_mil_logsumexp_respects_view_mask_without_count_bias():
+    torch.manual_seed(0)
+    x = torch.randn(1, 2, 8)
+    x[:, 1, :] = x[:, 0, :]  # make views identical
+    view_mask = torch.tensor([[True, False]])
+    pool = MILPooling(embed_dim=8, mode="logsumexp", temperature=1.0)
+    out_masked = pool(x, view_mask=view_mask)
+    out_single = pool(x[:, :1, :])
+    assert torch.allclose(out_masked, out_single, atol=1e-6, rtol=1e-6)
+
 
 def test_dinov3_multihead_forward_cpu_stub():
     cfg = get_config()
@@ -54,9 +84,16 @@ def test_dinov3_multihead_forward_cpu_stub():
     cfg.MODEL.CLASSIFICATION.HEADS = CN(new_allowed=True)
     cfg.MODEL.CLASSIFICATION.HEADS["taxa_L10"] = {"TYPE": "Linear"}
 
+    # Make meta dims deterministic for this test (don't rely on repo-wide defaults).
+    cfg.DATA.META = CN(new_allowed=True)
+    cfg.DATA.META.COMPONENTS = CN(new_allowed=True)
+    cfg.DATA.META.COMPONENTS["TEST_META"] = CN(new_allowed=True)
+    cfg.DATA.META.COMPONENTS["TEST_META"].ENABLED = True
+    cfg.DATA.META.COMPONENTS["TEST_META"].IDX = 0
+    cfg.DATA.META.COMPONENTS["TEST_META"].DIM = 5
+
     model = DinoV3MultiHead(cfg, num_classes={"taxa_L10": 5}, taxonomy_tree=None)
     images = torch.randn(2, 3, 16, 16)
-    # Default config uses TEMPORAL(DIM=2) + SPATIAL(DIM=3) => meta dim = 5.
     meta = torch.randn(2, 5)
     meta_mask = torch.tensor([[1, 1, 0, 0, 0], [1, 1, 1, 1, 1]], dtype=torch.bool)
     outputs = model(images, meta=meta, meta_validity_mask=meta_mask)

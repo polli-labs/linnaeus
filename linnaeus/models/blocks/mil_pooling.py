@@ -42,11 +42,18 @@ class MILPooling(nn.Module):
             return masked.sum(dim=1) / denom
 
         if self.mode == "logsumexp":
-            logits = view_tokens / max(self.temperature, 1e-6)
-            mask = (~view_mask).unsqueeze(-1)
-            logits = logits.masked_fill(mask, float("-inf"))
-            pooled = torch.logsumexp(logits, dim=1)
-            return pooled * max(self.temperature, 1e-6)
+            # NOTE: We use a *count-normalized* logsumexp (aka log-mean-exp) so
+            # variable-length bags don't get an additive log(#views) bias.
+            #
+            # This preserves the "smooth max" behavior while avoiding the
+            # pathological "more frames => larger embedding magnitude" effect.
+            tau = max(float(self.temperature), 1e-6)
+            logits = view_tokens / tau
+            logits = logits.masked_fill((~view_mask).unsqueeze(-1), float("-inf"))
+            lse = torch.logsumexp(logits, dim=1)  # (B, D)
+            valid = view_mask.sum(dim=1, keepdim=True).clamp_min(1).to(dtype=lse.dtype)
+            lme = lse - torch.log(valid)
+            return lme * tau
 
         if self.mode == "attention":
             if self.attention is None:

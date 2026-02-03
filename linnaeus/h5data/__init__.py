@@ -27,4 +27,8 @@ try:  # pragma: no cover
     __all__ += ["GroupedBatchSampler", "H5DataLoader", "PrefetchingH5Dataset", "PrefetchingHybridDataset"]
 except ImportError:
     # Allow partial imports in minimal CPU test environments (e.g., no kornia installed).
-    pass
+    logger.warning(
+        "[linnaeus.h5data] Optional re-exports unavailable (ImportError). "
+        "This is expected in minimal CPU test environments; import submodules directly for full functionality.",
+        exc_info=True,
+    )

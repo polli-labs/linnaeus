@@ -31,6 +31,8 @@ def _to_patch_weights(weights: torch.Tensor, grid_size: Tuple[int, int], dtype: 
 def mask_weighted_pool(
     patch_tokens: torch.Tensor,
     weights: torch.Tensor | None,
+    *,
+    fallback: torch.Tensor | None = None,
     grid_size: Tuple[int, int] | None = None,
     eps: float = 1e-6,
 ) -> tuple[torch.Tensor, torch.Tensor | None]:
@@ -39,6 +41,7 @@ def mask_weighted_pool(
     Args:
         patch_tokens: (B, N, D)
         weights: (B, N) or (B, H, W) or (B, 1, H, W)
+        fallback: (B, D) vector used when weights are invalid (e.g. all-zeros or NaNs).
         grid_size: (H, W) patch grid; inferred if None and weights are spatial.
         eps: numerical stability
 
@@ -54,9 +57,18 @@ def mask_weighted_pool(
 
     weight_vec = _to_patch_weights(weights, grid_size, patch_tokens.dtype)
     weight_vec = weight_vec.clamp_min(0.0)
-    weight_sum = weight_vec.sum(dim=1, keepdim=True).clamp_min(eps)
-    norm_weights = weight_vec / weight_sum
+    weight_sum = weight_vec.sum(dim=1, keepdim=True)
+
+    # Treat degenerate / invalid weights as "no mask"; fall back to a stable global representation.
+    invalid = (weight_sum <= eps) | (~torch.isfinite(weight_vec)).any(dim=1, keepdim=True)
+    if fallback is None:
+        fallback = patch_tokens.mean(dim=1)
+
+    denom = weight_sum.clamp_min(eps)
+    norm_weights = weight_vec / denom
     pooled = torch.einsum("bnd,bn->bd", patch_tokens, norm_weights)
+    if invalid.any():
+        pooled = torch.where(invalid, fallback, pooled)
     return pooled, norm_weights
 
 
@@ -69,6 +81,8 @@ class MaskWeightedPooling(nn.Module):
         self,
         patch_tokens: torch.Tensor,
         weights: torch.Tensor | None,
+        *,
+        fallback: torch.Tensor | None = None,
         grid_size: Tuple[int, int] | None = None,
     ) -> tuple[torch.Tensor, torch.Tensor | None]:
-        return mask_weighted_pool(patch_tokens, weights, grid_size=grid_size, eps=self.eps)
+        return mask_weighted_pool(patch_tokens, weights, fallback=fallback, grid_size=grid_size, eps=self.eps)

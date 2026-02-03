@@ -170,7 +170,8 @@ class DinoV3MultiHead(BaseModel):
                     weights = torch.sigmoid(fg_logits.detach())
                 else:
                     weights = torch.sigmoid(fg_logits)
-            pooled, _ = self.mask_pool(patch_tokens, weights, grid_size=grid_size)
+            fallback = pooled if bool(self.config.MODEL.MASK_POOLING.get("USE_CLS_FALLBACK", True)) else None
+            pooled, _ = self.mask_pool(patch_tokens, weights, fallback=fallback, grid_size=grid_size)
 
         if self.use_meta_adapter and meta is not None:
             meta_tokens = self.meta_encoder(meta, meta_validity_mask)
@@ -203,7 +204,8 @@ class DinoV3MultiHead(BaseModel):
             pooled, fg_logits = self._forward_single(flat, meta_flat, meta_mask_flat, mask_weights)
             view_tokens = pooled.view(bsz, views, -1)
             bag_token = self.mil_pool(view_tokens, view_mask=view_mask) if self.use_mil else view_tokens.mean(dim=1)
-            return bag_token, {"foreground_logits": fg_logits}
+            fg_out = fg_logits.view(bsz, views, -1) if fg_logits is not None else None
+            return bag_token, {"foreground_logits": fg_out}
 
         pooled, fg_logits = self._forward_single(images, meta, meta_validity_mask, mask_weights)
         return pooled, {"foreground_logits": fg_logits}
