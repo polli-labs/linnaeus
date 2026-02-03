@@ -139,6 +139,8 @@ def validate_one_pass(
                     # Tuple format: (images, merged_targets, aux_info, group_ids, subset_ids, ...)
                     images = batch_data[0]
                     tdict = batch_data[1]
+                    meta_validity_mask = batch_data[5] if len(batch_data) > 5 else None
+                    view_mask = batch_data[7] if len(batch_data) > 7 else None
                     # Move to GPU
                     if images.device.type != "cuda":
                         images = images.cuda(non_blocking=True)
@@ -150,6 +152,13 @@ def validate_one_pass(
                         aux_info = torch.zeros_like(aux_info)
                     if aux_info is not None and aux_info.device.type != "cuda":
                         aux_info = aux_info.cuda(non_blocking=True)
+                    if meta_validity_mask is not None:
+                        if mask_meta:
+                            meta_validity_mask = torch.zeros_like(meta_validity_mask, dtype=torch.bool)
+                        if meta_validity_mask.device.type != "cuda":
+                            meta_validity_mask = meta_validity_mask.cuda(non_blocking=True)
+                    if view_mask is not None and view_mask.device.type != "cuda":
+                        view_mask = view_mask.cuda(non_blocking=True)
 
                     subset_ids = batch_data[4] if len(batch_data) > 4 else {}
                 else:
@@ -165,11 +174,22 @@ def validate_one_pass(
                             aux_info = torch.zeros_like(aux_info)
 
                     subset_ids = batch_data.get("subset_ids", {})
+                    meta_validity_mask = batch_data.get("meta_validity_mask", None)
+                    view_mask = batch_data.get("view_mask", None)
+                    if meta_validity_mask is not None:
+                        meta_validity_mask = meta_validity_mask.cuda(non_blocking=True)
+                        if mask_meta:
+                            meta_validity_mask = torch.zeros_like(meta_validity_mask, dtype=torch.bool)
+                    if view_mask is not None:
+                        view_mask = view_mask.cuda(non_blocking=True)
 
                 # 2) Forward pass
                 amp_enabled = config.TRAIN.AMP_OPT_LEVEL != "O0"
                 with torch.cuda.amp.autocast(enabled=amp_enabled):
-                    outputs = model(images, aux_info)
+                    if config.MODEL.TYPE == "DINOv3MultiHead":
+                        outputs = model(images, aux_info, meta_validity_mask=meta_validity_mask, view_mask=view_mask)
+                    else:
+                        outputs = model(images, aux_info)
 
                     # 3) Compute loss
                     current_step = metrics_tracker.current_step

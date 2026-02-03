@@ -192,6 +192,8 @@ def train_one_epoch(
                 # Unpack and move data to GPU
                 # batch_data: (images, targets_dict, aux_info, group_ids, subset_dict, meta_validity_mask, actual_meta_stats)
                 images, targets_dict, aux_info = batch_data[0], batch_data[1], batch_data[2]
+                meta_validity_mask = batch_data[5] if len(batch_data) > 5 else None
+                view_mask = batch_data[7] if len(batch_data) > 7 else None
                 actual_meta_stats = batch_data[6] if len(batch_data) > 6 else {}  # Safely get actual_meta_stats
 
                 if emit_init_markers and rank == 0 and not init_first_batch_logged:
@@ -204,6 +206,10 @@ def train_one_epoch(
                 with prof("data/transfer", level=2):
                     images = images.cuda(non_blocking=True)
                     aux_info = aux_info.cuda(non_blocking=True)
+                    if meta_validity_mask is not None:
+                        meta_validity_mask = meta_validity_mask.cuda(non_blocking=True)
+                    if view_mask is not None:
+                        view_mask = view_mask.cuda(non_blocking=True)
                     tdict_gpu = {k: v.cuda(non_blocking=True) for k, v in targets_dict.items()}
 
             # --- Forward Pass ---
@@ -243,7 +249,10 @@ def train_one_epoch(
                 with ddp_sync_ctx:
                     with torch.cuda.amp.autocast(enabled=(config.TRAIN.AMP_OPT_LEVEL != "O0")):
                         with prof("forward_pass", level=1):
-                            outputs = model(images, aux_info)  # GradNorm flag not needed here for normal fwd
+                            if config.MODEL.TYPE == "DINOv3MultiHead":
+                                outputs = model(images, aux_info, meta_validity_mask=meta_validity_mask, view_mask=view_mask)
+                            else:
+                                outputs = model(images, aux_info)  # GradNorm flag not needed here for normal fwd
                         if emit_init_markers and rank == 0 and not init_first_forward_logged:
                             emit_init_timing("first_forward_end", logger_override=logger)
                             init_first_forward_logged = True
