@@ -513,6 +513,42 @@ _C.MODEL.CLASSIFICATION.HEADS = CN(new_allowed=True)
 
 # Hierarchical heads configuration is now done through each head's config
 
+# ----------------------------------------------------------------------------
+# DINOv3 vNext (frozen backbone + multi-head adapters)
+# ----------------------------------------------------------------------------
+_C.MODEL.DINOV3 = CN()
+_C.MODEL.DINOV3.BACKBONE_ID = "dinov3/vitb14"
+_C.MODEL.DINOV3.USE_STUB = True  # CPU-safe default; replace with real DINOv3 loader when available
+_C.MODEL.DINOV3.PATCH_SIZE = 14
+_C.MODEL.DINOV3.EMBED_DIM = 768
+_C.MODEL.DINOV3.FREEZE_BACKBONE = True
+
+_C.MODEL.META_ADAPTER = CN()
+_C.MODEL.META_ADAPTER.ENABLED = False
+_C.MODEL.META_ADAPTER.NUM_LAYERS = 2
+_C.MODEL.META_ADAPTER.NUM_HEADS = 8
+_C.MODEL.META_ADAPTER.MLP_RATIO = 4.0
+_C.MODEL.META_ADAPTER.DROPOUT = 0.0
+_C.MODEL.META_ADAPTER.NUM_QUERIES = 0
+_C.MODEL.META_ADAPTER.USE_SELF_ATTN = True
+
+_C.MODEL.MASK_POOLING = CN()
+_C.MODEL.MASK_POOLING.ENABLED = False
+_C.MODEL.MASK_POOLING.EPS = 1e-6
+_C.MODEL.MASK_POOLING.USE_CLS_FALLBACK = True
+_C.MODEL.MASK_POOLING.DETACH_PRED_W = True  # default: stop taxonomy gradients from flowing into predicted W
+
+_C.MODEL.FOREGROUNDNESS = CN()
+_C.MODEL.FOREGROUNDNESS.ENABLED = False
+_C.MODEL.FOREGROUNDNESS.HIDDEN_DIM = 0
+_C.MODEL.FOREGROUNDNESS.DROPOUT = 0.0
+
+_C.MODEL.MIL = CN()
+_C.MODEL.MIL.ENABLED = False
+_C.MODEL.MIL.POOLING = "logsumexp"
+_C.MODEL.MIL.TEMPERATURE = 1.0
+_C.MODEL.MIL.ATTENTION_HIDDEN_DIM = 128
+
 # Normalization subconfig
 _C.MODEL.NORMALIZATION = CN()
 _C.MODEL.NORMALIZATION.CONV_NORM_LAYER = "BatchNorm2d"

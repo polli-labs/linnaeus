@@ -35,3 +35,9 @@ from .mlp import Mlp
 from .progressive_patch_embed import ProgressivePatchEmbed
 from .relative_mhsa import OverlapPatchEmbed, RelativeAttention, RelativeMHSABlock
 from .rope_2d_mhsa import RoPE2DAttention, RoPE2DMHSABlock
+
+# DINOv3 vNext blocks
+from .foregroundness_head import ForegroundnessHead
+from .mask_pooling import MaskWeightedPooling, mask_weighted_pool
+from .mil_pooling import MILPooling
+from .query_token_adapter import MetaTokenEncoder, QueryTokenAdapter
