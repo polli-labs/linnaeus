@@ -6,7 +6,6 @@ from linnaeus.utils.logging.logger import get_main_logger
 
 from .base import AugmentationPipeline
 from .cpu.pipeline import CPUAugmentationPipeline
-from .gpu.pipeline import GPUAugmentationPipeline
 
 logger = get_main_logger()
 
@@ -34,6 +33,13 @@ class AugmentationPipelineFactory:
 
         if device_choice == "gpu":
             logger.info("Creating GPU AugmentationPipeline for batch-wise transforms")
+            try:
+                from .gpu.pipeline import GPUAugmentationPipeline
+            except ModuleNotFoundError as exc:
+                raise ModuleNotFoundError(
+                    "GPU augmentation pipeline requested but optional dependency is missing. "
+                    "Install kornia (and any other GPU augmentation deps), or set AUG.PIPELINE_DEVICE=cpu."
+                ) from exc
             return GPUAugmentationPipeline(config)
         elif device_choice == "cpu":
             logger.info("Creating CPU AugmentationPipeline for single-image transforms")
