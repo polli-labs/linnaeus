@@ -341,6 +341,21 @@ class PrefetchingHybridDataset(BasePrefetchingDataset):
 
             targets[tk] = one_hot
 
+        # 3b) Optionally attach bbox targets for foregroundness loss
+        fg_cfg = getattr(self.config.MODEL, "FOREGROUNDNESS", None) if hasattr(self.config, "MODEL") else None
+        if fg_cfg is not None and fg_cfg.ENABLED:
+            bbox_key = fg_cfg.get("BBOX_KEY", "bbox_xywh_norm")
+            valid_key = fg_cfg.get("BBOX_VALID_KEY", "bbox_valid")
+            if bbox_key in self.labels_h5:
+                bbox_np = np.array(self.labels_h5[bbox_key][idx], dtype=np.float32)
+                targets[bbox_key] = torch.tensor(bbox_np, dtype=torch.float32)
+                if valid_key in self.labels_h5:
+                    valid_np = np.array(self.labels_h5[valid_key][idx])
+                    targets[valid_key] = torch.tensor(valid_np, dtype=torch.bool)
+                else:
+                    valid_val = (bbox_np[2] > 0.0) and (bbox_np[3] > 0.0)
+                    targets[valid_key] = torch.tensor(valid_val, dtype=torch.bool)
+
         # 4) Process metadata components.
         aux_list = []
         validity_masks = []

@@ -8,6 +8,7 @@ from linnaeus.loss.gradient_weighting import log_memory_usage
 from linnaeus.loss.hierarchical_loss import weighted_hierarchical_loss
 from linnaeus.utils.debug_utils import check_debug_flag
 from linnaeus.utils.distributed import get_rank_safely
+from linnaeus.utils.foregroundness_utils import compute_foregroundness_loss
 from linnaeus.utils.init_timing import emit_init_timing
 from linnaeus.utils.metrics.step_metrics_logger import StepMetricsLogger
 from linnaeus.utils.profiling_helpers import prof, update_profiler_config
@@ -250,9 +251,16 @@ def train_one_epoch(
                     with torch.cuda.amp.autocast(enabled=(config.TRAIN.AMP_OPT_LEVEL != "O0")):
                         with prof("forward_pass", level=1):
                             if config.MODEL.TYPE == "DINOv3MultiHead":
-                                outputs = model(images, aux_info, meta_validity_mask=meta_validity_mask, view_mask=view_mask)
+                                outputs, aux = model(
+                                    images,
+                                    aux_info,
+                                    meta_validity_mask=meta_validity_mask,
+                                    view_mask=view_mask,
+                                    return_aux=True,
+                                )
                             else:
                                 outputs = model(images, aux_info)  # GradNorm flag not needed here for normal fwd
+                                aux = {}
                         if emit_init_markers and rank == 0 and not init_first_forward_logged:
                             emit_init_timing("first_forward_end", logger_override=logger)
                             init_first_forward_logged = True
@@ -269,6 +277,30 @@ def train_one_epoch(
                                 logger=logger,
                                 config=config,
                             )
+
+                            fg_loss = None
+                            if getattr(config.MODEL.FOREGROUNDNESS, "ENABLED", False):
+                                fg_logits = aux.get("foreground_logits") if isinstance(aux, dict) else None
+                                if fg_logits is not None:
+                                    bbox_key = config.MODEL.FOREGROUNDNESS.get("BBOX_KEY", "bbox_xywh_norm")
+                                    bbox_valid_key = config.MODEL.FOREGROUNDNESS.get("BBOX_VALID_KEY", "bbox_valid")
+                                    fg_loss, fg_stats = compute_foregroundness_loss(
+                                        fg_logits,
+                                        tdict_gpu.get(bbox_key),
+                                        tdict_gpu.get(bbox_valid_key),
+                                        view_mask=view_mask,
+                                        config=config,
+                                        loss_type=config.MODEL.FOREGROUNDNESS.get("LOSS_TYPE", "bce"),
+                                        pos_weight=config.MODEL.FOREGROUNDNESS.get("LOSS_POS_WEIGHT", 1.0),
+                                        focal_gamma=config.MODEL.FOREGROUNDNESS.get("FOCAL_GAMMA", 2.0),
+                                    )
+                                    if fg_loss is not None:
+                                        fg_weight = float(config.MODEL.FOREGROUNDNESS.get("LOSS_WEIGHT", 1.0))
+                                        total_loss = total_loss + fg_weight * fg_loss
+                                        loss_components["foregroundness"] = float(fg_loss.item())
+                                        loss_components["total"] = float(total_loss.item())
+                                        if fg_stats:
+                                            loss_components["foregroundness_stats"] = fg_stats
 
                     loss_to_backward = total_loss
                     if accumulation_steps > 1:

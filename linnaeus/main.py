@@ -80,7 +80,7 @@ from linnaeus.utils.meta_utils import compute_meta_chunk_bounds
 from linnaeus.utils.metrics.step_metrics_logger import StepMetricsLogger
 from linnaeus.utils.metrics.tracker import MetricsTracker
 from linnaeus.utils.profiling_helpers import update_profiler_config
-from linnaeus.validation import validate_one_pass, validate_with_partial_mask
+from linnaeus.validation import validate_missingness_sweep, validate_one_pass, validate_with_partial_mask
 
 
 # Import the debug_metrics functionality directly to make it available
@@ -1258,6 +1258,20 @@ def main(config, args=None, resolved_env=None):
                         ops_schedule,
                         mask_meta=False,
                     )
+                    if getattr(config.VAL.MISSINGNESS_SWEEP, "ENABLED", False):
+                        interval = max(1, int(config.VAL.MISSINGNESS_SWEEP.INTERVAL_EPOCHS))
+                        if training_progress.current_epoch % interval == 0:
+                            validate_missingness_sweep(
+                                config,
+                                model,
+                                data_loader_val,
+                                training_progress.current_epoch,
+                                metrics_tracker,
+                                grad_weighting,
+                                criteria_val,
+                                logger,
+                                ops_schedule,
+                            )
                     # validate_one_pass now handles finalization internally
                     training_progress.complete_validation(TrainingStage.VALIDATION_NORMAL)
 
@@ -1572,6 +1586,20 @@ def main(config, args=None, resolved_env=None):
                         ops_schedule,
                         mask_meta=False,
                     )
+                    if getattr(config.VAL.MISSINGNESS_SWEEP, "ENABLED", False):
+                        interval = max(1, int(config.VAL.MISSINGNESS_SWEEP.INTERVAL_EPOCHS))
+                        if epoch % interval == 0:
+                            validate_missingness_sweep(
+                                config,
+                                model,
+                                data_loader_val,
+                                epoch,
+                                metrics_tracker,
+                                grad_weighting,
+                                criteria_val,
+                                logger,
+                                ops_schedule,
+                            )
 
                     # Calculate validation stats
                     if torch.cuda.is_available():

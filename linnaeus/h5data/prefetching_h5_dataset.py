@@ -237,6 +237,21 @@ class PrefetchingH5Dataset(BasePrefetchingDataset):
 
             targets[task_key] = one_hot
 
+        # 2b) Optionally attach bbox targets for foregroundness loss
+        fg_cfg = getattr(self.config.MODEL, "FOREGROUNDNESS", None) if hasattr(self.config, "MODEL") else None
+        if fg_cfg is not None and fg_cfg.ENABLED:
+            bbox_key = fg_cfg.get("BBOX_KEY", "bbox_xywh_norm")
+            valid_key = fg_cfg.get("BBOX_VALID_KEY", "bbox_valid")
+            if bbox_key in self.labels_file:
+                bbox_np = np.array(self.labels_file[bbox_key][idx], dtype=np.float32)
+                targets[bbox_key] = torch.tensor(bbox_np, dtype=torch.float32)
+                if valid_key in self.labels_file:
+                    valid_np = np.array(self.labels_file[valid_key][idx])
+                    targets[valid_key] = torch.tensor(valid_np, dtype=torch.bool)
+                else:
+                    valid_val = (bbox_np[2] > 0.0) and (bbox_np[3] > 0.0)
+                    targets[valid_key] = torch.tensor(valid_val, dtype=torch.bool)
+
         # 3) Process metadata components.
         aux_list = []
         validity_masks = []  # List of booleans, one per component.

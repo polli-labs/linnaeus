@@ -18,7 +18,16 @@ import torch
 from linnaeus.loss.hierarchical_loss import weighted_hierarchical_loss
 from linnaeus.utils.debug_utils import check_debug_flag
 from linnaeus.utils.distributed import get_rank_safely
+from linnaeus.utils.foregroundness_utils import compute_foregroundness_loss
 from linnaeus.utils.logging.logger import get_main_logger
+from linnaeus.utils.meta_utils import apply_meta_missingness_pattern, compute_meta_chunk_bounds
+from linnaeus.utils.metrics.stratified import (
+    DEFAULT_BBOX_AREA_BUCKET_EDGES,
+    DEFAULT_BBOX_AREA_BUCKET_LABELS,
+    StratifiedAccuracyTracker,
+    bbox_area_ratio_xywh_norm,
+    bucketize_area_ratio,
+)
 
 logger = get_main_logger()
 
@@ -122,6 +131,22 @@ def validate_one_pass(
         task_loss_sums = dict.fromkeys(task_keys, 0.0)
         task_sample_counts = dict.fromkeys(task_keys, 0)
 
+        strat_tracker = None
+        strat_edges = getattr(config.VAL.SMALL_OBJECT_STRAT, "BUCKET_EDGES", None)
+        if getattr(config.VAL.SMALL_OBJECT_STRAT, "ENABLED", False):
+            strat_task_keys = config.VAL.SMALL_OBJECT_STRAT.TASK_KEYS or task_keys
+            if strat_edges is None or list(strat_edges) == [0.01, 0.05, 0.20]:
+                bucket_labels = DEFAULT_BBOX_AREA_BUCKET_LABELS
+            else:
+                bucket_labels = None
+            strat_tracker = StratifiedAccuracyTracker(
+                bucket_edges=strat_edges or DEFAULT_BBOX_AREA_BUCKET_EDGES,
+                bucket_labels=bucket_labels,
+                task_keys=strat_task_keys,
+            )
+            strat_bbox_key = config.VAL.SMALL_OBJECT_STRAT.BBOX_KEY
+            strat_bbox_valid_key = config.VAL.SMALL_OBJECT_STRAT.BBOX_VALID_KEY
+
         # Prepare tqdm if rank=0 and tqdm is available
         rank = get_rank_safely()
         if rank == 0 and tqdm is not None:
@@ -187,9 +212,16 @@ def validate_one_pass(
                 amp_enabled = config.TRAIN.AMP_OPT_LEVEL != "O0"
                 with torch.cuda.amp.autocast(enabled=amp_enabled):
                     if config.MODEL.TYPE == "DINOv3MultiHead":
-                        outputs = model(images, aux_info, meta_validity_mask=meta_validity_mask, view_mask=view_mask)
+                        outputs, aux = model(
+                            images,
+                            aux_info,
+                            meta_validity_mask=meta_validity_mask,
+                            view_mask=view_mask,
+                            return_aux=True,
+                        )
                     else:
                         outputs = model(images, aux_info)
+                        aux = {}
 
                     # 3) Compute loss
                     current_step = metrics_tracker.current_step
@@ -204,6 +236,30 @@ def validate_one_pass(
                         logger=logger,
                         config=config,
                     )
+
+                    fg_loss = None
+                    if getattr(config.MODEL.FOREGROUNDNESS, "ENABLED", False):
+                        fg_logits = aux.get("foreground_logits") if isinstance(aux, dict) else None
+                        if fg_logits is not None:
+                            bbox_key = config.MODEL.FOREGROUNDNESS.get("BBOX_KEY", "bbox_xywh_norm")
+                            bbox_valid_key = config.MODEL.FOREGROUNDNESS.get("BBOX_VALID_KEY", "bbox_valid")
+                            fg_loss, fg_stats = compute_foregroundness_loss(
+                                fg_logits,
+                                tdict_gpu.get(bbox_key),
+                                tdict_gpu.get(bbox_valid_key),
+                                view_mask=view_mask,
+                                config=config,
+                                loss_type=config.MODEL.FOREGROUNDNESS.get("LOSS_TYPE", "bce"),
+                                pos_weight=config.MODEL.FOREGROUNDNESS.get("LOSS_POS_WEIGHT", 1.0),
+                                focal_gamma=config.MODEL.FOREGROUNDNESS.get("FOCAL_GAMMA", 2.0),
+                            )
+                            if fg_loss is not None:
+                                fg_weight = float(config.MODEL.FOREGROUNDNESS.get("LOSS_WEIGHT", 1.0))
+                                total_loss = total_loss + fg_weight * fg_loss
+                                loss_components["foregroundness"] = float(fg_loss.item())
+                                loss_components["total"] = float(total_loss.item())
+                                if fg_stats:
+                                    loss_components["foregroundness_stats"] = fg_stats
 
                     # CRITICAL FIX: This ensures task-specific losses are properly copied to "tasks"
                     # Make sure task-specific losses are also stored in "tasks"
@@ -231,6 +287,17 @@ def validate_one_pass(
                     # Update metrics in the tracker
                     metrics_tracker.update_val_metrics(phase_name, loss_components, outputs, tdict_gpu, images.size(0), subset_ids)
 
+                    if strat_tracker is not None:
+                        bbox = tdict_gpu.get(strat_bbox_key)
+                        if bbox is not None:
+                            bbox_valid = tdict_gpu.get(strat_bbox_valid_key)
+                            valid_mask = (
+                                (bbox_valid > 0.5) if bbox_valid is not None else (bbox[..., 2] > 0.0) & (bbox[..., 3] > 0.0)
+                            )
+                            area_ratio = bbox_area_ratio_xywh_norm(bbox)
+                            bucket_idx = bucketize_area_ratio(area_ratio, edges=strat_edges or DEFAULT_BBOX_AREA_BUCKET_EDGES)
+                            strat_tracker.update(outputs, tdict_gpu, bucket_idx, valid_mask, task_keys=strat_tracker.task_keys)
+
                     # Debug: Dump metrics state on first batch if enabled
                     if batch_idx == 0 and config.get("DEBUG", {}).get("DUMP_METRICS", False):
                         metrics_tracker.dump_metrics_state(phase_name)
@@ -247,6 +314,14 @@ def validate_one_pass(
         if debug_training_loop:
             logger.debug(f"[validate_one_pass:{phase_name}] Validation loop completed in {elapsed:.2f} seconds")
             logger.debug(f"[validate_one_pass:{phase_name}] Processed {batch_idx + 1} batches")
+
+        if strat_tracker is not None:
+            summary = strat_tracker.summary()
+            for task_key, bucket_acc in summary.items():
+                for bucket_label, acc in bucket_acc.items():
+                    logger.info(f"[{phase_name}] small_object/{task_key}/{bucket_label}: {acc * 100.0:.2f}%")
+            if strat_tracker.unknown_count > 0:
+                logger.info(f"[{phase_name}] small_object/unknown_count: {strat_tracker.unknown_count}")
 
         # Compute average loss per task (for logging only, overall loss comes from tracker)
         avg_loss_overall = 0.0
@@ -386,6 +461,8 @@ def validate_with_partial_mask(
                     # e.g. (images, merged_targets, aux_info, group_ids, subset_ids, ...)
                     images = batch_data[0]
                     tdict = batch_data[1]
+                    meta_validity_mask = batch_data[5] if len(batch_data) > 5 else None
+                    view_mask = batch_data[7] if len(batch_data) > 7 else None
 
                     if images.device.type != "cuda":
                         images = images.cuda(non_blocking=True)
@@ -398,6 +475,13 @@ def validate_with_partial_mask(
                         # Zero out chosen components
                         for start_idx, end_idx in mask_bounds:
                             aux_info[:, start_idx:end_idx] = 0.0
+                    if meta_validity_mask is not None:
+                        if meta_validity_mask.device.type != "cuda":
+                            meta_validity_mask = meta_validity_mask.cuda(non_blocking=True)
+                        for start_idx, end_idx in mask_bounds:
+                            meta_validity_mask[:, start_idx:end_idx] = False
+                    if view_mask is not None and view_mask.device.type != "cuda":
+                        view_mask = view_mask.cuda(non_blocking=True)
 
                     subset_ids = batch_data[4] if len(batch_data) > 4 else {}
                 else:
@@ -412,12 +496,30 @@ def validate_with_partial_mask(
                         # Zero out chosen components
                         for start_idx, end_idx in mask_bounds:
                             aux_info[:, start_idx:end_idx] = 0.0
+                    meta_validity_mask = batch_data.get("meta_validity_mask", None)
+                    view_mask = batch_data.get("view_mask", None)
+                    if meta_validity_mask is not None:
+                        meta_validity_mask = meta_validity_mask.cuda(non_blocking=True)
+                        for start_idx, end_idx in mask_bounds:
+                            meta_validity_mask[:, start_idx:end_idx] = False
+                    if view_mask is not None:
+                        view_mask = view_mask.cuda(non_blocking=True)
 
                     subset_ids = batch_data.get("subset_ids", {})
 
                 amp_enabled = config.TRAIN.AMP_OPT_LEVEL != "O0"
                 with torch.cuda.amp.autocast(enabled=amp_enabled):
-                    outputs = model(images, aux_info)
+                    if config.MODEL.TYPE == "DINOv3MultiHead":
+                        outputs, aux = model(
+                            images,
+                            aux_info,
+                            meta_validity_mask=meta_validity_mask,
+                            view_mask=view_mask,
+                            return_aux=True,
+                        )
+                    else:
+                        outputs = model(images, aux_info)
+                        aux = {}
 
                     current_step = metrics_tracker.current_step
                     total_loss, loss_components, _ = weighted_hierarchical_loss(
@@ -431,6 +533,30 @@ def validate_with_partial_mask(
                         logger=logger,
                         config=config,
                     )
+
+                    fg_loss = None
+                    if getattr(config.MODEL.FOREGROUNDNESS, "ENABLED", False):
+                        fg_logits = aux.get("foreground_logits") if isinstance(aux, dict) else None
+                        if fg_logits is not None:
+                            bbox_key = config.MODEL.FOREGROUNDNESS.get("BBOX_KEY", "bbox_xywh_norm")
+                            bbox_valid_key = config.MODEL.FOREGROUNDNESS.get("BBOX_VALID_KEY", "bbox_valid")
+                            fg_loss, fg_stats = compute_foregroundness_loss(
+                                fg_logits,
+                                tdict_gpu.get(bbox_key),
+                                tdict_gpu.get(bbox_valid_key),
+                                view_mask=view_mask,
+                                config=config,
+                                loss_type=config.MODEL.FOREGROUNDNESS.get("LOSS_TYPE", "bce"),
+                                pos_weight=config.MODEL.FOREGROUNDNESS.get("LOSS_POS_WEIGHT", 1.0),
+                                focal_gamma=config.MODEL.FOREGROUNDNESS.get("FOCAL_GAMMA", 2.0),
+                            )
+                            if fg_loss is not None:
+                                fg_weight = float(config.MODEL.FOREGROUNDNESS.get("LOSS_WEIGHT", 1.0))
+                                total_loss = total_loss + fg_weight * fg_loss
+                                loss_components["foregroundness"] = float(fg_loss.item())
+                                loss_components["total"] = float(total_loss.item())
+                                if fg_stats:
+                                    loss_components["foregroundness_stats"] = fg_stats
 
                     # CRITICAL FIX: This ensures task-specific losses are properly copied to "tasks"
                     # Make sure task-specific losses are also stored in "tasks"
@@ -523,3 +649,281 @@ def validate_with_partial_mask(
         logger.error(f"Exception details: {str(e)}")
         # Re-raise the exception so it can be caught at a higher level
         raise
+
+
+def _missingness_phase_name(pattern: str) -> str:
+    sanitized = pattern.strip().lower().replace(" ", "_")
+    return f"val_missing_{sanitized}"
+
+
+def validate_with_missingness_pattern(
+    config,
+    model,
+    data_loader,
+    epoch,
+    metrics_tracker,
+    grad_weighting,
+    criteria,
+    logger,
+    ops_schedule,
+    *,
+    pattern: str,
+    random_p: float = 0.5,
+    seed: int = 0,
+) -> None:
+    """Validate with a standardized missingness pattern."""
+    try:
+        model.eval()
+        phase_name = _missingness_phase_name(pattern)
+        batch_size = config.DATA.BATCH_SIZE
+
+        debug_validation = check_debug_flag(config, "DEBUG.VALIDATION_METRICS")
+        debug_training_loop = check_debug_flag(config, "DEBUG.TRAINING_LOOP")
+
+        if debug_training_loop:
+            logger.debug(f"[validate_with_missingness:{phase_name}] Starting validation at epoch {epoch}")
+            logger.debug(f"[validate_with_missingness:{phase_name}] Pattern: {pattern}")
+
+        if get_rank_safely() == 0:
+            logger.info(f"[{phase_name}] Validation loss functions:")
+            for task_key, loss_fn in criteria.items():
+                logger.info(
+                    f"  - {task_key}: {loss_fn.__class__.__name__} (apply_class_weights={getattr(loss_fn, 'apply_class_weights', False)})"
+                )
+
+        metrics_tracker._ensure_phase_exists(phase_name)
+        total_samples_expected = (
+            len(data_loader.batch_sampler) * batch_size
+            if hasattr(data_loader, "batch_sampler") and data_loader.batch_sampler is not None
+            else 0
+        )
+        if total_samples_expected == 0 and hasattr(data_loader, "dataset"):
+            total_samples_expected = len(data_loader.dataset)
+        metrics_tracker.start_val_phase(phase_name, total_samples_expected)
+
+        task_keys = sorted(list(criteria.keys()), key=lambda k: int(k.split("_L")[-1]))
+        task_loss_sums = dict.fromkeys(task_keys, 0.0)
+        task_sample_counts = dict.fromkeys(task_keys, 0)
+
+        _, bounds_map = compute_meta_chunk_bounds(config)
+
+        rank = get_rank_safely()
+        if rank == 0 and tqdm is not None:
+            loader = tqdm(data_loader, desc=f"[{phase_name}] Validating missingness", ncols=120)
+        else:
+            loader = data_loader
+
+        start_time = time.time()
+        vram_logged = False
+
+        generator = None
+        generator_device = None
+
+        with torch.no_grad():
+            for batch_idx, batch_data in enumerate(loader):
+                if isinstance(batch_data, tuple):
+                    images = batch_data[0]
+                    tdict = batch_data[1]
+                    meta_validity_mask = batch_data[5] if len(batch_data) > 5 else None
+                    view_mask = batch_data[7] if len(batch_data) > 7 else None
+                    if images.device.type != "cuda":
+                        images = images.cuda(non_blocking=True)
+                    tdict_gpu = {tk: tv.cuda(non_blocking=True) if tv.device.type != "cuda" else tv for tk, tv in tdict.items()}
+                    aux_info = batch_data[2]
+                    if aux_info is not None and aux_info.device.type != "cuda":
+                        aux_info = aux_info.cuda(non_blocking=True)
+                    if meta_validity_mask is not None and meta_validity_mask.device.type != "cuda":
+                        meta_validity_mask = meta_validity_mask.cuda(non_blocking=True)
+                    if view_mask is not None and view_mask.device.type != "cuda":
+                        view_mask = view_mask.cuda(non_blocking=True)
+                    subset_ids = batch_data[4] if len(batch_data) > 4 else {}
+                else:
+                    images = batch_data["image"].cuda(non_blocking=True)
+                    tdict = batch_data["targets"]
+                    tdict_gpu = {tk: tv.cuda(non_blocking=True) for tk, tv in tdict.items()}
+                    aux_info = batch_data.get("aux_info", None)
+                    if aux_info is not None:
+                        aux_info = aux_info.cuda(non_blocking=True)
+                    subset_ids = batch_data.get("subset_ids", {})
+                    meta_validity_mask = batch_data.get("meta_validity_mask", None)
+                    view_mask = batch_data.get("view_mask", None)
+                    if meta_validity_mask is not None:
+                        meta_validity_mask = meta_validity_mask.cuda(non_blocking=True)
+                    if view_mask is not None:
+                        view_mask = view_mask.cuda(non_blocking=True)
+
+                if aux_info is not None and meta_validity_mask is not None:
+                    if pattern.strip().lower().startswith("random"):
+                        if generator is None or generator_device != aux_info.device:
+                            generator = torch.Generator(device=aux_info.device)
+                            generator.manual_seed(seed)
+                            generator_device = aux_info.device
+                    aux_info, meta_validity_mask = apply_meta_missingness_pattern(
+                        aux_info,
+                        meta_validity_mask,
+                        bounds_map,
+                        pattern=pattern,
+                        p=random_p,
+                        generator=generator,
+                    )
+
+                amp_enabled = config.TRAIN.AMP_OPT_LEVEL != "O0"
+                with torch.cuda.amp.autocast(enabled=amp_enabled):
+                    if config.MODEL.TYPE == "DINOv3MultiHead":
+                        outputs, aux = model(
+                            images,
+                            aux_info,
+                            meta_validity_mask=meta_validity_mask,
+                            view_mask=view_mask,
+                            return_aux=True,
+                        )
+                    else:
+                        outputs = model(images, aux_info)
+                        aux = {}
+
+                    current_step = metrics_tracker.current_step
+                    total_loss, loss_components, _ = weighted_hierarchical_loss(
+                        outputs,
+                        tdict_gpu,
+                        criteria,
+                        grad_weighting,
+                        ops_schedule,
+                        current_step,
+                        is_validation=True,
+                        logger=logger,
+                        config=config,
+                    )
+
+                    if getattr(config.MODEL.FOREGROUNDNESS, "ENABLED", False):
+                        fg_logits = aux.get("foreground_logits") if isinstance(aux, dict) else None
+                        if fg_logits is not None:
+                            bbox_key = config.MODEL.FOREGROUNDNESS.get("BBOX_KEY", "bbox_xywh_norm")
+                            bbox_valid_key = config.MODEL.FOREGROUNDNESS.get("BBOX_VALID_KEY", "bbox_valid")
+                            fg_loss, fg_stats = compute_foregroundness_loss(
+                                fg_logits,
+                                tdict_gpu.get(bbox_key),
+                                tdict_gpu.get(bbox_valid_key),
+                                view_mask=view_mask,
+                                config=config,
+                                loss_type=config.MODEL.FOREGROUNDNESS.get("LOSS_TYPE", "bce"),
+                                pos_weight=config.MODEL.FOREGROUNDNESS.get("LOSS_POS_WEIGHT", 1.0),
+                                focal_gamma=config.MODEL.FOREGROUNDNESS.get("FOCAL_GAMMA", 2.0),
+                            )
+                            if fg_loss is not None:
+                                fg_weight = float(config.MODEL.FOREGROUNDNESS.get("LOSS_WEIGHT", 1.0))
+                                total_loss = total_loss + fg_weight * fg_loss
+                                loss_components["foregroundness"] = float(fg_loss.item())
+                                loss_components["total"] = float(total_loss.item())
+                                if fg_stats:
+                                    loss_components["foregroundness_stats"] = fg_stats
+
+                    if "tasks" not in loss_components:
+                        loss_components["tasks"] = {}
+                    if "masked_tasks" in loss_components:
+                        for task_key, task_loss in loss_components["masked_tasks"].items():
+                            loss_components["tasks"][task_key] = task_loss
+                    if "weighted_tasks" in loss_components:
+                        for task_key, task_loss in loss_components["weighted_tasks"].items():
+                            if task_key not in loss_components["tasks"]:
+                                loss_components["tasks"][task_key] = task_loss
+
+                    for task_key in task_keys:
+                        if task_key in loss_components["tasks"]:
+                            task_loss_val = loss_components["tasks"][task_key]
+                            task_loss_sums[task_key] += task_loss_val * images.size(0)
+                            task_sample_counts[task_key] += images.size(0)
+
+                    metrics_tracker.update_val_metrics(phase_name, loss_components, outputs, tdict_gpu, images.size(0), subset_ids)
+
+                    if batch_idx == 0 and config.get("DEBUG", {}).get("DUMP_METRICS", False):
+                        metrics_tracker.dump_metrics_state(phase_name)
+
+                if (batch_idx == 0) and (rank == 0) and torch.cuda.is_available() and not vram_logged:
+                    alloc_mb = torch.cuda.memory_allocated() / 1024**2
+                    logger.info(f"[{phase_name}] VRAM usage after first batch: {alloc_mb:.2f} MB")
+                    vram_logged = True
+
+        elapsed = time.time() - start_time
+        if debug_training_loop:
+            logger.debug(f"[validate_with_missingness:{phase_name}] Validation loop completed in {elapsed:.2f} seconds")
+
+        avg_loss_overall = 0.0
+        total_valid_samples = 0
+        for task_key in task_keys:
+            task_loss_sum = metrics_tracker.partial_task_sums[phase_name][task_key].get("loss", 0.0)
+            task_sample_count = metrics_tracker.partial_task_counts[phase_name][task_key].get("loss", 0)
+            if task_sample_count > 0:
+                avg_task_loss = task_loss_sum / task_sample_count
+                logger.info(f"[{phase_name}] Epoch {epoch}, {task_key} loss: {avg_task_loss:.4f}")
+                avg_loss_overall += task_loss_sum
+                total_valid_samples += task_sample_count
+            else:
+                logger.info(f"[{phase_name}] Epoch {epoch}, {task_key} loss: N/A (no samples)")
+
+        final_avg_loss = avg_loss_overall / total_valid_samples if total_valid_samples > 0 else 0.0
+        metrics_tracker.finalize_val_phase(phase_name, final_avg_loss)
+
+        if get_rank_safely() == 0 and debug_validation:
+            logger.debug(f"[{phase_name}] Metrics finalized for epoch {epoch}.")
+
+        if config.get("DEBUG", {}).get("DUMP_METRICS", False):
+            logger.info(f"[{phase_name}] Metrics state dump AFTER finalization:")
+            metrics_tracker.dump_metrics_state(phase_name)
+
+        logger.info(
+            f"[{phase_name}] Epoch {epoch}, Pattern: {pattern}, Overall Average loss: {final_avg_loss:.4f}, duration={elapsed:.1f}s"
+        )
+
+        return final_avg_loss
+    except Exception as e:
+        logger.error(f"Error during {phase_name} validation:", exc_info=True)
+        logger.error(f"Exception details: {str(e)}")
+        raise
+
+
+def validate_missingness_sweep(
+    config,
+    model,
+    data_loader,
+    epoch,
+    metrics_tracker,
+    grad_weighting,
+    criteria,
+    logger,
+    ops_schedule,
+) -> None:
+    """Run the standardized missingness sweep and log deltas vs baseline."""
+    patterns = config.VAL.MISSINGNESS_SWEEP.PATTERNS
+    if not patterns:
+        return
+
+    for pattern in patterns:
+        validate_with_missingness_pattern(
+            config,
+            model,
+            data_loader,
+            epoch,
+            metrics_tracker,
+            grad_weighting,
+            criteria,
+            logger,
+            ops_schedule,
+            pattern=pattern,
+            random_p=config.VAL.MISSINGNESS_SWEEP.RANDOM_P,
+            seed=config.VAL.MISSINGNESS_SWEEP.SEED,
+        )
+
+    baseline_pattern = patterns[0]
+    baseline_phase = _missingness_phase_name(baseline_pattern)
+    task_keys = config.VAL.MISSINGNESS_SWEEP.TASK_KEYS or sorted(list(criteria.keys()), key=lambda k: int(k.split("_L")[-1]))
+    for task_key in task_keys:
+        if baseline_phase not in metrics_tracker.phase_task_metrics:
+            continue
+        base_metric = metrics_tracker.phase_task_metrics[baseline_phase][task_key]["acc1"].value
+        for pattern in patterns[1:]:
+            phase = _missingness_phase_name(pattern)
+            if phase not in metrics_tracker.phase_task_metrics:
+                continue
+            metric = metrics_tracker.phase_task_metrics[phase][task_key]["acc1"].value
+            delta = metric - base_metric
+            logger.info(f"[missingness] {task_key} {pattern} acc1 delta vs {baseline_pattern}: {delta * 100.0:.2f}%")
