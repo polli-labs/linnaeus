@@ -247,3 +247,122 @@ class BaggedPrefetchingDataset:
         if hasattr(self.base_dataset, "_shutdown_event"):
             return self.base_dataset._shutdown_event
         return None
+
+
+class SyntheticMultiViewPrefetchingDataset:
+    """Wrap a prefetching dataset and emit K synthetic views per sample.
+
+    This is a stopgap to enable MIL pooling experiments before true multi-photo exports
+    (bag_offsets) are available. Each original photo becomes a "bag" of K augmented views.
+
+    Output per item:
+      (images[K,C,H,W], targets_dict, aux_info, group_id, subset_dict, meta_validity_mask, view_mask[K])
+
+    `view_mask` is always all-True (no padding).
+    """
+
+    def __init__(
+        self,
+        base_dataset: BasePrefetchingDataset,
+        *,
+        views_per_bag: int,
+        seed: int = 0,
+        augment: bool = True,
+        hflip_p: float = 0.5,
+        brightness_jitter: float = 0.2,
+        contrast_jitter: float = 0.2,
+        noise_std: float = 0.0,
+    ) -> None:
+        self.base_dataset = base_dataset
+        self.views_per_bag = int(views_per_bag)
+        self.seed = int(seed)
+        self.augment = bool(augment)
+        self.hflip_p = float(hflip_p)
+        self.brightness_jitter = float(brightness_jitter)
+        self.contrast_jitter = float(contrast_jitter)
+        self.noise_std = float(noise_std)
+        self._batch_counter = 0
+
+    def __len__(self) -> int:
+        return len(self.base_dataset)
+
+    def start_prefetching(self, epoch_batches: list[list[int]]) -> None:
+        self.base_dataset.start_prefetching(epoch_batches)
+
+    def _augment_view(self, img: torch.Tensor, *, generator: torch.Generator) -> torch.Tensor:
+        if not self.augment or self.views_per_bag <= 1:
+            return img
+
+        out = img
+        # Horizontal flip (C,H,W) -> flip W dim
+        if self.hflip_p > 0 and torch.rand((), generator=generator, device=img.device) < self.hflip_p:
+            out = torch.flip(out, dims=[2])
+
+        # Brightness jitter: scale pixel values
+        if self.brightness_jitter > 0:
+            scale = 1.0 + (2.0 * torch.rand((), generator=generator, device=img.device) - 1.0) * self.brightness_jitter
+            out = out * scale
+
+        # Contrast jitter: scale around per-channel mean
+        if self.contrast_jitter > 0:
+            mean = out.mean(dim=(1, 2), keepdim=True)
+            scale = 1.0 + (2.0 * torch.rand((), generator=generator, device=img.device) - 1.0) * self.contrast_jitter
+            out = (out - mean) * scale + mean
+
+        if self.noise_std > 0:
+            noise = torch.randn(out.shape, dtype=out.dtype, device=out.device, generator=generator) * self.noise_std
+            out = out + noise
+
+        return out.clamp(0.0, 1.0)
+
+    def fetch_next_batch(self):
+        raw = self.base_dataset.fetch_next_batch()
+        if raw in ("RETRY", None, STOP_SENTINEL):
+            return raw
+
+        if self.views_per_bag <= 0:
+            raise ValueError(f"views_per_bag must be >= 1; got {self.views_per_bag}")
+
+        out: list[tuple[Any, ...]] = []
+        view_mask = torch.ones((self.views_per_bag,), dtype=torch.bool)
+
+        generator = torch.Generator()
+        generator.manual_seed(self.seed + self._batch_counter)
+        self._batch_counter += 1
+
+        for (img, targets, aux, group_id, subset_ids, meta_mask) in raw:
+            views = [self._augment_view(img, generator=generator) for _ in range(self.views_per_bag)]
+            images = torch.stack(views, dim=0)
+            out.append((images, targets, aux, group_id, subset_ids, meta_mask, view_mask))
+
+        return out
+
+    def close(self) -> None:
+        if hasattr(self.base_dataset, "close"):
+            self.base_dataset.close()
+
+    @property
+    def metrics(self):
+        return getattr(self.base_dataset, "metrics", {})
+
+    def start_monitoring(self) -> None:
+        if hasattr(self.base_dataset, "start_monitoring"):
+            self.base_dataset.start_monitoring()
+
+    def set_current_group_rank_array(self, local_arr: list[int]):
+        if hasattr(self.base_dataset, "set_current_group_rank_array"):
+            self.base_dataset.set_current_group_rank_array(local_arr)
+        else:
+            raise AttributeError("Base dataset does not have 'set_current_group_rank_array'")
+
+    def set_current_group_level_array(self, local_arr: list[int]):
+        if hasattr(self.base_dataset, "set_current_group_level_array"):
+            self.base_dataset.set_current_group_level_array(local_arr)
+        else:
+            return self.set_current_group_rank_array(local_arr)
+
+    @property
+    def _shutdown_event(self):
+        if hasattr(self.base_dataset, "_shutdown_event"):
+            return self.base_dataset._shutdown_event
+        return None

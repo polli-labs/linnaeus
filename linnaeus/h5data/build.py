@@ -104,7 +104,7 @@ from .grouped_batch_sampler import GroupedBatchSampler
 from .h5dataloader import H5DataLoader
 
 # Bagged (multi-view) dataset support
-from .bag_dataset import BaggedPrefetchingDataset
+from .bag_dataset import BaggedPrefetchingDataset, SyntheticMultiViewPrefetchingDataset
 from .bag_index import BagIndex
 
 # Prefetch-based dataset classes only:
@@ -211,7 +211,11 @@ def build_datasets(
         main_logger.debug(f"  - H5.VAL_IMAGES_PATH: {config.DATA.H5.VAL_IMAGES_PATH}")
         main_logger.debug(f"  - HYBRID.USE_HYBRID: {config.DATA.HYBRID.USE_HYBRID}")
 
-    if getattr(config.DATA, "BAGS", CN()).get("ENABLED", False) and (single_file_pure or single_file_hybrid):
+    bags_cfg = getattr(config.DATA, "BAGS", CN())
+    bags_enabled = bool(bags_cfg.get("ENABLED", False))
+    bags_mode = str(bags_cfg.get("MODE", "offsets")).lower()
+
+    if bags_enabled and bags_mode == "offsets" and (single_file_pure or single_file_hybrid):
         # Important: bag_offsets assumes observation-level contiguity; random splitting at the photo level
         # breaks bag membership and leaks observations across train/val.
         raise ValueError(
@@ -584,7 +588,7 @@ def build_datasets(
             main_logger.debug(f"  - Leaf count: {len(taxonomy_tree.leaves)}")
 
     # Optionally wrap datasets to yield bag-of-views batches for MIL / tracked-entity inference.
-    if getattr(config.DATA, "BAGS", CN()).get("ENABLED", False):
+    if bags_enabled:
         def _labels_handle(ds) -> h5py.File:
             if hasattr(ds, "labels_file"):
                 return ds.labels_file  # PrefetchingH5Dataset
@@ -594,26 +598,52 @@ def build_datasets(
                 return _labels_handle(ds.base_dataset)
             raise AttributeError("Could not locate labels HDF5 handle on dataset for bag_offsets lookup")
 
-        train_labels_h5 = _labels_handle(dataset_train)
-        train_bag_index = BagIndex.from_labels_h5(train_labels_h5)
-        dataset_train = BaggedPrefetchingDataset(
-            dataset_train,
-            train_bag_index,
-            views_per_bag=int(config.DATA.BAGS.VIEWS_PER_BAG),
-            view_selection=str(config.DATA.BAGS.VIEW_SELECTION),
-            seed=int(config.DATA.BAGS.SEED) if config.DATA.BAGS.SEED is not None else None,
-        )
-
-        if dataset_val is not None and len(dataset_val) > 0:
-            val_labels_h5 = _labels_handle(dataset_val)
-            val_bag_index = BagIndex.from_labels_h5(val_labels_h5)
-            dataset_val = BaggedPrefetchingDataset(
-                dataset_val,
-                val_bag_index,
+        if bags_mode == "synthetic":
+            syn_cfg = getattr(config.DATA.BAGS, "SYNTHETIC_AUG", CN())
+            dataset_train = SyntheticMultiViewPrefetchingDataset(
+                dataset_train,
+                views_per_bag=int(config.DATA.BAGS.VIEWS_PER_BAG),
+                seed=int(config.DATA.BAGS.SEED),
+                augment=bool(syn_cfg.get("ENABLED", True)),
+                hflip_p=float(syn_cfg.get("HFLIP_P", 0.5)),
+                brightness_jitter=float(syn_cfg.get("BRIGHTNESS_JITTER", 0.2)),
+                contrast_jitter=float(syn_cfg.get("CONTRAST_JITTER", 0.2)),
+                noise_std=float(syn_cfg.get("NOISE_STD", 0.0)),
+            )
+        else:
+            train_labels_h5 = _labels_handle(dataset_train)
+            train_bag_index = BagIndex.from_labels_h5(train_labels_h5)
+            dataset_train = BaggedPrefetchingDataset(
+                dataset_train,
+                train_bag_index,
                 views_per_bag=int(config.DATA.BAGS.VIEWS_PER_BAG),
                 view_selection=str(config.DATA.BAGS.VIEW_SELECTION),
                 seed=int(config.DATA.BAGS.SEED) if config.DATA.BAGS.SEED is not None else None,
             )
+
+        if dataset_val is not None and len(dataset_val) > 0:
+            if bags_mode == "synthetic":
+                syn_cfg = getattr(config.DATA.BAGS, "SYNTHETIC_AUG", CN())
+                dataset_val = SyntheticMultiViewPrefetchingDataset(
+                    dataset_val,
+                    views_per_bag=int(config.DATA.BAGS.VIEWS_PER_BAG),
+                    seed=int(config.DATA.BAGS.SEED),
+                    augment=bool(syn_cfg.get("ENABLED", True)),
+                    hflip_p=float(syn_cfg.get("HFLIP_P", 0.5)),
+                    brightness_jitter=float(syn_cfg.get("BRIGHTNESS_JITTER", 0.2)),
+                    contrast_jitter=float(syn_cfg.get("CONTRAST_JITTER", 0.2)),
+                    noise_std=float(syn_cfg.get("NOISE_STD", 0.0)),
+                )
+            else:
+                val_labels_h5 = _labels_handle(dataset_val)
+                val_bag_index = BagIndex.from_labels_h5(val_labels_h5)
+                dataset_val = BaggedPrefetchingDataset(
+                    dataset_val,
+                    val_bag_index,
+                    views_per_bag=int(config.DATA.BAGS.VIEWS_PER_BAG),
+                    view_selection=str(config.DATA.BAGS.VIEW_SELECTION),
+                    seed=int(config.DATA.BAGS.SEED) if config.DATA.BAGS.SEED is not None else None,
+                )
 
     return (
         dataset_train,

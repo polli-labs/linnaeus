@@ -228,9 +228,19 @@ _C.DATA.SAMPLER.GROUPED_MODE = "strict-group"  # 'strict-group' or 'mixed-pairs'
 # Disabled by default to preserve existing per-photo training behavior.
 _C.DATA.BAGS = CN()
 _C.DATA.BAGS.ENABLED = False
+_C.DATA.BAGS.MODE = "offsets"  # offsets|synthetic
 _C.DATA.BAGS.VIEWS_PER_BAG = 1
 _C.DATA.BAGS.VIEW_SELECTION = "first_k"  # first_k|random_k
 _C.DATA.BAGS.SEED = 0
+
+# Synthetic multi-view (K augmentations per photo). Used to prototype MIL pooling before
+# true multi-photo exports are wired (ibridaDB/ibrida changes).
+_C.DATA.BAGS.SYNTHETIC_AUG = CN()
+_C.DATA.BAGS.SYNTHETIC_AUG.ENABLED = True
+_C.DATA.BAGS.SYNTHETIC_AUG.HFLIP_P = 0.5
+_C.DATA.BAGS.SYNTHETIC_AUG.BRIGHTNESS_JITTER = 0.2
+_C.DATA.BAGS.SYNTHETIC_AUG.CONTRAST_JITTER = 0.2
+_C.DATA.BAGS.SYNTHETIC_AUG.NOISE_STD = 0.0
 
 # HPC simulation / I/O usage:
 # - SIMULATE_HPC: whether to simulate HPC delays.
