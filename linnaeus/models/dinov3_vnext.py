@@ -42,6 +42,10 @@ class DinoV3Backbone(nn.Module):
         if use_stub:
             self.patch_embed = nn.Conv2d(in_chans, embed_dim, kernel_size=patch_size, stride=patch_size)
             self.cls_token = nn.Parameter(torch.zeros(1, 1, embed_dim))
+            if freeze:
+                for param in self.patch_embed.parameters():
+                    param.requires_grad = False
+                self.cls_token.requires_grad = False
         else:
             try:
                 from transformers import AutoModel
@@ -184,6 +188,26 @@ class DinoV3MultiHead(BaseModel):
 
         return pooled, fg_logits
 
+    @staticmethod
+    def _masked_mean_views(view_tokens: torch.Tensor, view_mask: torch.Tensor | None) -> torch.Tensor:
+        if view_mask is None:
+            return view_tokens.mean(dim=1)
+        mask = view_mask.to(dtype=view_tokens.dtype).unsqueeze(-1)
+        denom = mask.sum(dim=1).clamp_min(1.0)
+        return (view_tokens * mask).sum(dim=1) / denom
+
+    @staticmethod
+    def _flatten_mask_weights(mask_weights: torch.Tensor, *, views: int) -> torch.Tensor:
+        if mask_weights.ndim == 2:
+            return mask_weights
+        if mask_weights.ndim == 3:
+            # (B, V, N) -> (B*V, N)
+            return mask_weights.reshape(-1, mask_weights.shape[-1])
+        if mask_weights.ndim in (4, 5):
+            # (B, V, H, W) or (B, V, 1, H, W) -> (B*V, ...)
+            return mask_weights.reshape(-1, *mask_weights.shape[2:])
+        raise ValueError(f"Unsupported mask_weights shape: {tuple(mask_weights.shape)}")
+
     def forward_features(
         self,
         images: torch.Tensor,
@@ -201,9 +225,19 @@ class DinoV3MultiHead(BaseModel):
                 meta_flat = meta.repeat_interleave(views, dim=0)
             if meta_validity_mask is not None:
                 meta_mask_flat = meta_validity_mask.repeat_interleave(views, dim=0)
-            pooled, fg_logits = self._forward_single(flat, meta_flat, meta_mask_flat, mask_weights)
+            mask_flat = None
+            if mask_weights is not None:
+                mask_flat = self._flatten_mask_weights(mask_weights, views=views)
+                if mask_flat.shape[0] != flat.shape[0]:
+                    raise ValueError(
+                        f"mask_weights batch ({mask_flat.shape[0]}) does not match images batch ({flat.shape[0]})"
+                    )
+            pooled, fg_logits = self._forward_single(flat, meta_flat, meta_mask_flat, mask_flat)
             view_tokens = pooled.view(bsz, views, -1)
-            bag_token = self.mil_pool(view_tokens, view_mask=view_mask) if self.use_mil else view_tokens.mean(dim=1)
+            if self.use_mil:
+                bag_token = self.mil_pool(view_tokens, view_mask=view_mask)
+            else:
+                bag_token = self._masked_mean_views(view_tokens, view_mask=view_mask)
             fg_out = fg_logits.view(bsz, views, -1) if fg_logits is not None else None
             return bag_token, {"foreground_logits": fg_out}
 

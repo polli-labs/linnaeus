@@ -609,6 +609,7 @@ def build_datasets(
                 brightness_jitter=float(syn_cfg.get("BRIGHTNESS_JITTER", 0.2)),
                 contrast_jitter=float(syn_cfg.get("CONTRAST_JITTER", 0.2)),
                 noise_std=float(syn_cfg.get("NOISE_STD", 0.0)),
+                assume_0_1_range=bool(syn_cfg.get("ASSUME_0_1_RANGE", False)),
             )
         else:
             train_labels_h5 = _labels_handle(dataset_train)
@@ -633,6 +634,7 @@ def build_datasets(
                     brightness_jitter=float(syn_cfg.get("BRIGHTNESS_JITTER", 0.2)),
                     contrast_jitter=float(syn_cfg.get("CONTRAST_JITTER", 0.2)),
                     noise_std=float(syn_cfg.get("NOISE_STD", 0.0)),
+                    assume_0_1_range=bool(syn_cfg.get("ASSUME_0_1_RANGE", False)),
                 )
             else:
                 val_labels_h5 = _labels_handle(dataset_val)

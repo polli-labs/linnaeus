@@ -272,6 +272,7 @@ class SyntheticMultiViewPrefetchingDataset:
         brightness_jitter: float = 0.2,
         contrast_jitter: float = 0.2,
         noise_std: float = 0.0,
+        assume_0_1_range: bool = False,
     ) -> None:
         self.base_dataset = base_dataset
         self.views_per_bag = int(views_per_bag)
@@ -281,6 +282,7 @@ class SyntheticMultiViewPrefetchingDataset:
         self.brightness_jitter = float(brightness_jitter)
         self.contrast_jitter = float(contrast_jitter)
         self.noise_std = float(noise_std)
+        self.assume_0_1_range = bool(assume_0_1_range)
         self._batch_counter = 0
 
     def __len__(self) -> int:
@@ -298,13 +300,13 @@ class SyntheticMultiViewPrefetchingDataset:
         if self.hflip_p > 0 and torch.rand((), generator=generator, device=img.device) < self.hflip_p:
             out = torch.flip(out, dims=[2])
 
-        # Brightness jitter: scale pixel values
-        if self.brightness_jitter > 0:
+        # Brightness jitter: scale pixel values (only safe if inputs are 0..1)
+        if self.assume_0_1_range and self.brightness_jitter > 0:
             scale = 1.0 + (2.0 * torch.rand((), generator=generator, device=img.device) - 1.0) * self.brightness_jitter
             out = out * scale
 
-        # Contrast jitter: scale around per-channel mean
-        if self.contrast_jitter > 0:
+        # Contrast jitter: scale around per-channel mean (only safe if inputs are 0..1)
+        if self.assume_0_1_range and self.contrast_jitter > 0:
             mean = out.mean(dim=(1, 2), keepdim=True)
             scale = 1.0 + (2.0 * torch.rand((), generator=generator, device=img.device) - 1.0) * self.contrast_jitter
             out = (out - mean) * scale + mean
@@ -313,7 +315,9 @@ class SyntheticMultiViewPrefetchingDataset:
             noise = torch.randn(out.shape, dtype=out.dtype, device=out.device, generator=generator) * self.noise_std
             out = out + noise
 
-        return out.clamp(0.0, 1.0)
+        if self.assume_0_1_range:
+            return out.clamp(0.0, 1.0)
+        return out
 
     def fetch_next_batch(self):
         raw = self.base_dataset.fetch_next_batch()

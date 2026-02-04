@@ -101,6 +101,38 @@ def test_dinov3_multihead_forward_cpu_stub():
     assert outputs["taxa_L10"].shape == (2, 5)
 
 
+def test_dinov3_multihead_5d_mask_weights_and_view_mask_mean():
+    cfg = get_config()
+    cfg.MODEL.TYPE = "DINOv3MultiHead"
+    cfg.MODEL.IN_CHANS = 3
+    cfg.MODEL.DINOV3.USE_STUB = True
+    cfg.MODEL.DINOV3.EMBED_DIM = 16
+    cfg.MODEL.DINOV3.PATCH_SIZE = 4
+    cfg.MODEL.MASK_POOLING.ENABLED = True
+    cfg.MODEL.MIL.ENABLED = False
+
+    cfg.DATA.TASK_KEYS_H5 = ["taxa_L10"]
+    cfg.MODEL.CLASSIFICATION.HEADS = CN(new_allowed=True)
+    cfg.MODEL.CLASSIFICATION.HEADS["taxa_L10"] = {"TYPE": "Linear"}
+
+    model = DinoV3MultiHead(cfg, num_classes={"taxa_L10": 5}, taxonomy_tree=None)
+
+    images = torch.randn(1, 2, 3, 16, 16)
+    # 4x4 patch grid -> 16 patches
+    mask_weights = torch.rand(1, 2, 16)
+    view_mask = torch.tensor([[True, False]])
+
+    bag_token, _ = model.forward_features(images, mask_weights=mask_weights, view_mask=view_mask)
+
+    flat = images.view(2, 3, 16, 16)
+    mask_flat = mask_weights.view(2, 16)
+    pooled_flat, _ = model._forward_single(flat, None, None, mask_flat)
+    view_tokens = pooled_flat.view(1, 2, -1)
+    expected = view_tokens[:, 0, :]
+
+    assert torch.allclose(bag_token, expected, atol=1e-6, rtol=1e-6)
+
+
 def test_detach_pred_w_stops_taxonomy_grads_to_foreground_head():
     torch.manual_seed(0)
     images = torch.randn(2, 3, 16, 16)

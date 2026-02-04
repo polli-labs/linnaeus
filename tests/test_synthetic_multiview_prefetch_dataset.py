@@ -80,3 +80,30 @@ def test_synthetic_multiview_can_produce_distinct_views_when_aug_enabled():
     v1 = images[0, 1]
     assert not torch.allclose(v0, v1)
 
+
+def test_synthetic_multiview_does_not_clamp_when_not_assuming_unit_range():
+    img = torch.tensor([[[ -0.5, 0.2], [1.2, -1.0]]]).repeat(3, 1, 1)
+    targets = {"taxa_L10": torch.tensor([0.0, 1.0, 0.0])}
+    aux = torch.zeros(5)
+    group_id = 0
+    subset_ids = {}
+    meta_mask = torch.ones(5, dtype=torch.bool)
+
+    base = _DummyPrefetchDataset([(img, targets, aux, group_id, subset_ids, meta_mask)])
+    syn = SyntheticMultiViewPrefetchingDataset(
+        base,
+        views_per_bag=1,
+        seed=0,
+        augment=True,
+        hflip_p=0.0,
+        brightness_jitter=0.0,
+        contrast_jitter=0.0,
+        noise_std=0.0,
+        assume_0_1_range=False,
+    )
+
+    sampler = BatchSampler(SequentialSampler(syn), batch_size=1, drop_last=False)
+    loader = H5DataLoader(dataset=syn, batch_sampler=sampler, num_workers=0, pin_memory=False, use_gpu=False)
+
+    images = next(iter(loader))[0]
+    assert torch.allclose(images[0, 0], img)
