@@ -56,6 +56,7 @@ from linnaeus.optimizers import build_optimizer
 from linnaeus.train import train_one_epoch
 from linnaeus.utils.autobatch import auto_find_batch_size
 from linnaeus.utils.backblaze import sync_to_backblaze
+from linnaeus.utils.bbox_config_validation import validate_bbox_key_consistency
 from linnaeus.utils.checkpoint import auto_resume_helper, load_checkpoint, load_pretrained, save_checkpoint
 from linnaeus.utils.config_utils import (
     load_config,
@@ -331,6 +332,7 @@ def parse_option(args_list=None):
 
     # 5) Finalize and set up output dirs
     config = update_config(config, args)
+    validate_bbox_key_consistency(config)
     config = setup_output_dirs(config)
 
     eval_config = None

@@ -510,6 +510,19 @@ _C.MODEL.CLASSIFICATION.HEADS = CN(new_allowed=True)
 
 # Hierarchical heads configuration is now done through each head's config
 
+# Optional bbox-aware pooling/supervision consumers.
+# These defaults are no-op until explicitly enabled in experiment configs.
+_C.MODEL.MASK_POOLING = CN()
+_C.MODEL.MASK_POOLING.ENABLED = False
+_C.MODEL.MASK_POOLING.USE_BBOX_IF_AVAILABLE = False
+_C.MODEL.MASK_POOLING.BBOX_KEY = ""
+_C.MODEL.MASK_POOLING.BBOX_VALID_KEY = ""
+
+_C.MODEL.FOREGROUNDNESS = CN()
+_C.MODEL.FOREGROUNDNESS.ENABLED = False
+_C.MODEL.FOREGROUNDNESS.BBOX_KEY = ""
+_C.MODEL.FOREGROUNDNESS.BBOX_VALID_KEY = ""
+
 # Normalization subconfig
 _C.MODEL.NORMALIZATION = CN()
 _C.MODEL.NORMALIZATION.CONV_NORM_LAYER = "BatchNorm2d"
@@ -677,6 +690,11 @@ _C.VAL.VAL_INTERVAL = 1
 _C.VAL.MASK_META_TEST = True
 _C.VAL.MASK_META_VAL_INTERVAL = 20
 _C.VAL.DISABLE_AUGMENTATIONS = True
+
+_C.VAL.SMALL_OBJECT_STRAT = CN()
+_C.VAL.SMALL_OBJECT_STRAT.ENABLED = False
+_C.VAL.SMALL_OBJECT_STRAT.BBOX_KEY = ""
+_C.VAL.SMALL_OBJECT_STRAT.BBOX_VALID_KEY = ""
 
 # ----------------------------------------------------------------------------
 # Optimizer Settings
