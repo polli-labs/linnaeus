@@ -43,21 +43,59 @@ def _dataset_exists(h5_file: h5py.File, key: str) -> bool:
     return isinstance(h5_file[key], h5py.Dataset)
 
 
-def _compute_valid_fraction(h5_file: h5py.File, bbox_valid_key: str) -> float | None:
+def _compute_valid_fraction(
+    h5_file: h5py.File,
+    bbox_valid_key: str,
+    max_samples: int | None = None,
+    chunk_size: int = 1_000_000,
+) -> tuple[float | None, int, int]:
+    """
+    Compute bbox-valid fraction without materializing an entire dataset in RAM.
+
+    Returns:
+        (bbox_valid_frac, scanned_rows, total_rows)
+    """
     if not _dataset_exists(h5_file, bbox_valid_key):
-        return None
+        return None, 0, 0
 
-    values = np.asarray(h5_file[bbox_valid_key])
-    if values.size == 0:
-        return None
-    if values.ndim > 1:
-        values = values.reshape(values.shape[0], -1)[:, 0]
+    dataset = h5_file[bbox_valid_key]
+    if dataset.shape == ():
+        values = np.asarray(dataset[()])
+        scalar_valid = bool(values) if values.dtype == np.bool_ else bool(values > 0)
+        return float(scalar_valid), 1, 1
 
-    if values.dtype == np.bool_:
-        valid_mask = values
-    else:
-        valid_mask = values > 0
-    return float(np.mean(valid_mask))
+    total_rows = int(dataset.shape[0]) if dataset.shape else int(dataset.size)
+    if total_rows <= 0:
+        return None, 0, 0
+
+    target_rows = total_rows
+    if max_samples is not None:
+        target_rows = min(total_rows, max_samples)
+    if target_rows <= 0:
+        return None, 0, total_rows
+
+    valid_count = 0
+    scanned_rows = 0
+    while scanned_rows < target_rows:
+        stop = min(target_rows, scanned_rows + chunk_size)
+        values = np.asarray(dataset[scanned_rows:stop])
+        if values.ndim > 1:
+            values = values.reshape(values.shape[0], -1)[:, 0]
+        if values.dtype == np.bool_:
+            valid_mask = values
+        else:
+            valid_mask = values > 0
+        valid_count += int(np.count_nonzero(valid_mask))
+        scanned_rows = stop
+
+    return float(valid_count / scanned_rows), scanned_rows, total_rows
+
+
+def _positive_int(value: str) -> int:
+    parsed = int(value)
+    if parsed <= 0:
+        raise argparse.ArgumentTypeError("must be > 0")
+    return parsed
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -71,6 +109,12 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--split", choices=["train", "val", "all"], default="train", help="Which labels split to inspect")
     parser.add_argument("--labels-path", type=str, default=None, help="Optional explicit labels H5 path override")
+    parser.add_argument(
+        "--max-samples",
+        type=_positive_int,
+        default=None,
+        help="Optional cap on rows scanned from bbox_valid to keep smoke checks lightweight",
+    )
     parser.add_argument(
         "--min-bbox-valid-frac",
         type=float,
@@ -104,6 +148,8 @@ def main(argv: list[str] | None = None) -> int:
         "bbox_key_present": None,
         "bbox_valid_key_present": None,
         "bbox_valid_frac": None,
+        "bbox_valid_samples_scanned": 0,
+        "bbox_valid_samples_total": 0,
         "errors": [],
     }
 
@@ -132,7 +178,14 @@ def main(argv: list[str] | None = None) -> int:
                     report["bbox_key_present"] = _dataset_exists(h5_file, resolved_bbox_key)
                 if resolved_bbox_valid_key:
                     report["bbox_valid_key_present"] = _dataset_exists(h5_file, resolved_bbox_valid_key)
-                    report["bbox_valid_frac"] = _compute_valid_fraction(h5_file, resolved_bbox_valid_key)
+                    bbox_valid_frac, scanned_rows, total_rows = _compute_valid_fraction(
+                        h5_file,
+                        resolved_bbox_valid_key,
+                        max_samples=args.max_samples,
+                    )
+                    report["bbox_valid_frac"] = bbox_valid_frac
+                    report["bbox_valid_samples_scanned"] = scanned_rows
+                    report["bbox_valid_samples_total"] = total_rows
 
             if enabled_consumers and report["bbox_key_present"] is False:
                 report["errors"].append(f"Resolved bbox key missing from labels H5: {resolved_bbox_key}")
@@ -164,6 +217,10 @@ def main(argv: list[str] | None = None) -> int:
         print(f"- bbox_key_present: {report['bbox_key_present']}")
         print(f"- bbox_valid_key_present: {report['bbox_valid_key_present']}")
         print(f"- bbox_valid_frac: {report['bbox_valid_frac']}")
+        print(
+            f"- bbox_valid_samples_scanned: {report['bbox_valid_samples_scanned']}/"
+            f"{report['bbox_valid_samples_total']}"
+        )
         if report["errors"]:
             print("- result: FAIL")
             for error in report["errors"]:
