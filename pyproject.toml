@@ -70,6 +70,9 @@ cuda = [
 triton = [
     "triton>=2.1.0",
 ]
+dinov3 = [
+    "transformers>=4.56.0",
+]
 inference = [
     "litserve",
     "polli-typus>=0.1.10",
@@ -98,6 +101,7 @@ all = [
   # CPU is included by default; CUDA remains opt-in via linnaeus[cuda].
   "linnaeus[dev]",
   "linnaeus[cpu]",
+  "linnaeus[dinov3]",
   "linnaeus[inference]",
   "linnaeus[profiling]",
   "linnaeus[rl]",
