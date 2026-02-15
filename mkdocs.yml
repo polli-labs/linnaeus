@@ -47,6 +47,13 @@ nav:
   - Evaluation:
       - Overview: evaluation/overview.md
       - Validation: evaluation/validation.md
+  - Profiling:
+      - Overview: profiling/README.md
+      - Profiling Levels: profiling/profiling-levels.md
+      - Prof CLI: profiling/prof-cli.md
+      - Prof Run: profiling/prof-run.md
+      - Best Practices: profiling/best-practices.md
+      - DINOv3 vNext Blade Runbook: profiling/dinov3_vnext_blade_ablation_runbook.md
   - Advanced Topics:
       - Overview: advanced_topics/index.md
       - Automatic Batch Sizing: advanced_topics/autobatch.md
