@@ -51,6 +51,7 @@ linnaeus-prof-run = "linnaeus.tools.profiling.run_profiling_trials:main"
 [project.optional-dependencies]
 dev = [
     "pytest",
+    "pytest-timeout",
     "ruff",
     "mkdocs",
     "mkdocs-material",
@@ -89,6 +90,11 @@ profiling = [
 cuda-fa = [
     # Note: flash-attn is an optional dependency for GPU environments.
     # It is handled automatically in the official Docker images.
+    # When disabling build isolation for flash-attn, ensure its setup-time deps are present.
+    # (flash-attn's setup.py lists packaging/psutil/ninja in setup_requires.)
+    "packaging",
+    "psutil",
+    "ninja",
     "flash-attn>=2.7.4.post1 ; (sys_platform=='linux' and platform_machine=='x86_64')"
 ]
 
@@ -120,6 +126,12 @@ conflicts = [
 ]
 no-build-isolation-package = ["flash-attn"]
 no-binary-package = ["flash-attn"]
+dependency-metadata = [
+  # Avoid running flash-attn's setup.py during dependency resolution.
+  # This keeps `uv lock` and non-`--frozen` `uv sync` usable even when flash-attn
+  # itself is not being installed (e.g., on Turing GPUs where FA isn't supported).
+  { name = "flash-attn", version = "2.7.4.post1", requires-dist = ["torch", "einops"] },
+]
 
 [[tool.uv.index]]
 name = "pytorch-cpu"
