@@ -33,8 +33,8 @@ thread_defaults = {
 
 # Apply defaults then overrides
 for key, default in thread_defaults.items():
-    if key not in os.environ:
-        os.environ[key] = default
+    # Force defaults to make the test deterministic regardless of parent process env.
+    os.environ[key] = default
 
 for key, value in env_vars.items():
     os.environ[key] = str(value)
@@ -44,6 +44,11 @@ import torch
 
 # Import thread control module to get settings
 import linnaeus.utils.thread_ctrl as thread_ctrl
+
+# Apply settings to the torch runtime (thread_ctrl is a deprecated wrapper, but
+# backward-compat expects it to be able to enforce the env config when torch is
+# already imported).
+thread_ctrl.apply_thread_settings()
 
 # Get actual values
 result = {

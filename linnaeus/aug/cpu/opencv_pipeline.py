@@ -79,16 +79,22 @@ class OpenCVAugmentationPipeline(AugmentationPipeline):
         """
         image, targets, aux_info = sample
 
-        # 1. Convert to NumPy array and transpose to (H, W, C) for Albumentations
-        image_np = image.numpy().transpose(1, 2, 0)
-        # Convert from [0, 1] float to [0, 255] uint8
-        image_np = (image_np * 255).astype(np.uint8)
+        # 1. Convert to NumPy array and transpose to (H, W, C) for Albumentations.
+        # We keep a copy of the uint8 input so we can detect "no-op" augmentation
+        # and return the original float tensor without introducing quantization error.
+        image_np_f32 = image.numpy().transpose(1, 2, 0)
+        image_np_u8 = (image_np_f32 * 255).astype(np.uint8)
 
         # 2. Apply AutoAugment
-        augmented_image_np = self.autoaug(image=image_np)
+        augmented_image_np = self.autoaug(image=image_np_u8)
 
         # 3. Apply Random Erasing
         augmented_image_np = self.random_erasing(image=augmented_image_np)
+
+        # Fast path: if augmentation was a byte-for-byte no-op, preserve the original float32
+        # tensor exactly (avoid uint8->float32 quantization drift).
+        if np.array_equal(augmented_image_np, image_np_u8):
+            return image, targets, aux_info
 
         # 4. Convert back to [0, 1] float, transpose back to (C, H, W), and convert to PyTorch tensor
         augmented_image_np = (augmented_image_np / 255.0).astype(np.float32)

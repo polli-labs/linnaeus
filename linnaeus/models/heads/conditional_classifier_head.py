@@ -70,9 +70,12 @@ class ConditionalClassifierHead(BaseHierarchicalHead):
         self.routing_strategy = routing_strategy
         self.temperature = temperature
 
+        # Allow duck-typed TaxonomyTree-like objects in unit tests (and for isolated runs)
+        # as long as they provide the hierarchy matrix API we rely on.
         if not isinstance(taxonomy_tree, TaxonomyTree):
-            logger.error("ConditionalClassifierHead requires a valid TaxonomyTree instance.")
-            raise TypeError("Invalid taxonomy_tree provided to ConditionalClassifierHead.")
+            if not hasattr(taxonomy_tree, "build_hierarchy_matrices") or not callable(taxonomy_tree.build_hierarchy_matrices):
+                logger.error("ConditionalClassifierHead requires a TaxonomyTree-like object with build_hierarchy_matrices().")
+                raise TypeError("Invalid taxonomy_tree provided to ConditionalClassifierHead.")
         if task_key not in task_keys:
             raise ValueError(f"Primary task key '{task_key}' not found in task_keys list.")
         if task_key not in num_classes:
@@ -125,9 +128,10 @@ class ConditionalClassifierHead(BaseHierarchicalHead):
     def _compute_routing_probabilities(
         self,
         logits: torch.Tensor,
-        # task_key: str # Keep signature but currently unused
+        task_key: str | None = None,  # Included for API clarity; currently unused.
     ) -> torch.Tensor:
         """Computes routing probabilities based on the selected strategy."""
+        _ = task_key
         # Use self.training to distinguish train/eval modes
         if self.routing_strategy == "hard" and not self.training:
             # Hard routing (argmax) only during inference

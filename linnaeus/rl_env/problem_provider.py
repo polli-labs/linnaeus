@@ -43,7 +43,9 @@ class LinnaeusRLProblemProvider:
             raise ValueError("TaxonomyTree instance must have a valid 'task_keys' attribute (ordered list of rank names).")
         self.rank_order: list[str] = self.taxonomy_tree.task_keys
 
-        self.data_iterator = iter(self.dataloader)
+        # NOTE: Prefer calling __iter__ explicitly for testability with MagicMock(spec=...).
+        # `iter(mock)` can bypass the configured __iter__ return_value and yield an empty iterator.
+        self.data_iterator = self.dataloader.__iter__()
         self.current_batch_data: tuple[torch.Tensor, dict[str, torch.Tensor], Any, Any, Any, Any, Any] | None = None
         self.current_sample_idx_in_batch: int = 0
         self.current_batch_size: int = 0
@@ -78,7 +80,7 @@ class LinnaeusRLProblemProvider:
                 # This depends on how H5DataLoader is designed if it doesn't have these.
                 pass
 
-            self.data_iterator = iter(self.dataloader)
+            self.data_iterator = self.dataloader.__iter__()
             self.current_batch_data = next(self.data_iterator)  # Fetch the first batch of the (potentially) new epoch
             # print("LinnaeusRLProblemProvider: Fetched first batch of new/reset epoch.")
 

@@ -38,9 +38,10 @@ class TestTaxonomicClassificationEnv(unittest.TestCase):
 
         self.mock_batch_output = (self.dummy_image_tensor, self.batch_targets, None, None, None, None, None)
 
-        self.iter_mock = MagicMock() # Mock for the iterator object
-        self.iter_mock.__next__.return_value = self.mock_batch_output
-        self.mock_dataloader.__iter__.return_value = self.iter_mock # dataloader.__iter__() returns our mock iterator
+        # NOTE: `MagicMock(spec=...)` has special handling for `__iter__` that can cause
+        # `iter(mock)` to yield an empty iterator when the return_value is a MagicMock.
+        # Use a real Python iterator so `next()` returns our batch reliably.
+        self.mock_dataloader.__iter__.side_effect = lambda: iter([self.mock_batch_output])
 
         # Mock TaxonomyTree
         self.mock_taxonomy_tree = MagicMock(spec=TaxonomyTree)
@@ -90,9 +91,10 @@ class TestTaxonomicClassificationEnv(unittest.TestCase):
         obs, info = env.reset()
 
         self.mock_dataloader.__iter__.assert_called() # Provider should have iterated on dataloader
-        self.iter_mock.__next__.assert_called()    # Provider should have called next on iterator
 
-        self.assertTrue(np.array_equal(obs["image"], self.dummy_image_tensor.cpu().numpy().astype(np.float32)))
+        # Provider returns a single (C,H,W) image for the current sample (no batch dim).
+        expected_img = self.dummy_image_tensor[0].cpu().numpy().astype(np.float32)
+        self.assertTrue(np.array_equal(obs["image"], expected_img))
         self.assertEqual(obs["current_rank_index"], 0)
 
         expected_gt_for_rl = { # Based on self.batch_targets
