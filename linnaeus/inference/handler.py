@@ -16,7 +16,7 @@ from typus.models.classification import HierarchicalClassificationResult, TaskPr
 from linnaeus.inference.api_schemas import InferenceRequestMetadata, ModelInformation
 from linnaeus.inference.artifacts import ClassIndexMapData, TaxonomyData, load_class_index_maps_artifact, load_taxonomy_tree_artifact
 from linnaeus.inference.config import InferenceConfig, load_inference_config
-from linnaeus.inference.model_utils import load_model_for_inference
+from linnaeus.inference import model_utils
 from linnaeus.inference.postprocessing import enforce_hierarchical_consistency
 from linnaeus.inference.preprocessing import preprocess_image_batch, preprocess_metadata_batch
 
@@ -103,7 +103,7 @@ class LinnaeusInferenceHandler:
             model_null_class_indices=cfg.model.null_class_indices,
         )
 
-        model = load_model_for_inference(cfg.model, cfg, taxonomy_data, device)
+        model = model_utils.load_model_for_inference(cfg.model, cfg, taxonomy_data, device)
 
         return cls(model, cfg, taxonomy_data, class_maps, device)
 
@@ -206,10 +206,20 @@ class LinnaeusInferenceHandler:
                 sample_task_predictions.append(TaskPrediction(rank_level=rank_level, temperature=1.0, predictions=predictions_for_typus))
 
             sample_task_predictions.sort(key=lambda t: t.rank_level.value, reverse=True)
+
+            subtree_roots: set[int] | None = None
+            if self.taxonomy_data.root_id is not None:
+                try:
+                    subtree_roots = {int(self.taxonomy_data.root_id)}
+                except (TypeError, ValueError):
+                    # Some taxonomies use string roots (e.g. "Life") for human readability.
+                    # typus expects integer IDs; omit subtree_roots in that case.
+                    logger.warning(f"Non-integer taxonomy root_id={self.taxonomy_data.root_id!r}; omitting subtree_roots.")
+
             hcr = HierarchicalClassificationResult(
                 taxonomy_context=TaxonomyContext(source=self.taxonomy_data.source, version=self.taxonomy_data.version),
                 tasks=sample_task_predictions,
-                subtree_roots={self.taxonomy_data.root_id} if self.taxonomy_data.root_id is not None else None,
+                subtree_roots=subtree_roots,
             )
 
             if self.config.inference_options.enable_hierarchical_consistency_check:

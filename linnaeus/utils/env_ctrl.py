@@ -107,6 +107,48 @@ SCENARIO_DEFAULTS = {
 }
 
 
+def load_env_from_yaml(path: str | Path) -> dict:
+    """Load scenario environment variables from a YAML file (nested structure).
+
+    This is a small, test-friendly wrapper that preserves the original YAML
+    shape, e.g.:
+
+    BLAS:
+      OMP_NUM_THREADS: 1
+    TORCH:
+      TORCH_INTRAOP_NUM_THREADS: 2
+
+    Args:
+        path: Path to YAML file.
+
+    Returns:
+        Nested mapping as loaded from YAML.
+
+    Raises:
+        FileNotFoundError: If the file does not exist.
+        yaml.YAMLError: If the file contains invalid YAML.
+    """
+    path = Path(path)
+    if not path.exists():
+        raise FileNotFoundError(str(path))
+    with open(path) as f:
+        data = yaml.safe_load(f) or {}
+    if not isinstance(data, dict):
+        raise ValueError(f"Expected a mapping at root of YAML file, got {type(data)}")
+    return data
+
+
+def resolve_env_vars(env_vars: dict) -> dict[str, str]:
+    """Resolve a nested YAML env mapping into a flat dict of string values."""
+    flat: dict[str, str] = {}
+    for _, section_vars in env_vars.items():
+        if not isinstance(section_vars, dict):
+            continue
+        for k, v in section_vars.items():
+            flat[str(k)] = str(v)
+    return flat
+
+
 def load_env_defaults(scenario: str = "safe_defaults") -> dict[str, str]:
     """Load environment defaults for a given scenario.
 

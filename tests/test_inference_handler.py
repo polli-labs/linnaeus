@@ -525,7 +525,8 @@ def test_handler_loading():
     real_bundle_path = Path("/datasets/modelWorkshop/mFormerV1/linnaeus/amphibia_mFormerV1/amphibia_mFormerV1_sm_r3c_40e/inference")
     config_file = real_bundle_path / "inference_config.yaml"
 
-    assert config_file.exists(), f"Real inference config file should exist at {config_file}"
+    if not config_file.exists():
+        pytest.skip(f"Real inference bundle not present on this machine: {config_file}")
 
     try:
         handler = LinnaeusInferenceHandler.load_from_artifacts(config_file_path=config_file)
@@ -543,6 +544,9 @@ def test_info_method():
     """Test the info() method of the LinnaeusInferenceHandler."""
     real_bundle_path = Path("/datasets/modelWorkshop/mFormerV1/linnaeus/amphibia_mFormerV1/amphibia_mFormerV1_sm_r3c_40e/inference")
     config_file = real_bundle_path / "inference_config.yaml"
+
+    if not config_file.exists():
+        pytest.skip(f"Real inference bundle not present on this machine: {config_file}")
 
     handler = LinnaeusInferenceHandler.load_from_artifacts(config_file_path=config_file)
     model_info = handler.info()

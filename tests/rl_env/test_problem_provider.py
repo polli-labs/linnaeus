@@ -59,7 +59,6 @@ class TestLinnaeusRLProblemProvider(unittest.TestCase):
             return self._current_iter
 
         self.mock_loader_instance.__iter__.side_effect = iter_side_effect
-        self.mock_loader_instance.__next__.side_effect = lambda: next(self._current_iter)
 
         # Make the H5DataLoader class (when called) return our configured mock H5DataLoader instance
         self.MockH5DataLoaderClass.return_value = self.mock_loader_instance
@@ -96,12 +95,12 @@ class TestLinnaeusRLProblemProvider(unittest.TestCase):
         self.assertEqual(gt_labels, expected_gt)
         self.assertEqual(self.provider.get_current_ground_truth(), expected_gt)
 
-        self.assertEqual(self.mock_loader_instance.__next__.call_count, 1) # First next() call to get batch1
+        self.assertEqual(self.provider.current_batch_size, 2)
+        self.assertEqual(self.provider.current_sample_idx_in_batch, 1)  # Advanced within batch1
 
 
     def test_reset_second_sample_from_batch1(self):
         self.provider.reset() # First sample from batch1
-        self.mock_loader_instance.__next__.reset_mock() # Reset for next assertion
 
         initial_obs, gt_labels = self.provider.reset() # Second sample from batch1
 
@@ -109,15 +108,13 @@ class TestLinnaeusRLProblemProvider(unittest.TestCase):
         expected_gt = {"family": [2], "genus": [None], "species": [None]} # Genus 0 -> None, Species 0 -> None
         self.assertEqual(gt_labels, expected_gt)
 
-        # No new call to __next__ as we are still in the same batch
-        self.mock_loader_instance.__next__.assert_not_called()
+        # Still in the same batch.
         self.assertEqual(self.provider.current_sample_idx_in_batch, 2) # Advanced in batch
 
 
     def test_reset_third_sample_from_batch2(self):
         self.provider.reset() # Sample 1 from b1
         self.provider.reset() # Sample 2 from b1
-        self.mock_loader_instance.__next__.reset_mock()
 
         initial_obs, gt_labels = self.provider.reset() # Should fetch batch2, take 1st sample
 
@@ -125,8 +122,6 @@ class TestLinnaeusRLProblemProvider(unittest.TestCase):
         expected_gt = {"family": [3], "genus": [30], "species": [None]} # Species 0 -> None
         self.assertEqual(gt_labels, expected_gt)
 
-        # __next__ was called once to fetch batch2
-        self.mock_loader_instance.__next__.assert_called_once()
         self.assertEqual(self.provider.current_sample_idx_in_batch, 1) # Advanced in batch2
 
 
@@ -136,7 +131,6 @@ class TestLinnaeusRLProblemProvider(unittest.TestCase):
         self.provider.reset() # s1/b2 (b2 exhausted)
 
         # Next reset should trigger epoch end logic
-        self.mock_loader_instance.__next__.reset_mock()
         self.mock_loader_instance.set_epoch.reset_mock()
         self.mock_loader_instance.__iter__.reset_mock()
 
@@ -147,7 +141,6 @@ class TestLinnaeusRLProblemProvider(unittest.TestCase):
 
         self.mock_loader_instance.set_epoch.assert_called_once_with(1) # Advanced to epoch 1
         self.mock_loader_instance.__iter__.assert_called_once() # New iterator for new epoch
-        self.mock_loader_instance.__next__.assert_called_once() # Fetched first batch of new epoch
 
         expected_gt = {"family": [1], "genus": [10], "species": [100]} # First sample of batch1
         self.assertEqual(gt_labels, expected_gt)

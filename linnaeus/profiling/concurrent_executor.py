@@ -214,6 +214,7 @@ class ConcurrentTrialExecutor:
                         output_dir: str,
                         timeout: int,
                         capture_debug_logs: bool = False,
+                        gpu_id: Optional[int] = None,
                         gpu_ids: Optional[list[int]] = None,
                         required_gpus: int = 1,
                         modify_compose_fn=None) -> Dict[str, Any]:
@@ -241,16 +242,33 @@ class ConcurrentTrialExecutor:
         trial_output_dir: Path | None = None
         result: Dict[str, Any] | None = None
         
+        if gpu_id is not None:
+            if gpu_ids is not None:
+                raise ValueError("Provide only one of gpu_id or gpu_ids")
+            if required_gpus != 1:
+                raise ValueError("gpu_id can only be used with required_gpus=1; use gpu_ids for multi-GPU trials")
+            gpu_ids = [gpu_id]
+
         # Acquire GPU if not specified
         acquired_gpu = False
         if gpu_ids is None:
-            gpu_ids = self.gpu_pool.acquire_gpus(trial_name, count=required_gpus, timeout=3600)
-            if gpu_ids is None:
-                return {
-                    'name': trial_name,
-                    'status': 'timeout',
-                    'error': f'Failed to acquire {required_gpus} GPU(s) within timeout',
-                }
+            if required_gpus == 1:
+                gpu_id_alloc = self.gpu_pool.acquire_gpu(trial_name, timeout=3600)
+                if gpu_id_alloc is None:
+                    return {
+                        "name": trial_name,
+                        "status": "timeout",
+                        "error": "Failed to acquire 1 GPU within timeout",
+                    }
+                gpu_ids = [gpu_id_alloc]
+            else:
+                gpu_ids = self.gpu_pool.acquire_gpus(trial_name, count=required_gpus, timeout=3600)
+                if gpu_ids is None:
+                    return {
+                        "name": trial_name,
+                        "status": "timeout",
+                        "error": f"Failed to acquire {required_gpus} GPU(s) within timeout",
+                    }
             acquired_gpu = True
         gpu_ids = list(gpu_ids)
             
@@ -440,7 +458,10 @@ class ConcurrentTrialExecutor:
             # Release GPU back to the pool *after* docker cleanup so a newly
             # scheduled trial can't overlap with a still-tearing-down container.
             if acquired_gpu:
-                self.gpu_pool.release_gpus(gpu_ids)
+                if len(gpu_ids) == 1:
+                    self.gpu_pool.release_gpu(gpu_ids[0])
+                else:
+                    self.gpu_pool.release_gpus(gpu_ids)
             
         if result is None:
             return {

@@ -98,49 +98,55 @@ class SimpleAbstentionReward(AbstentionRewardFunction):
         implementation might require explicit rank order or use `taxonomy_tree`.
         The `taxonomy_tree` and `confidences` arguments are not used in this simple version.
         """
-        total_reward = 0.0
-        # Assuming predictions and ground_truth have the same task keys and list lengths (ranks)
-        # This simplistic version iterates through the first task key's list of predictions.
-        # A more robust implementation would iterate through ranks based on a predefined order
-        # or ensure all task_keys in predictions and ground_truth are aligned.
-
+        # `predictions` / `ground_truth` are expected to be per-rank dicts, where the list
+        # dimension is *batch*, not rank. Example for batch_size=1:
+        #   {"family": [10], "genus": [52], "species": [None]}
+        #
+        # Rank order is taken from taxonomy_tree.task_keys when available; otherwise we fall
+        # back to dict insertion order, which is stable in Python 3.7+.
         if not predictions:
             return 0.0
 
-        # For simplicity, let's assume a single task or that the reward logic applies
-        # consistently across tasks if multiple are present.
-        # We'll iterate through the ranks of the first task key found.
-        # A more sophisticated approach might involve specific task_keys list from taxonomy.
+        if taxonomy_tree is not None and hasattr(taxonomy_tree, "task_keys") and taxonomy_tree.task_keys:
+            rank_order = list(taxonomy_tree.task_keys)
+        else:
+            rank_order = list(predictions.keys())
 
-        # This example will process ranks based on the order in the first task key's list.
-        # It assumes all task keys in `predictions` and `ground_truth` have prediction lists
-        # of the same length (number of ranks considered).
+        # Derive batch size from the first rank key that exists in predictions.
+        batch_size: int | None = None
+        for k in rank_order:
+            if k in predictions:
+                batch_size = len(predictions[k])
+                break
+        if batch_size is None:
+            return 0.0
 
-        first_task_key = next(iter(predictions))
-        num_ranks = len(predictions[first_task_key])
+        sample_rewards: list[float] = []
+        for sample_idx in range(batch_size):
+            total_reward = 0.0
+            for rank_name in rank_order:
+                pred_list = predictions.get(rank_name) or []
+                gt_list = ground_truth.get(rank_name) or []
 
-        for i in range(num_ranks):
-            # We need to make sure we are comparing the same rank across all task keys if that's the intent.
-            # This example simplifies by assuming a single hierarchy or that all hierarchies are processed identically.
-            # A more robust way would be to get rank names from taxonomy_tree if available.
+                pred_label_at_rank = pred_list[sample_idx] if sample_idx < len(pred_list) else None
+                gt_label_at_rank = gt_list[sample_idx] if sample_idx < len(gt_list) else None
 
-            # Let's process based on the first_task_key's ranks
-            pred_label_at_rank = predictions[first_task_key][i]
-            gt_label_at_rank = ground_truth[first_task_key][i]
+                if gt_label_at_rank is None:  # Ground truth is null (abstention is correct)
+                    if pred_label_at_rank is None:
+                        total_reward += self.reward_correct_abstention
+                    else:
+                        total_reward += self.penalty_incorrect_prediction_at_null_rank
+                else:  # Ground truth is a valid class
+                    if pred_label_at_rank is None:
+                        total_reward += self.penalty_unnecessary_abstention
+                    elif pred_label_at_rank == gt_label_at_rank:
+                        total_reward += self.reward_correct_classification
+                    else:
+                        total_reward += self.penalty_misclassification
+            sample_rewards.append(total_reward)
 
-            if gt_label_at_rank is None:  # Ground truth is null (abstention is correct)
-                if pred_label_at_rank is None:  # Agent correctly abstained
-                    total_reward += self.reward_correct_abstention
-                else:  # Agent predicted a class when it should have abstained
-                    total_reward += self.penalty_incorrect_prediction_at_null_rank
-            else:  # Ground truth is a valid class
-                if pred_label_at_rank is None:  # Agent abstained when it should have classified
-                    total_reward += self.penalty_unnecessary_abstention
-                elif pred_label_at_rank == gt_label_at_rank:  # Agent correctly classified
-                    total_reward += self.reward_correct_classification
-                else:  # Agent misclassified
-                    total_reward += self.penalty_misclassification
-        return total_reward
+        # Reward is per-sample; return mean across batch for a scalar signal.
+        return float(sum(sample_rewards) / max(1, len(sample_rewards)))
 
 
 class EpisodeOutcomeReward(AbstentionRewardFunction):
@@ -181,36 +187,52 @@ class EpisodeOutcomeReward(AbstentionRewardFunction):
         number of ranks. The `taxonomy_tree` and `confidences` are not used.
         If `predictions` is empty, it's considered a suboptimal outcome.
         """
-        # Similar to SimpleAbstentionReward, this is a simplified iteration.
-        # It assumes a single task or consistent processing.
-        if not predictions:  # Empty predictions considered suboptimal
+        # `predictions` / `ground_truth` are expected to be per-rank dicts, where the list
+        # dimension is *batch*, not rank. Example for batch_size=1:
+        #   {"family": [10], "genus": [52], "species": [None]}
+        #
+        # The episode outcome is computed across ranks, in rank_order.
+        if not predictions:
             return self.penalty_suboptimal_outcome
 
-        first_task_key = next(iter(predictions))
-        num_ranks = len(predictions[first_task_key])
+        if taxonomy_tree is not None and hasattr(taxonomy_tree, "task_keys") and taxonomy_tree.task_keys:
+            rank_order = list(taxonomy_tree.task_keys)
+        else:
+            rank_order = list(predictions.keys())
 
-        is_optimal = True
-        for i in range(num_ranks):
-            pred_label_at_rank = predictions[first_task_key][i]
-            gt_label_at_rank = ground_truth[first_task_key][i]
+        batch_size: int | None = None
+        for k in rank_order:
+            if k in predictions:
+                batch_size = len(predictions[k])
+                break
+        if batch_size is None:
+            return self.penalty_suboptimal_outcome
 
-            if gt_label_at_rank is None:  # Ground truth is null
-                if pred_label_at_rank is None:  # Correctly abstained
-                    # This is the optimal stopping point if all previous were correct
-                    # Any further predictions by the agent (if the list is longer) are ignored
-                    # or could be penalized if the structure implies termination.
-                    # For this definition, we assume this is the end of relevant GT.
-                    break
-                else:  # Predicted a class when should have abstained
+        sample_rewards: list[float] = []
+        for sample_idx in range(batch_size):
+            is_optimal = True
+            for rank_name in rank_order:
+                pred_list = predictions.get(rank_name) or []
+                gt_list = ground_truth.get(rank_name) or []
+
+                pred_label_at_rank = pred_list[sample_idx] if sample_idx < len(pred_list) else None
+                gt_label_at_rank = gt_list[sample_idx] if sample_idx < len(gt_list) else None
+
+                if gt_label_at_rank is None:
+                    if pred_label_at_rank is None:
+                        # Optimal stopping point.
+                        break
                     is_optimal = False
                     break
-            else:  # Ground truth is a valid class
-                if pred_label_at_rank is None:  # Unnecessarily abstained
-                    is_optimal = False
-                    break
-                elif pred_label_at_rank != gt_label_at_rank:  # Misclassified
-                    is_optimal = False
-                    break
-                # If pred_label_at_rank == gt_label_at_rank, it's correct, continue
 
-        return self.reward_optimal_outcome if is_optimal else self.penalty_suboptimal_outcome
+                # gt is a valid class
+                if pred_label_at_rank is None:
+                    is_optimal = False
+                    break
+                if pred_label_at_rank != gt_label_at_rank:
+                    is_optimal = False
+                    break
+
+            sample_rewards.append(self.reward_optimal_outcome if is_optimal else self.penalty_suboptimal_outcome)
+
+        return float(sum(sample_rewards) / max(1, len(sample_rewards)))

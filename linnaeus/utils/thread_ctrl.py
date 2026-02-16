@@ -29,7 +29,8 @@ def get_current_settings() -> dict[str, str]:
     warnings.warn("Use env_ctrl functions instead", DeprecationWarning, stacklevel=2)
     import os
 
-    return {k: os.environ.get(k, v) for k, v in LINNAEUS_SAFE_DEFAULT_ENV.items()}
+    # Backward-compat: thread_ctrl exposes only thread-related keys.
+    return {k: os.environ.get(k, v) for k, v in THREAD_ENV_DEFAULTS.items()}
 
 
 def apply_thread_settings() -> None:
@@ -39,10 +40,29 @@ def apply_thread_settings() -> None:
     """
     warnings.warn("Use env_ctrl functions instead", DeprecationWarning, stacklevel=2)
     import os
+    import sys
 
     env_defaults = load_env_defaults("safe_defaults")
     for key, value in env_defaults.items():
         os.environ.setdefault(key, str(value))
+
+    # Backward-compatible behavior: if torch is already imported, apply thread settings
+    # to the runtime as well. This keeps old tests and scripts working without forcing
+    # an import of torch when it's not needed.
+    if "torch" in sys.modules:
+        try:
+            import torch
+
+            intra = int(os.environ.get("TORCH_INTRAOP_NUM_THREADS", "0") or "0")
+            inter = int(os.environ.get("TORCH_INTEROP_NUM_THREADS", "0") or "0")
+            if intra > 0:
+                torch.set_num_threads(intra)
+            if inter > 0:
+                # Can raise if interop threads already set; keep best-effort semantics.
+                torch.set_num_interop_threads(inter)
+        except Exception:
+            # Thread control should never make imports fail.
+            pass
 
 
 def validate_thread_settings() -> bool:

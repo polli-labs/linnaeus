@@ -536,9 +536,9 @@ _C.MODEL.CLASSIFICATION.HEADS = CN(new_allowed=True)
 # DINOv3 vNext (frozen backbone + multi-head adapters)
 # ----------------------------------------------------------------------------
 _C.MODEL.DINOV3 = CN()
-_C.MODEL.DINOV3.BACKBONE_ID = "dinov3/vitb14"
+_C.MODEL.DINOV3.BACKBONE_ID = "facebook/dinov3-vitb16-pretrain-lvd1689m"
 _C.MODEL.DINOV3.USE_STUB = True  # CPU-safe default; replace with real DINOv3 loader when available
-_C.MODEL.DINOV3.PATCH_SIZE = 14
+_C.MODEL.DINOV3.PATCH_SIZE = 16
 _C.MODEL.DINOV3.EMBED_DIM = 768
 _C.MODEL.DINOV3.FREEZE_BACKBONE = True
 

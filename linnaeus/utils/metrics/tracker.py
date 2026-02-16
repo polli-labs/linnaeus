@@ -2060,8 +2060,10 @@ class MetricsTracker:
         ########################################################################
         # 8) NULL MASKING METRICS (if available)
         ########################################################################
-        # Check if debugging is enabled
-        debug_null_masking = getattr(self.config.DEBUG.LOSS, "NULL_MASKING", False)
+        # Check if debugging is enabled (config DEBUG blocks are optional in unit tests).
+        from linnaeus.utils.debug_utils import check_debug_flag
+
+        debug_null_masking = check_debug_flag(self.config, "DEBUG.LOSS.NULL_MASKING")
 
         # Include null masking metrics if they exist
         if hasattr(self, "null_masking_stats") and self.null_masking_stats:

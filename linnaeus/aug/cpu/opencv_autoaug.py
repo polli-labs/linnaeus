@@ -32,6 +32,24 @@ class OpenCVAutoAugmentBatch(AutoAugmentBatch):
         def level_to_value(level, max_val):
             return (level / 10.0) * max_val
 
+        # Albumentations has renamed/removed a few transforms between v1 and v2.
+        # Keep ops resilient across versions used by different dev machines/CI images.
+        def random_contrast(p: float, level: int) -> A.BasicTransform:
+            limit = level_to_value(level, 0.9)
+            if hasattr(A, "RandomContrast"):
+                return A.RandomContrast(limit=limit, p=p)
+            if hasattr(A, "RandomBrightnessContrast"):
+                return A.RandomBrightnessContrast(brightness_limit=0.0, contrast_limit=limit, p=p)
+            return A.NoOp(p=p)
+
+        def random_brightness(p: float, level: int) -> A.BasicTransform:
+            limit = level_to_value(level, 0.9)
+            if hasattr(A, "RandomBrightness"):
+                return A.RandomBrightness(limit=limit, p=p)
+            if hasattr(A, "RandomBrightnessContrast"):
+                return A.RandomBrightnessContrast(brightness_limit=limit, contrast_limit=0.0, p=p)
+            return A.NoOp(p=p)
+
         # Helper for solarize threshold
         def solarize_threshold(level):
             return int(256 - level_to_value(level, 256))
@@ -54,7 +72,7 @@ class OpenCVAutoAugmentBatch(AutoAugmentBatch):
                 shift_limit_y=(-level_to_value(level, 0.45), level_to_value(level, 0.45)), scale_limit=0, rotate_limit=0, p=p
             ),
             "Rotate": lambda p, level: A.Rotate(limit=(-level_to_value(level, 30), level_to_value(level, 30)), p=p),
-            "AutoContrast": lambda p, level: A.CLAHE(p=p),  # Using CLAHE as a proxy for AutoContrast
+            "AutoContrast": lambda p, level: (A.AutoContrast(p=p) if hasattr(A, "AutoContrast") else A.CLAHE(p=p)),
             "Invert": lambda p, level: A.InvertImg(p=p),
             "Equalize": lambda p, level: A.Equalize(p=p),
             "Solarize": lambda p, level: A.Solarize(threshold=solarize_threshold(level), p=p),
@@ -62,9 +80,9 @@ class OpenCVAutoAugmentBatch(AutoAugmentBatch):
             "PosterizeIncreasing": lambda p, level: A.Posterize(
                 num_bits=8 - posterize_bits(level), p=p
             ),  # Different interpretation for some policies
-            "Contrast": lambda p, level: A.RandomContrast(limit=level_to_value(level, 0.9), p=p),
+            "Contrast": random_contrast,
             "Color": lambda p, level: A.ColorJitter(p=p),  # Let ColorJitter handle its own defaults
-            "Brightness": lambda p, level: A.RandomBrightness(limit=level_to_value(level, 0.9), p=p),
+            "Brightness": random_brightness,
             "Sharpness": lambda p, level: A.Sharpen(p=p),
             # Note: SolarizeAdd and other custom ops from timm are not directly in Albumentations.
             # We can use A.Lambda or implement them if needed. For now, we map to closest available.

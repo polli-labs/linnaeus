@@ -42,6 +42,9 @@ class DinoV3Backbone(nn.Module):
         if use_stub:
             self.patch_embed = nn.Conv2d(in_chans, embed_dim, kernel_size=patch_size, stride=patch_size)
             self.cls_token = nn.Parameter(torch.zeros(1, 1, embed_dim))
+            logger.warning(
+                "Running with DINOv3 STUB backbone — features are random. Results are NOT meaningful for FG evaluation or Gate G0."
+            )
             if freeze:
                 for param in self.patch_embed.parameters():
                     param.requires_grad = False
@@ -56,6 +59,17 @@ class DinoV3Backbone(nn.Module):
                 self._model.eval()
                 for param in self._model.parameters():
                     param.requires_grad = False
+            model_params = list(self._model.parameters())
+            total_params = sum(param.numel() for param in model_params)
+            frozen_params = sum(param.numel() for param in model_params if not param.requires_grad)
+            first_param_dtype = model_params[0].dtype if model_params else "n/a"
+            logger.info(
+                "Loaded DINOv3 backbone id=%s total_params=%d frozen_params=%d first_param_dtype=%s",
+                backbone_id,
+                total_params,
+                frozen_params,
+                first_param_dtype,
+            )
 
     def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, tuple[int, int]]:
         if self.use_stub:
@@ -71,8 +85,9 @@ class DinoV3Backbone(nn.Module):
         tokens = getattr(outputs, "last_hidden_state", None)
         if tokens is None:
             raise RuntimeError("DINOv3 output missing last_hidden_state")
+        num_register = getattr(self._model.config, "num_register_tokens", 0)
         cls = tokens[:, :1, :]
-        patch_tokens = tokens[:, 1:, :]
+        patch_tokens = tokens[:, 1 + num_register :, :]
         grid_size = (int(patch_tokens.shape[1] ** 0.5),) * 2
         return cls, patch_tokens, grid_size
 

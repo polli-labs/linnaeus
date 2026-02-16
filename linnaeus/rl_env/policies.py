@@ -134,7 +134,7 @@ class LinnaeusPolicyWrapper(nn.Module):
         backbone_features: torch.Tensor
         if hasattr(self.linnaeus_model, "extract_features") and callable(self.linnaeus_model.extract_features):
             backbone_features = self.linnaeus_model.extract_features(image_tensor)
-        elif hasattr(self.linnaeus_model, "backbone") and isinstance(self.linnaeus_model.backbone, nn.Module):
+        elif hasattr(self.linnaeus_model, "backbone") and callable(getattr(self.linnaeus_model, "backbone")):
             backbone_output = self.linnaeus_model.backbone(image_tensor)
             if backbone_output.ndim == 3 and backbone_output.shape[0] == image_tensor.shape[0]:
                 backbone_features = backbone_output[:, 0, :]
@@ -144,7 +144,7 @@ class LinnaeusPolicyWrapper(nn.Module):
                 raise RuntimeError(f"Unsupported backbone output shape: {backbone_output.shape}. Expected (B, D) or (B, N, D).")
         else:
             raise RuntimeError(
-                "Linnaeus model for policy wrapper must have an 'extract_features' method or a 'backbone' attribute that is an nn.Module."
+                "Linnaeus model for policy wrapper must have an 'extract_features' method or a callable 'backbone' attribute."
             )
 
         if backbone_features.shape[-1] != self.backbone_features_dim:

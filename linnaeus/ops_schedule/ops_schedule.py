@@ -66,11 +66,71 @@ class OpsSchedule:
         self.metrics_tracker = metrics_tracker
         self.training_progress = training_progress
 
-        # Store some shortcuts to schedule configs
-        self.meta_cfg = self.config.SCHEDULE.META_MASKING
-        self.mix_cfg = self.config.SCHEDULE.MIX  # Updated from MIXUP to MIX
-        self.validation_cfg = self.config.SCHEDULE.VALIDATION
-        self.checkpoint_cfg = self.config.SCHEDULE.CHECKPOINT
+        # Store some shortcuts to schedule configs.
+        #
+        # NOTE: A handful of unit tests use lightweight MockConfig objects that only define
+        # SCHEDULE.METRICS; keep OpsSchedule resilient by providing safe defaults when other
+        # schedule sections are absent.
+        schedule_cfg = getattr(self.config, "SCHEDULE", None)
+
+        # --- META_MASKING ---
+        self.meta_cfg = getattr(schedule_cfg, "META_MASKING", None) if schedule_cfg is not None else None
+        if self.meta_cfg is None:
+            self.meta_cfg = CN(new_allowed=True)
+            self.meta_cfg.ENABLED = False
+            self.meta_cfg.START_PROB = 0.0
+            self.meta_cfg.END_PROB = 0.0
+            self.meta_cfg.END_STEPS = 0
+            self.meta_cfg.END_FRACTION = None
+            self.meta_cfg.PARTIAL = CN(new_allowed=True)
+            self.meta_cfg.PARTIAL.ENABLED = False
+            self.meta_cfg.PARTIAL.WHITELIST = []
+            self.meta_cfg.PARTIAL.WEIGHTS = []
+            self.meta_cfg.PARTIAL.START_STEPS = None
+            self.meta_cfg.PARTIAL.START_FRACTION = None
+            self.meta_cfg.PARTIAL.END_STEPS = None
+            self.meta_cfg.PARTIAL.END_FRACTION = None
+            self.meta_cfg.PARTIAL.START_PROB = None
+            self.meta_cfg.PARTIAL.END_PROB = None
+            self.meta_cfg.PARTIAL.PROB_END_STEPS = None
+            self.meta_cfg.PARTIAL.PROB_END_FRACTION = None
+
+        # --- MIX (formerly MIXUP) ---
+        self.mix_cfg = None
+        if schedule_cfg is not None:
+            self.mix_cfg = getattr(schedule_cfg, "MIX", None) or getattr(schedule_cfg, "MIXUP", None)
+        if self.mix_cfg is None:
+            self.mix_cfg = CN(new_allowed=True)
+            self.mix_cfg.PROB = CN(new_allowed=True)
+            self.mix_cfg.PROB.ENABLED = False
+            self.mix_cfg.PROB.START_PROB = 0.0
+            self.mix_cfg.PROB.END_PROB = 0.0
+            self.mix_cfg.PROB.END_STEPS = 0
+            self.mix_cfg.GROUP_LEVELS = []
+            self.mix_cfg.LEVEL_SWITCH_STEPS = []
+            self.mix_cfg.MIXUP = CN(new_allowed=True)
+            self.mix_cfg.MIXUP.ENABLED = False
+            self.mix_cfg.CUTMIX = CN(new_allowed=True)
+            self.mix_cfg.CUTMIX.ENABLED = False
+            self.mix_cfg.SWITCH_PROB = 0.5
+
+        # --- VALIDATION ---
+        self.validation_cfg = getattr(schedule_cfg, "VALIDATION", None) if schedule_cfg is not None else None
+        if self.validation_cfg is None:
+            self.validation_cfg = CN(new_allowed=True)
+            self.validation_cfg.INTERVAL_EPOCHS = 0
+            self.validation_cfg.INTERVAL_STEPS = 0
+            self.validation_cfg.IS_ONE_TIME_TRIGGER = False
+            self.validation_cfg.MASK_META_INTERVAL_EPOCHS = 0
+            self.validation_cfg.MASK_META_INTERVAL_STEPS = 0
+            self.validation_cfg.IS_MASK_META_ONE_TIME_TRIGGER = False
+
+        # --- CHECKPOINT ---
+        self.checkpoint_cfg = getattr(schedule_cfg, "CHECKPOINT", None) if schedule_cfg is not None else None
+        if self.checkpoint_cfg is None:
+            self.checkpoint_cfg = CN(new_allowed=True)
+            self.checkpoint_cfg.INTERVAL_STEPS = 0
+            self.checkpoint_cfg.INTERVAL_EPOCHS = 0
 
         # Initialize sets for tracking one-time validation events
         self._validation_triggered = set()
@@ -132,6 +192,20 @@ class OpsSchedule:
         Returns:
             Dictionary of early stopping configuration
         """
+        if not hasattr(self.config, "TRAIN") or not hasattr(self.config.TRAIN, "EARLY_STOP"):
+            # Early stopping is optional; unit tests often pass a minimal config that
+            # doesn't include TRAIN.EARLY_STOP.
+            return {
+                "active": False,
+                "metric": "val_loss",
+                "patience_steps": None,
+                "min_delta": 0.0,
+                "max_steps": None,
+                "max_loss": None,
+                "min_lr": None,
+                "max_grad_norm": None,
+            }
+
         c = self.config.TRAIN.EARLY_STOP
         return {
             "active": c.ACTIVE,
