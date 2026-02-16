@@ -1193,6 +1193,10 @@ class H5DataLoader(DataLoader):
 
             # 2) mixing - only apply if using grouped sampler
             apply_mixing = False
+            # These are only sampled/defined when mixing decisions are actually taken.
+            # Keep defaults to avoid UnboundLocalError in downstream debug logging paths.
+            mixup_prob = 0.0
+            rand_val = None
 
             # Check sampler type from config
             if (
@@ -1692,9 +1696,16 @@ class H5DataLoader(DataLoader):
                         # For hard labels
                         self.main_logger.debug(f"  - First {sample_size} samples AFTER mixup: {merged_targets[task_to_log][:sample_size]}")
             else:
-                self.main_logger.debug(
-                    f"[MIXUP_DEBUG] Mixup skipped at global_optimizer_step {current_global_optimizer_step} (random={rand_val:.4f} >= threshold={mixup_prob:.4f})"
-                )
+                # NOTE: rand_val is only sampled when we are actually considering mixing (grouped sampler or legacy path).
+                # When using the standard sampler, we skip mixing without sampling any random numbers.
+                if rand_val is not None:
+                    self.main_logger.debug(
+                        f"[MIXUP_DEBUG] Mixup skipped at global_optimizer_step {current_global_optimizer_step} (random={rand_val:.4f} >= threshold={mixup_prob:.4f})"
+                    )
+                else:
+                    self.main_logger.debug(
+                        f"[MIXUP_DEBUG] Mixup skipped at global_optimizer_step {current_global_optimizer_step} (no mix decision sampled)"
+                    )
 
         # --- PHASE 3 REFACTOR: Centralized GPU Transfer ---
         if self.use_gpu:
