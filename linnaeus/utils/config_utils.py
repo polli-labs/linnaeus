@@ -225,15 +225,25 @@ def update_out_features(cfg: CN, num_classes: dict[str, int]) -> None:
     """
     cfg.defrost()
 
-    # Check aggregator dimension
-    if "AGGREGATION" not in cfg.MODEL:
-        raise ValueError("No AGGREGATION config found in MODEL; cannot determine final dimension.")
+    # Determine the feature dimension that feeds classification heads.
+    #
+    # Most models (mFormerV0/V1) use MODEL.AGGREGATION.PARAMETERS.out_channels (set by model BASE configs).
+    # DINOv3MultiHead does *not* use the mFormer aggregation block; it feeds heads directly from the
+    # DINOv3 embedding dimension (MODEL.DINOV3.EMBED_DIM). Avoid forcing DINOv3 configs to define
+    # AGGREGATION.PARAMETERS.out_channels, which is not a declared default key.
+    if getattr(cfg.MODEL, "TYPE", "") == "DINOv3MultiHead":
+        if not hasattr(cfg.MODEL, "DINOV3") or not hasattr(cfg.MODEL.DINOV3, "EMBED_DIM"):
+            raise ValueError("MODEL.DINOV3.EMBED_DIM is required for DINOv3MultiHead to set classification head sizes.")
+        in_features = int(cfg.MODEL.DINOV3.EMBED_DIM)
+    else:
+        if "AGGREGATION" not in cfg.MODEL:
+            raise ValueError("No AGGREGATION config found in MODEL; cannot determine final dimension.")
 
-    agg_params = cfg.MODEL.AGGREGATION.get("PARAMETERS", None)
-    if not agg_params or "out_channels" not in agg_params:
-        raise ValueError("AGGREGATION.PARAMETERS.out_channels is missing; cannot set classification in_features.")
+        agg_params = cfg.MODEL.AGGREGATION.get("PARAMETERS", None)
+        if not agg_params or "out_channels" not in agg_params:
+            raise ValueError("AGGREGATION.PARAMETERS.out_channels is missing; cannot set classification in_features.")
 
-    aggregator_dim = agg_params["out_channels"]
+        in_features = int(agg_params["out_channels"])
 
     # For each classification head, set IN_FEATURES and OUT_FEATURES
     for task_str in cfg.DATA.TASK_KEYS_H5:  # NOTE: equivalent to num_classes.keys()
@@ -243,7 +253,7 @@ def update_out_features(cfg: CN, num_classes: dict[str, int]) -> None:
             raise ValueError(f"No num_classes found for {task_str}")
         head_cfg = cfg.MODEL.CLASSIFICATION.HEADS[task_str]
 
-        head_cfg.IN_FEATURES = aggregator_dim
+        head_cfg.IN_FEATURES = in_features
         head_cfg.OUT_FEATURES = num_classes[task_str]
 
     cfg.freeze()
