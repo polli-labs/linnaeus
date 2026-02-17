@@ -165,9 +165,49 @@ def compute_foregroundness_loss(
 
     per_sample = loss_raw.mean(dim=1)
     if valid.any():
+        eps = 1e-8
+        logits_valid = logits_flat[valid]
+        target_mask_valid = target_mask[valid]
+        target_bool = target_mask_valid > 0.5
+        probs = torch.sigmoid(logits_valid)
+        pred = probs >= 0.5
+
+        inside_mask = target_bool
+        outside_mask = ~target_bool
+
+        if inside_mask.any():
+            mean_prob_in = float(probs[inside_mask].mean().item())
+        else:
+            mean_prob_in = 0.0
+
+        if outside_mask.any():
+            mean_prob_out = float(probs[outside_mask].mean().item())
+        else:
+            mean_prob_out = 0.0
+
+        pred_area_frac = float(pred.float().mean().item())
+        target_area_frac = float(target_mask_valid.float().mean().item())
+
+        intersection = (pred & target_bool).float().sum()
+        union = (pred | target_bool).float().sum()
+        iou = float((intersection / union.clamp_min(eps)).item()) if union.item() > 0 else 0.0
+
+        foreground_mass = (probs * target_mask_valid).sum()
+        total_mass = probs.sum()
+        mass_ratio = float((foreground_mass / total_mass.clamp_min(eps)).item()) if total_mass.item() > 0 else 0.0
+
         loss = per_sample[valid].mean()
         stats["fg_valid_frac"] = float(valid.float().mean().item())
         stats["fg_loss_mean"] = float(loss.item())
+        stats["mean_prob_in"] = mean_prob_in
+        stats["mean_prob_out"] = mean_prob_out
+        stats["mean_prob_in_bbox"] = mean_prob_in
+        stats["mean_prob_outside_bbox"] = mean_prob_out
+        stats["mean_prob_delta_in_out"] = mean_prob_in - mean_prob_out
+        stats["pred_area_frac@0.5"] = pred_area_frac
+        stats["target_area_frac"] = target_area_frac
+        stats["iou@0.5"] = iou
+        stats["mass_ratio"] = mass_ratio
         return loss, stats
 
     return None, {}

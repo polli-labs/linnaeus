@@ -432,6 +432,12 @@ def train_one_epoch(
                     # Values in loss_components["tasks"] are already floats
                     "tasks": {k: float(v) for k, v in loss_components.get("tasks", {}).items()},
                 }
+                if "foregroundness" in loss_components:
+                    batch_loss_dict_for_log["foregroundness"] = float(loss_components["foregroundness"])
+                if "foregroundness_stats" in loss_components:
+                    batch_loss_dict_for_log["foregroundness_stats"] = {
+                        key: float(value) for key, value in loss_components["foregroundness_stats"].items()
+                    }
 
                 # Collect GradNorm metrics if they were computed
                 final_gradnorm_metrics_to_log = {}

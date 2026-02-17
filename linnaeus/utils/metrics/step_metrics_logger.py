@@ -193,6 +193,15 @@ class StepMetricsLogger:
                 for task_key, loss_value in batch_loss_dict["tasks"].items():
                     step_metrics[f"loss/{task_key}"] = loss_value
 
+            # Add foregroundness diagnostics when present so short ablation runs can
+            # apply stop/scale guardrails directly from step metrics.
+            if "foregroundness" in batch_loss_dict:
+                step_metrics["foregroundness/loss"] = batch_loss_dict["foregroundness"]
+            if "foregroundness_stats" in batch_loss_dict:
+                for stat_name, stat_value in batch_loss_dict["foregroundness_stats"].items():
+                    if isinstance(stat_value, (int, float)):
+                        step_metrics[f"foregroundness/{stat_name}"] = float(stat_value)
+
         # Add learning rate if provided
         if lr_value is not None:
             step_metrics["lr"] = lr_value
