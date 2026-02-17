@@ -30,19 +30,24 @@ Scenarios Supported:
    - We build a train dataset from train file(s) and a val dataset from val file(s).
    - The vectorized processor directly fills group_ids["train"] and group_ids["val"].
 
-2) **Scenario B (Single-file pure-HDF5)**
+2) **Scenario A-H (Separate Train+Val, Hybrid)**
+   - config.DATA.H5.TRAIN_LABELS_PATH + config.DATA.H5.VAL_LABELS_PATH
+   - config.DATA.HYBRID.USE_HYBRID = True (images on disk at IMAGES_DIR)
+   - Same as Scenario A but images come from disk, not HDF5.
+
+3) **Scenario B (Single-file pure-HDF5)**
    - config.DATA.H5.LABELS_PATH, config.DATA.H5.IMAGES_PATH
    - The label processor lumps everything into group_ids[*]["all"], then we do
      an internal random train/val split. We wrap them in a _SingleFileH5SubsetWrapper
      that slices group_ids[*]["all"] accordingly.
 
-3) **Scenario B-H (Single-file Hybrid)**
+4) **Scenario B-H (Single-file Hybrid)**
    - config.DATA.HYBRID.USE_HYBRID = True
    - One HDF5 (labels) plus images in a directory on disk.
    - We do the same random train/val split as in Scenario B, then wrap each subset
      in a _SingleFileHybridSubsetWrapper.
 
-4) **Scenario C (Train-only)**
+5) **Scenario C (Train-only)**
    - We have train labels/images but no val. We produce a real train dataset
      and an empty val dataset.
 
@@ -364,6 +369,56 @@ def build_datasets(
             subset_ids=subset_ids["val"],
             is_val=True,
             aug_pipeline=None,  # disable heavy training augs for val
+            class_to_idx=class_to_idx,
+            config=config,
+        )
+
+    # Scenario A-H: separate train+val labels with hybrid (images on disk, not in H5).
+    # Same as Scenario A but images_f=None triggers hybrid dataset creation in _init_dataset.
+    elif (
+        config.DATA.H5.TRAIN_LABELS_PATH is not None
+        and config.DATA.H5.VAL_LABELS_PATH is not None
+        and config.DATA.HYBRID.USE_HYBRID
+        and not single_file_pure
+        and not single_file_hybrid
+    ):
+        main_logger.info("Scenario A-H: separate train+val labels with hybrid (images on disk).")
+        _emit_init("dataset_processor_start")
+        results = processor.process_datasets(single_file_mode=False)
+        _emit_init("dataset_processor_end")
+        (
+            class_to_idx,
+            task_label_density,
+            class_label_counts,
+            group_ids,
+            taxonomy_tree,
+            subset_ids,
+            subset_maps,
+            rarity_percentiles,
+            task_nulls_density,
+            meta_label_density,
+        ) = results
+
+        # Build train dataset — images_f=None so _init_dataset picks hybrid mode
+        dataset_train = _init_dataset(
+            labels_f=config.DATA.H5.TRAIN_LABELS_PATH,
+            images_f=None,
+            all_group_ids=group_ids,
+            subset_ids=subset_ids["train"],
+            is_val=False,
+            aug_pipeline=augmentation_pipeline,
+            class_to_idx=class_to_idx,
+            config=config,
+        )
+
+        # Build val dataset — images_f=None for hybrid mode
+        dataset_val = _init_dataset(
+            labels_f=config.DATA.H5.VAL_LABELS_PATH,
+            images_f=None,
+            all_group_ids=group_ids,
+            subset_ids=subset_ids["val"],
+            is_val=True,
+            aug_pipeline=None,
             class_to_idx=class_to_idx,
             config=config,
         )
