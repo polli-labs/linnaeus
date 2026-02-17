@@ -858,8 +858,9 @@ class VectorizedDatasetProcessorOnePass:
             self.group_ids[rk][dataset_type] = final_group
 
         # 6) Build subset IDs (Ensure list has length N)
-        # Initialize the list for 'all' samples with default empty dicts
-        full_sub_ids_list = [{} for _ in range(N)]  # Length N, default empty
+        # Initialize with sentinel values so every entry has consistent keys.
+        # Invalid samples keep taxa=-1, rarity=-1 (same sentinels used elsewhere).
+        full_sub_ids_list = [{"taxa": -1, "rarity": -1} for _ in range(N)]
 
         # Calculate taxa subset IDs only for valid samples
         N_valid = sub_taxa_stack.shape[0]

@@ -683,7 +683,7 @@ class H5DataLoader(DataLoader):
         merged_subset_ids = {}
         if subs_list and len(subs_list[0]) > 0:
             for sub_k in subs_list[0].keys():
-                merged_subset_ids[sub_k] = torch.tensor([s[sub_k] for s in subs_list], dtype=torch.long)
+                merged_subset_ids[sub_k] = torch.tensor([s.get(sub_k, -1) for s in subs_list], dtype=torch.long)
 
         # Debug log the initial state of aux_info and meta_validity_masks before any masking
 
