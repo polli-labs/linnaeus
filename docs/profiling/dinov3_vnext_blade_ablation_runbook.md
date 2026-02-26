@@ -1,9 +1,9 @@
 ---
 title: "DINOv3 vNext Blade Ablation Runbook"
-summary: "Guardrailed A0/A1/A2 bbox-lane smoke and stop/scale criteria for blade."
+summary: "Guardrailed A0/A1/A2 bbox-lane smoke plus POL-615 M2 reboot decision matrix and relaunch gates."
 tags: [docs, profiling, dinov3, bbox]
 date: 2026-02-06
-lastmod: 2026-02-06
+lastmod: 2026-02-26
 x:
   project: linnaeus
   doc_type: docs_page
@@ -110,3 +110,68 @@ VAL:
   - Resolved bbox key pair.
   - Enabled consumer states for `MASK_POOLING`, `FOREGROUNDNESS`, and `SMALL_OBJECT_STRAT`.
   - `bbox_valid_frac` on the chosen labels split.
+
+## POL-615 M2 Reboot (Canonical)
+
+This section is the in-repo canonical reference for the M2 reboot decision table and relaunch contract tracked in `POL-615`.
+
+### B-Series Decision Matrix (smoke20k-v2 canary)
+
+| Trial | Delta vs B1 baseline | Runtime | final_val_loss | L20 acc1 | L40 acc1 | partial_chain_accuracy |
+|---|---|---:|---:|---:|---:|---:|
+| B1 | Meta adapter only (no mask pooling, no FG) | 0:58:17 | 3.270871 | **21.65** | **86.525** | **0.038639** |
+| B2 | B1 + mask pooling (FG off) | 0:57:23 | 3.249611 | 19.075 | 85.475 | 0.032127 |
+| B3 | B2 + FG head + detach + small-object strat eval | 1:45:09 | **3.246604** | 19.25 | 85.500 | 0.032377 |
+
+Decision call:
+- Promote `B1` as the primary M2 scale-up baseline lane.
+- Keep `B3` as a secondary localization-focused A/B lane after B1 baseline is stable.
+- Do not use `B2` as a promotion candidate unless a new run closes the classification gap versus B1.
+
+### M2 Scale-Up Success Gates
+
+All scale-up runs must pass each gate before promotion:
+
+1. Classification gate:
+- `final_val_acc1_taxa_L20 >= 21.0`
+- `final_val_acc1_taxa_L40 >= 86.0`
+- `final_val_partial_chain_accuracy >= 0.035`
+
+2. Localization sanity gate:
+- `foregroundness/bbox_valid_frac >= 0.95`
+- `foregroundness/iou@0.5 >= 0.05`
+- `foregroundness/mean_prob_in_bbox > foregroundness/mean_prob_outside_bbox`
+- `foregroundness/pred_area_frac@0.5` remains in `[0.02, 0.80]`
+
+3. Chain consistency gate:
+- No final metric row may regress by more than 10% relative to the lane baseline for `partial_chain_accuracy`.
+- If a B3 localization run is promoted, it must either:
+  - match B1 classification gate thresholds, or
+  - provide a documented localization gain with an explicit tradeoff sign-off.
+
+### Relaunch Contract (Required Receipts)
+
+Each relaunch comment in `POL-615` must include:
+- `run_id` (async-runner id)
+- Exact launch command
+- Log path (`run.log`) and metrics path (`metrics_log.jsonl`)
+- Extracted final metric row for `L10/L20/L30/L40` and `partial_chain_accuracy`
+- One-line `go/no-go` verdict against the gates above
+
+Suggested metric extraction pattern:
+
+```bash
+python - <<'PY'
+import json
+from pathlib import Path
+
+metrics = Path("/abs/path/to/metrics_log.jsonl")
+rows = [json.loads(line) for line in metrics.read_text().splitlines() if line.strip()]
+final_rows = [r for r in rows if any(k.startswith("final_val_") for k in r)]
+print(final_rows[-1] if final_rows else {"error": "no final_val_* row found"})
+PY
+```
+
+Current POL-615 relaunch receipt:
+- async-runner `run_id`: `20260226T220009Z-664bc61e`
+- tracker issue: `POL-615`
