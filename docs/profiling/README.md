@@ -75,6 +75,7 @@ linnaeus-prof diff production_baseline/ latest_commit/ \
 - [Performance Analysis CLI Reference](./prof-cli.md)
 - [Multi-Level Profiling Configuration](./profiling-levels.md)
 - [Best Practices & Troubleshooting](./best-practices.md)
+- [POL-616 B1 Primary R1 Receipt (Blocked)](./pol-616-b1-primary-r1-receipt.md)
 
 ## Integration with Development Workflow
 
