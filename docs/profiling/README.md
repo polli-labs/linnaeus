@@ -6,7 +6,17 @@ The Linnaeus profiling system provides comprehensive tools for performance analy
 
 ```bash
 # Install with profiling dependencies
-pip install -e ".[profiling]"
+cd ~/dev/linnaeus/dev
+uv sync --extra dev --extra profiling --extra cpu
+
+# Preflight trial allocation and contract checks
+linnaeus-prof-run \
+  --trial-params-file ~/dev/linnaeus/dev/work/active/<feature>/trials.jsonl \
+  --output-dir ~/dev/linnaeus/dev/work/active/<feature>/results \
+  --compose-template ~/dev/linnaeus/dev/private/docker/runtime/profiling/blade/templates/docker-compose.template.yml \
+  --dry-run \
+  --max-concurrent 2 \
+  --gpu-assignment auto
 
 # Run automated profiling trials
 linnaeus-prof-run --trial-params-file trials.jsonl --output-dir results --timeout 600

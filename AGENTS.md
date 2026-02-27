@@ -13,7 +13,7 @@
      - Personal or proprietary information
    - ONLY put example configs that demonstrate features
 
-2. **linnaeus-deployment/linnaeus_deploy/configs/** - ALL PRIVATE CONFIGS
+2. **linnaeus/private/configs/** - ALL PRIVATE CONFIGS
    - This is the PRIVATE deployment repository
    - ALL experiment configs go here
    - ALL trial templates go here
@@ -24,18 +24,18 @@
    - Use for temporary files and scratch work
    - Never commit files from work/ to git
 
-**ENFORCEMENT**: Always use absolute paths to private configs in linnaeus-deployment repo. Never copy configs to linnaeus/configs/ for any reason.
+**ENFORCEMENT**: Always use absolute paths to private configs in linnaeus-dev repo. Never copy configs to linnaeus/configs/ for any reason.
 
 ## Quick Reference: Complete Profiling Workflow
 
 1. **Design**: Create spec in `work/active/<feature>/spec.md`
 2. **Implement**: Make changes in `linnaeus`, commit and push
-3. **Configure**: `/prof_impl work/active/<feature>/spec.md` (creates trials in linnaeus-deployment)
+3. **Configure**: `/prof_impl work/active/<feature>/spec.md` (creates trials in linnaeus-dev)
 4. **Execute**: `/prof_run work/active/<feature>/spec.md --timeout 600` (runs trials concurrently)
 5. **Analyze**: `/prof_analyze work/active/<feature>/spec.md` (generates performance reports)
 
 **Key Points**:
-- All trial configs go in PRIVATE linnaeus-deployment repo
+- All trial configs go in PRIVATE linnaeus-dev repo
 - All results/analysis go in PUBLIC linnaeus/work/ directory
 - Always use concurrent execution (`--max-concurrent 2`) for 2x speedup
 - Always commit AND push before running trials
@@ -44,7 +44,7 @@
 
 Linnaeus is a PyTorch-based toolkit for hierarchical biodiversity classification.
 
-The project is public on github at polli-labs/linnaeus. Deployment wrappers (for local and cloud testing, training) are all in the polli-labs/linnaeus-deployment repo, which, critically, is private. Local copies of both repos are on this machine, you have access to both in your workspace.
+The project is public on github at polli-labs/linnaeus. Deployment wrappers (for local and cloud testing, training) are all in the polli-labs/linnaeus-dev repo, which, critically, is private. Local copies of both repos are on this machine, you have access to both in your workspace.
 
 ## Profiling Workflow (Preferred Development Pattern)
 
@@ -53,7 +53,7 @@ We use a fully reproducible, high-observability job+runner model for development
 ### Complete Workflow Summary:
 1. **Design**: Create spec in `linnaeus/work/active/<feature>/spec.md`
 2. **Implement**: Code changes in `linnaeus` repo, commit and push
-3. **Configure**: Use `/prof_impl` to prepare trials in `linnaeus-deployment` (private)
+3. **Configure**: Use `/prof_impl` to prepare trials in `linnaeus-dev` (private)
 4. **Execute**: Run `linnaeus-prof-run` with concurrent GPU execution (2x speedup)
 5. **Analyze**: Use `/prof_analyze` to generate performance reports
 
@@ -62,14 +62,14 @@ We use a fully reproducible, high-observability job+runner model for development
 2. **Observability**: All parameters explicitly documented in JSONL format
 3. **Control**: Fine-grained control over experimental params and environment variables
 4. **Consistency**: Baseline constancy within branches with trial-by-trial configurability
-5. **Security**: All experiment configs stay in private repo (linnaeus-deployment)
+5. **Security**: All experiment configs stay in private repo (linnaeus-dev)
 6. **Performance**: Concurrent GPU execution by default for ~2x speedup
 
 ### Critical Directory Structure:
 
-#### Trial Fixtures (PRIVATE - linnaeus-deployment repo):
+#### Trial Fixtures (PRIVATE - linnaeus-dev repo):
 ```
-/home/caleb/repo/linnaeus-deployment/linnaeus_deploy/configs/experiments/tests/
+/home/caleb/dev/linnaeus/dev/private/configs/experiments/tests/
 ├── trial_template_MASTER.yaml          # Master template - copy for each version
 ├── v035/                               # Target release version
 │   ├── trial_template_v035.yaml       # Version-specific base template
@@ -84,7 +84,7 @@ We use a fully reproducible, high-observability job+runner model for development
 
 #### Working Documents (PUBLIC - linnaeus repo):
 ```
-/home/caleb/repo/linnaeus/work/
+/home/caleb/dev/linnaeus/dev/work/
 ├── active/                            # Active development work
 │   └── mFormerV1-downsample/         # Feature branch work
 │       └── p0/                       # Round/phase
@@ -95,13 +95,13 @@ We use a fully reproducible, high-observability job+runner model for development
         └── issue_analysis.md         # Must reference absolute paths to fixtures
 ```
 
-**CRITICAL**: Working docs in `work/` MUST use absolute paths to reference fixtures in linnaeus-deployment!
+**CRITICAL**: Working docs in `work/` MUST use absolute paths to reference fixtures in linnaeus-dev!
 
 ### Workflow Components:
-1. **Trial Definition** (`/home/caleb/repo/linnaeus-deployment/linnaeus_deploy/configs/experiments/tests/<version>/<feature>/trials.jsonl`)
+1. **Trial Definition** (`/home/caleb/dev/linnaeus/dev/private/configs/experiments/tests/<version>/<feature>/trials.jsonl`)
    - All trials inherit from version-specific template in same directory tree
    - Differences expressed via --opts and env_yaml parameters only
-   - Container paths (`/configs/...`) map to linnaeus-deployment at runtime
+   - Container paths (`/configs/...`) map to linnaeus-dev at runtime
 
 2. **Docker-based Execution**
    - Spin up per-job containers with specified branch/commit
@@ -120,7 +120,7 @@ We use a fully reproducible, high-observability job+runner model for development
 {"name": "v040_optimized", "config_file": "/configs/experiments/tests/v040/trial_template_v040.yaml", "git_ref": "experiment/feature-branch", "commit_hash": "9573bd9", "env_yaml": "/configs/env_vars/single_gpu_workstation.yaml", "env": {"TORCH_DISTRIBUTED_DEBUG": "OFF"}, "opts": ["EXPERIMENT.NAME", "aves_mFormerV1_md_v040_optimized", "EXPERIMENT.CODE_VERSION", "exp_9573bd9"]}
 ```
 
-**Note**: Paths in trials.jsonl use container mount points (`/configs/...`) which map to `/home/caleb/repo/linnaeus-deployment/linnaeus_deploy/configs/...` on host.
+**Note**: Paths in trials.jsonl use container mount points (`/configs/...`) which map to `/home/caleb/dev/linnaeus/dev/private/configs/...` on host.
 
 ## Common Development Commands
 
@@ -128,7 +128,7 @@ We use a fully reproducible, high-observability job+runner model for development
 
 - NEVER use pip. Only use uv.
 - NEVER save experiment configs in the linnaeus repo. Only example and model arch configs are allowed in the public repo.
-- ALWAYS use linnaeus-deployment/linnaeus_deploy/configs/ for ALL experiment/trial/profiling configs
+- ALWAYS use linnaeus/private/configs/ for ALL experiment/trial/profiling configs
 - ALWAYS push commits immediately after committing when working on feature branches (not main). Use `git push origin <branch-name>` or `git push -u origin <branch-name>` for first push.
 - work/ is untracked. You can use it for scratch work and for any non-public work.
 
@@ -364,7 +364,7 @@ Complete workflow for performance optimization with concurrent GPU execution:
 ```
 /prof_impl work/active/mFormerV1-downsample/spec.md
 ```
-This creates trial configurations in linnaeus-deployment (private repo).
+This creates trial configurations in linnaeus-dev (private repo).
 
 ##### Step 2: Execute trials with concurrent GPU support (2x speedup)
 ```
@@ -379,18 +379,18 @@ This runs baseline and optimized trials concurrently on separate GPUs.
 This generates comprehensive performance reports.
 
 **Behind the scenes**:
-- Trials are defined in: `/home/caleb/repo/linnaeus-deployment/linnaeus_deploy/configs/experiments/tests/<version>/<feature>/trials.jsonl`
-- Docker templates from: `/home/caleb/repo/linnaeus-deployment/linnaeus_deploy/docker/runtime/profiling/blade/templates/`
-- Results saved to: `/home/caleb/repo/linnaeus/work/active/<feature>/results/`
+- Trials are defined in: `/home/caleb/dev/linnaeus/dev/private/configs/experiments/tests/<version>/<feature>/trials.jsonl`
+- Docker templates from: `/home/caleb/dev/linnaeus/dev/private/docker/runtime/profiling/blade/templates/`
+- Results saved to: `/home/caleb/dev/linnaeus/dev/work/active/<feature>/results/`
 - Concurrent execution allocates GPUs automatically for ~2x speedup
 
 **For manual execution**, use the installed CLI directly with concurrent execution (default):
 ```bash
 # Run profiling trials with concurrent execution (2x speedup on 2 GPUs)
 linnaeus-prof-run \
-  --trial-params-file /home/caleb/repo/linnaeus-deployment/linnaeus_deploy/configs/experiments/tests/v040/feature-name/trials.jsonl \
-  --output-dir /home/caleb/repo/linnaeus/work/active/feature-name/results \
-  --compose-template /home/caleb/repo/linnaeus-deployment/linnaeus_deploy/docker/runtime/profiling/blade/templates/docker-compose.template.yml \
+  --trial-params-file /home/caleb/dev/linnaeus/dev/private/configs/experiments/tests/v040/feature-name/trials.jsonl \
+  --output-dir /home/caleb/dev/linnaeus/dev/work/active/feature-name/results \
+  --compose-template /home/caleb/dev/linnaeus/dev/private/docker/runtime/profiling/blade/templates/docker-compose.template.yml \
   --timeout 600 \
   --capture-debug-logs \
   --max-concurrent 2 \
@@ -450,9 +450,9 @@ linnaeus-prof-run \
 ```bash
 # For trials WITHOUT Triton/torch.compile (standard images)
 linnaeus-prof-run \
-  --trial-params-file /home/caleb/repo/linnaeus-deployment/linnaeus_deploy/configs/experiments/tests/v040/feature-name/trials.jsonl \
-  --output-dir /home/caleb/repo/linnaeus/work/active/feature-name/results \
-  --compose-template /home/caleb/repo/linnaeus-deployment/linnaeus_deploy/docker/runtime/profiling/blade/templates/docker-compose.template.yml \
+  --trial-params-file /home/caleb/dev/linnaeus/dev/private/configs/experiments/tests/v040/feature-name/trials.jsonl \
+  --output-dir /home/caleb/dev/linnaeus/dev/work/active/feature-name/results \
+  --compose-template /home/caleb/dev/linnaeus/dev/private/docker/runtime/profiling/blade/templates/docker-compose.template.yml \
   --timeout 600 \
   --max-concurrent 2 \
   --gpu-assignment auto \
@@ -460,9 +460,9 @@ linnaeus-prof-run \
 
 # For trials WITH Triton/torch.compile (local profiling image)
 linnaeus-prof-run \
-  --trial-params-file /home/caleb/repo/linnaeus-deployment/linnaeus_deploy/configs/experiments/tests/v040/feature-name/trials.jsonl \
-  --output-dir /home/caleb/repo/linnaeus/work/active/feature-name/results \
-  --compose-template /home/caleb/repo/linnaeus-deployment/linnaeus_deploy/docker/runtime/profiling/blade/templates/docker-compose-local-image.template.yml \
+  --trial-params-file /home/caleb/dev/linnaeus/dev/private/configs/experiments/tests/v040/feature-name/trials.jsonl \
+  --output-dir /home/caleb/dev/linnaeus/dev/work/active/feature-name/results \
+  --compose-template /home/caleb/dev/linnaeus/dev/private/docker/runtime/profiling/blade/templates/docker-compose-local-image.template.yml \
   --timeout 600 \
   --max-concurrent 2 \
   --gpu-assignment auto \
@@ -471,27 +471,27 @@ linnaeus-prof-run \
 
 **Building Local Profiling Image** (if needed):
 ```bash
-cd /home/caleb/repo/linnaeus
+cd /home/caleb/dev/linnaeus/dev
 ./tools/docker/build_profiling.sh ampere main
 ```
 
 ### Manual Trial Setup Process (if not using /prof_impl):
 
-1. **Create version-specific template** in linnaeus-deployment (private repo):
+1. **Create version-specific template** in linnaeus-dev (private tree):
    ```bash
-   cd /home/caleb/repo/linnaeus-deployment
-   cp linnaeus_deploy/configs/experiments/tests/trial_template_MASTER.yaml \
-      linnaeus_deploy/configs/experiments/tests/v040/trial_template_v040.yaml
+   cd /home/caleb/dev/linnaeus/dev
+   cp private/configs/experiments/tests/trial_template_MASTER.yaml \
+      private/configs/experiments/tests/v040/trial_template_v040.yaml
    # Edit template to use amphibia dataset for faster iteration
    ```
 
 2. **Create trials.jsonl** with baseline and optimized configurations:
    ```bash
-   mkdir -p linnaeus_deploy/configs/experiments/tests/v040/feature-name/
+   mkdir -p private/configs/experiments/tests/v040/feature-name/
    # Create trials.jsonl with exact commit hashes and proper opts
    ```
 
-**Remember**: All trial configs stay in linnaeus-deployment (private), results go to linnaeus/work/ (public).
+**Remember**: All trial configs stay in linnaeus-dev (private), results go to linnaeus/work/ (public).
 
 ### Trial Management Best Practices:
 1. **Git Hygiene**: Always commit AND push branches before running trials (containers pull from remote)

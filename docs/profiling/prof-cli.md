@@ -5,7 +5,10 @@ The `linnaeus-prof` command provides comprehensive tools for analyzing PyTorch p
 ## Installation
 
 ```bash
-pip install -e .  # Included with base Linnaeus
+cd ~/dev/linnaeus/dev
+uv sync --extra profiling --extra cpu
+# On Linux + GPU:
+# uv sync --extra profiling --extra cuda
 linnaeus-prof --help
 ```
 
@@ -320,7 +323,7 @@ linnaeus-prof summary /path/to/run  # Now works
 
 Install required plugins:
 ```bash
-pip install tensorboard torch-tb-profiler
+uv pip install tensorboard torch-tb-profiler
 ```
 
 Use Chrome browser (Safari has compatibility issues).

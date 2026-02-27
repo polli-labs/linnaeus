@@ -5,6 +5,7 @@ The `linnaeus-prof-run` command orchestrates multiple training trials with diffe
 ## Installation
 
 ```bash
+cd ~/dev/linnaeus/dev
 uv sync --extra dev --extra cpu --extra profiling
 # Or, on Linux + GPU:
 # uv sync --extra dev --extra cuda --extra profiling
@@ -60,6 +61,44 @@ linnaeus-prof-run \
   --timeout 600 \
   --max-concurrent 2 \
   --gpu-assignment auto
+```
+
+### 4. Preflight and Operator Checks (Recommended)
+
+```bash
+# Validate trial file syntax quickly
+jq -c . trials.jsonl >/dev/null
+
+# Print inferred GPU requirements + allocation waves, then exit
+linnaeus-prof-run \
+  --trial-params-file trials.jsonl \
+  --output-dir results \
+  --compose-template docker-compose.template.yml \
+  --dry-run \
+  --max-concurrent 2 \
+  --gpu-assignment auto
+
+# Inspect existing run state without launching
+linnaeus-prof-run --status --output-dir results
+```
+
+Resume patterns:
+
+```bash
+# Skip already-successful trials
+linnaeus-prof-run \
+  --resume \
+  --trial-params-file trials.jsonl \
+  --output-dir results \
+  --compose-template docker-compose.template.yml
+
+# Rerun failed trials only
+linnaeus-prof-run \
+  --resume \
+  --resume-failures-only \
+  --trial-params-file trials.jsonl \
+  --output-dir results \
+  --compose-template docker-compose.template.yml
 ```
 
 ## Trial Configuration
@@ -218,14 +257,20 @@ Required:
   --compose-template PATH     Docker Compose template file
 
 Execution:
-  --timeout SECONDS          Timeout per trial (default: 600)
+  --timeout SECONDS          Timeout per trial (default: 180)
   --exit-on-failure         Stop on first failure
   --capture-debug-logs      Collect detailed debug logs
 
 Concurrent Execution:
   --max-concurrent N        Max concurrent trials (default: 1)
   --gpu-assignment MODE     GPU assignment: auto|round-robin|manual
-  --stagger-delay SECONDS   Delay between trial starts (default: 5)
+  --stagger-delay SECONDS   Delay between trial starts (default: 5.0)
+
+Preflight / Control:
+  --dry-run                 Print inferred allocation plan, then exit
+  --status                  Show trial status from output dir, then exit
+  --resume                  Skip completed trials from prior run
+  --resume-failures-only    With --resume, rerun failures only
 ```
 
 ## Troubleshooting

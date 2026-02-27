@@ -285,7 +285,7 @@ grep "PROFILER.LEVEL" optimized/experiment_config.yaml
 **Problem**: TensorBoard won't load
 ```bash
 # Install required plugins
-pip install tensorboard torch-tb-profiler
+uv pip install tensorboard torch-tb-profiler
 
 # Use Chrome (not Safari)
 google-chrome http://localhost:6006
