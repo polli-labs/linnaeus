@@ -1,0 +1,42 @@
+name: profiling-validate-contract
+
+on:
+  pull_request:
+    paths:
+      - "linnaeus/profiling/**"
+      - "tests/profiling/**"
+      - "pyproject.toml"
+      - ".github/workflows/prof-validate-contract.yml"
+  push:
+    branches:
+      - main
+    paths:
+      - "linnaeus/profiling/**"
+      - "tests/profiling/**"
+      - "pyproject.toml"
+      - ".github/workflows/prof-validate-contract.yml"
+
+jobs:
+  validator-contract:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Install dependencies
+        run: uv sync --extra dev
+
+      - name: Run validator/CLI contract tests
+        run: uv run pytest tests/profiling/test_prof_validate_cli.py -q
+
+      - name: Smoke check validate help
+        run: uv run linnaeus-prof validate --help >/dev/null

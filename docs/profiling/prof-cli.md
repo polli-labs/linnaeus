@@ -13,6 +13,7 @@ linnaeus-prof --help
 
 | Command | Purpose | Output Formats |
 |---------|---------|----------------|
+| `validate` | Validate relaunch contract (`cfg`/trials/template/refs) | pretty, json |
 | `scan` | Discover experiment runs | pretty, json, md |
 | `summary` | Analyze single run | pretty, json, md |
 | `diff` | Compare two runs | pretty, json, md, html |
@@ -20,6 +21,40 @@ linnaeus-prof --help
 | `tensorboard` | Launch visualization | - |
 
 ## Command Reference
+
+### validate - Contract + Provenance Preflight
+
+Validates launch inputs before execution: config schema merge, trial JSONL + compose template contract, and branch/ref preflight (`origin/<git_ref>` or explicit `commit_hash` pin mode).
+
+```bash
+linnaeus-prof validate \
+  --cfg configs/experiments/examples/aves_smoke.yaml \
+  --trial-params-file /path/to/trials.jsonl \
+  --compose-template /path/to/docker-compose.template.yml \
+  --dry-run \
+  --json
+```
+
+**Options:**
+- `--cfg PATH`: Linnaeus config to validate against default schema (required)
+- `--opts KEY VALUE ...`: Optional YACS override pairs
+- `--trial-params-file PATH`: Trial JSONL definitions (required)
+- `--compose-template PATH`: Docker compose template (required)
+- `--dry-run`: Explicit no-launch mode (validation command is read-only)
+- `--json`: Emit deterministic machine payload
+
+**Exit Codes:**
+- `0`: Valid contract
+- `2`: Usage/input error
+- `3`: Validation failed
+- `4`: Runtime/dependency failure
+
+**JSON payload fields (`--json`):**
+- `status`
+- `errors[]`
+- `warnings[]`
+- `checked_paths[]`
+- `checked_refs[]`
 
 ### scan - Discover Experiment Runs
 

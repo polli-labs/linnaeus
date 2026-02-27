@@ -6,13 +6,14 @@ PyTorch profiler traces from Linnaeus experiments.
 """
 
 import argparse
+import json
 import sys
 from pathlib import Path
 
 from rich.console import Console
 from rich.table import Table
 
-from . import diff, repair, scanner, summary, tensorboard_launcher
+from . import diff, repair, scanner, summary, tensorboard_launcher, validator
 
 console = Console()
 
@@ -87,6 +88,45 @@ def setup_repair_parser(subparsers):
     parser.add_argument("--recursive", action="store_true", help="Recursively scan directories")
     parser.add_argument("--force", action="store_true", help="Re-repair even if repaired version exists")
     parser.set_defaults(func=cmd_repair)
+
+
+def setup_validate_parser(subparsers):
+    """Setup argument parser for validate command."""
+    parser = subparsers.add_parser(
+        "validate",
+        help="Validate profiling launch contract (cfg/trials/template/refs) without running trials",
+        description="Contract checker for profiling relaunch safety gates.",
+    )
+    parser.add_argument("--cfg", type=Path, required=True, help="Path to Linnaeus experiment config YAML.")
+    parser.add_argument(
+        "--opts",
+        nargs="+",
+        default=None,
+        help="Optional YACS override list in KEY VALUE pairs (e.g. --opts TRAIN.EPOCHS 1).",
+    )
+    parser.add_argument(
+        "--trial-params-file",
+        type=Path,
+        required=True,
+        help="Path to profiling trials JSONL file.",
+    )
+    parser.add_argument(
+        "--compose-template",
+        type=Path,
+        required=True,
+        help="Path to docker compose template.",
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="No side effects (currently implied by this command).",
+    )
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Emit deterministic machine-readable output.",
+    )
+    parser.set_defaults(func=cmd_validate)
 
 
 def cmd_scan(args):
@@ -290,6 +330,56 @@ def cmd_repair(args):
         sys.exit(1)
 
 
+def cmd_validate(args):
+    """Execute validate command."""
+    try:
+        exit_code, report = validator.run_validation_contract(
+            cfg=args.cfg,
+            opts=args.opts,
+            trial_params_file=args.trial_params_file,
+            compose_template=args.compose_template,
+            dry_run=args.dry_run,
+        )
+    except Exception as exc:  # pragma: no cover - defensive fallback
+        payload = {
+            "status": "runtime_error",
+            "errors": [f"Unexpected runtime error: {exc}"],
+            "warnings": [],
+            "checked_paths": [],
+            "checked_refs": [],
+        }
+        if args.json:
+            print(json.dumps(payload, sort_keys=True))
+        else:
+            console.print(f"[red]{payload['errors'][0]}[/red]")
+        sys.exit(validator.EXIT_CODE_RUNTIME_FAILURE)
+
+    payload = report.to_dict()
+    if args.json:
+        print(json.dumps(payload, sort_keys=True))
+    else:
+        status_style = "green" if exit_code == validator.EXIT_CODE_VALID else "red"
+        console.print(f"[{status_style}]Validation status: {payload['status']} (exit {exit_code})[/{status_style}]")
+        if payload["errors"]:
+            console.print("\n[bold red]Errors[/bold red]")
+            for error in payload["errors"]:
+                console.print(f"- {error}")
+        if payload["warnings"]:
+            console.print("\n[bold yellow]Warnings[/bold yellow]")
+            for warning in payload["warnings"]:
+                console.print(f"- {warning}")
+        if payload["checked_paths"]:
+            console.print("\n[bold]Checked paths[/bold]")
+            for path in payload["checked_paths"]:
+                console.print(f"- {path}")
+        if payload["checked_refs"]:
+            console.print("\n[bold]Checked refs[/bold]")
+            for ref in payload["checked_refs"]:
+                console.print(f"- {ref}")
+
+    sys.exit(exit_code)
+
+
 def main():
     """Main CLI entry point."""
     parser = argparse.ArgumentParser(
@@ -325,6 +415,7 @@ Examples:
     setup_diff_parser(subparsers)
     setup_tensorboard_parser(subparsers)
     setup_repair_parser(subparsers)
+    setup_validate_parser(subparsers)
 
     args = parser.parse_args()
 
@@ -335,7 +426,7 @@ Examples:
     # Require a subcommand
     if not hasattr(args, "func"):
         parser.print_help()
-        sys.exit(1)
+        sys.exit(validator.EXIT_CODE_USAGE_ERROR)
 
     # Execute the command
     args.func(args)

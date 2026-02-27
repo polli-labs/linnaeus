@@ -51,6 +51,7 @@ nav:
       - Overview: profiling/README.md
       - Profiling Levels: profiling/profiling-levels.md
       - Prof CLI: profiling/prof-cli.md
+      - Prof Validate: profiling/prof-validate.md
       - Prof Run: profiling/prof-run.md
       - Best Practices: profiling/best-practices.md
       - DINOv3 vNext Blade Runbook: profiling/dinov3_vnext_blade_ablation_runbook.md

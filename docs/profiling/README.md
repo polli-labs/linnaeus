@@ -26,7 +26,10 @@ Orchestrates multiple training trials with different configurations, git branche
 ### 2. [linnaeus-prof](./prof-cli.md) - Performance Analysis CLI
 Analyzes PyTorch profiler traces, compares runs, and generates reports for identifying bottlenecks and validating optimizations.
 
-### 3. [Multi-Level Profiling](./profiling-levels.md) - Instrumentation System
+### 3. [Profiling Validate Contract](./prof-validate.md) - Preflight Hardening
+Validates config/trial/template contracts and git provenance before relaunch.
+
+### 4. [Multi-Level Profiling](./profiling-levels.md) - Instrumentation System
 Configurable profiling depth from high-level timing (Level 1) to per-module breakdowns (Level 3).
 
 ## Workflow Overview
@@ -73,6 +76,7 @@ linnaeus-prof diff production_baseline/ latest_commit/ \
 
 - [Automated Trial Execution Guide](./prof-run.md)
 - [Performance Analysis CLI Reference](./prof-cli.md)
+- [Profiling Validate Contract](./prof-validate.md)
 - [Multi-Level Profiling Configuration](./profiling-levels.md)
 - [Best Practices & Troubleshooting](./best-practices.md)
 
