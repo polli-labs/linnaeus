@@ -18,6 +18,7 @@ from linnaeus.aug.cpu.selective_mixup import CPUSelectiveMixup
 from linnaeus.aug.gpu.selective_cutmix import GPUSelectiveCutMix
 from linnaeus.aug.gpu.selective_mixup import GPUSelectiveMixup
 from linnaeus.h5data.base_prefetching_dataset import STOP_SENTINEL, BasePrefetchingDataset
+from linnaeus.utils.bbox_observability import collect_bbox_batch_observability
 from linnaeus.utils.debug_utils import check_debug_flag
 from linnaeus.utils.distributed import get_rank_safely
 from linnaeus.utils.logging.logger import get_h5data_logger
@@ -46,14 +47,25 @@ class H5DataLoader(DataLoader):
 
     Each item in the dataset is expected to be:
       (image, targets_dict, aux_info, group_id, subset_dict, meta_validity_mask)
+    or, when bbox observability is enabled:
+      (image, targets_dict, aux_info, group_id, subset_dict, meta_validity_mask, bbox_xywh_norm, bbox_valid)
 
     The collate_fn merges these into batch tensors and optionally applies meta-masking
     and mixup, then returns:
-      (images, merged_targets, aux_info, group_ids, merged_subset_ids, meta_validity_masks, actual_meta_stats)
+      (
+        images,
+        merged_targets,
+        aux_info,
+        group_ids,
+        merged_subset_ids,
+        meta_validity_masks,
+        actual_meta_stats,
+        bbox_observability_stats,
+      )
 
-    The last item, actual_meta_stats, is a dictionary mapping component names to the percentage
-    of samples in the batch that have valid (non-null) metadata for that component after all
-    mixing and masking operations.
+    `actual_meta_stats` maps metadata components to post-mask valid percentages.
+    `bbox_observability_stats` carries per-batch geometry/mask observability payloads
+    for downstream aggregation when bbox-conditioned mask pooling is enabled.
     """
 
     def __init__(
@@ -117,6 +129,7 @@ class H5DataLoader(DataLoader):
         else:
             self.meta_chunk_bounds_list, self.meta_chunk_bounds_map = [], {}
             self.main_logger.warning("[H5DataLoader] No config provided, using empty meta chunk boundaries")
+        self._bbox_patch_size = int(getattr(getattr(getattr(config, "MODEL", None), "DINOV3", None), "PATCH_SIZE", 16)) if config else 16
 
         # Add explicit check for DEBUG.LOSS.NULL_MASKING at initialization time
 
@@ -574,6 +587,7 @@ class H5DataLoader(DataLoader):
           merged_subset_ids: dict of {subset_key -> [B]}
           meta_validity_masks: shape [B, aux_dim]
           actual_meta_stats: dict of {component_name -> valid_percentage}
+          bbox_observability_stats: dict with bbox geometry/mask observability payload
 
         Then optionally applies (in this order):
           - mixing (mixup/cutmix) if using grouped sampler (some probability)
@@ -640,7 +654,13 @@ class H5DataLoader(DataLoader):
 
         # Unzip the list of samples
         # each sample => (img, targets, aux, group_id, subs_id, meta_mask)
-        images_list, targets_list, aux_list, gid_list, subs_list, mask_list = zip(*batch, strict=False)
+        bbox_list = None
+        bbox_valid_list = None
+        sample_len = len(batch[0]) if batch else 0
+        if sample_len >= 8:
+            images_list, targets_list, aux_list, gid_list, subs_list, mask_list, bbox_list, bbox_valid_list = zip(*batch, strict=False)
+        else:
+            images_list, targets_list, aux_list, gid_list, subs_list, mask_list = zip(*batch, strict=False)
 
         # Merge images => (B, C, H, W)
         images = torch.stack(images_list, dim=0)
@@ -656,6 +676,18 @@ class H5DataLoader(DataLoader):
 
         # Merge meta_validity_masks => (B, aux_dim)
         meta_validity_masks = torch.stack(mask_list, dim=0)
+        bbox_observability_stats = {}
+
+        if bbox_list is not None and bbox_valid_list is not None:
+            bbox_xywh = torch.stack(bbox_list, dim=0)
+            bbox_valid = torch.stack(bbox_valid_list, dim=0).view(-1)
+            bbox_observability_stats = collect_bbox_batch_observability(
+                bbox_xywh_norm=bbox_xywh,
+                bbox_valid=bbox_valid,
+                img_height=int(images.shape[-2]),
+                img_width=int(images.shape[-1]),
+                patch_size=self._bbox_patch_size,
+            )
 
         # Log tensor ID for debugging in-place operations
         if get_rank_safely() == 0 and hasattr(self, "config") and check_debug_flag(self.config, "DEBUG.DATALOADER"):
@@ -2034,7 +2066,7 @@ class H5DataLoader(DataLoader):
                                 f"[META_STATS_DEBUG] {comp_name}: actual={actual_pct:.1f}%, diff from schedule={diff:.1f}%"
                             )
 
-        return (images, merged_targets, aux_info, group_ids, merged_subset_ids, meta_validity_masks, actual_meta_stats)
+        return (images, merged_targets, aux_info, group_ids, merged_subset_ids, meta_validity_masks, actual_meta_stats, bbox_observability_stats)
 
         # --- Add logging for the tuple returned by collate_fn (specifically actual_meta_stats) ---
         if debug_enabled and self.batch_idx < 5:  # Limit logging
@@ -2151,7 +2183,7 @@ class H5DataLoader(DataLoader):
 
                         # Debug first sample structure if it exists and has expected structure
                         if len(sample) >= 6:
-                            (img, targets_dict, aux_info, group_id, subset_dict, meta_validity_mask) = sample
+                            (img, targets_dict, aux_info, group_id, subset_dict, meta_validity_mask) = sample[:6]
                             self.main_logger.debug(f"  - First sample image shape: {img.shape}")
                             self.main_logger.debug(f"  - First sample targets keys: {list(targets_dict.keys())}")
                             self.main_logger.debug(f"  - First sample group_id: {group_id}")
@@ -2168,15 +2200,10 @@ class H5DataLoader(DataLoader):
                     and batch_num == 0
                 ):
                     self.main_logger.debug("[H5DataLoader] Processed batch after collate_fn:")
-                    (
-                        images,
-                        merged_targets,
-                        aux_info,
-                        group_ids,
-                        merged_subset_ids,
-                        meta_validity_masks,
-                        actual_meta_stats,  # Add the missing 7th item
-                    ) = out_batch
+                    images = out_batch[0]
+                    merged_targets = out_batch[1]
+                    actual_meta_stats = out_batch[6] if len(out_batch) > 6 else {}
+                    bbox_observability_stats = out_batch[7] if len(out_batch) > 7 else {}
                     self.main_logger.debug(f"  - Images tensor shape: {images.shape}")
                     self.main_logger.debug(f"  - Target keys: {list(merged_targets.keys())}")
                     self.main_logger.debug(f"  - Device: {images.device}")
@@ -2185,6 +2212,11 @@ class H5DataLoader(DataLoader):
                     self.main_logger.debug(
                         f"  - Actual Meta Stats (sample): {dict(list(actual_meta_stats.items())[:2]) if actual_meta_stats else 'N/A'}"
                     )
+                    if bbox_observability_stats:
+                        self.main_logger.debug(
+                            "  - Bbox observability sample: "
+                            f"{dict(list(bbox_observability_stats.items())[:4])}"
+                        )
 
                 yield out_batch
         else:
@@ -2209,15 +2241,10 @@ class H5DataLoader(DataLoader):
                     and batch_num == 0
                 ):
                     self.main_logger.debug("[H5DataLoader] Fallback mode - first batch processed:")
-                    (
-                        images,
-                        merged_targets,
-                        aux_info,
-                        group_ids,
-                        merged_subset_ids,
-                        meta_validity_masks,
-                        actual_meta_stats,  # Add the missing 7th item
-                    ) = out_batch
+                    images = out_batch[0]
+                    merged_targets = out_batch[1]
+                    actual_meta_stats = out_batch[6] if len(out_batch) > 6 else {}
+                    bbox_observability_stats = out_batch[7] if len(out_batch) > 7 else {}
                     self.main_logger.debug(f"  - Images tensor shape: {images.shape}")
                     self.main_logger.debug(f"  - Target keys: {list(merged_targets.keys())}")
                     self.main_logger.debug(f"  - Device: {images.device}")
@@ -2226,5 +2253,10 @@ class H5DataLoader(DataLoader):
                     self.main_logger.debug(
                         f"  - Actual Meta Stats (sample): {dict(list(actual_meta_stats.items())[:2]) if actual_meta_stats else 'N/A'}"
                     )
+                    if bbox_observability_stats:
+                        self.main_logger.debug(
+                            "  - Bbox observability sample: "
+                            f"{dict(list(bbox_observability_stats.items())[:4])}"
+                        )
 
                 yield out_batch

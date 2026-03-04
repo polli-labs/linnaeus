@@ -811,9 +811,13 @@ class BasePrefetchingDataset(ABC):
             tuple: The transformed sample.
         """
         if augmentation_pipeline is not None:
-            img_t, tgt_t, aux_t, g_id, subs_id, meta_mask = sample
+            if len(sample) < 6:
+                return sample
+
+            img_t, tgt_t, aux_t, g_id, subs_id, meta_mask = sample[:6]
+            extras = sample[6:]
             img_t, tgt_t, aux_t = augmentation_pipeline((img_t, tgt_t, aux_t))
-            return (img_t, tgt_t, aux_t, g_id, subs_id, meta_mask)
+            return (img_t, tgt_t, aux_t, g_id, subs_id, meta_mask, *extras)
         else:
             return sample
 

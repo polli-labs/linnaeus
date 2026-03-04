@@ -22,6 +22,11 @@ import torch
 import torch.distributed as dist
 
 from linnaeus.ops_schedule.ops_schedule import OpsSchedule
+from linnaeus.utils.bbox_observability import (
+    BBOX_OBSERVABILITY_METRIC_KEYS,
+    empty_bbox_observability_metrics,
+    summarize_bbox_observability_values,
+)
 from linnaeus.utils.distributed import get_rank_safely
 from linnaeus.utils.logging.logger import get_main_logger
 from linnaeus.utils.metrics.chain_accuracy import compute_chain_accuracy_vectorized, compute_partial_chain_accuracy_vectorized
@@ -215,6 +220,12 @@ class MetricsTracker:
             },
         }
 
+        # --------------- BBox observability metrics (phase-based) ---------------
+        self.phase_bbox_observability = {phase: empty_bbox_observability_metrics() for phase in phases}
+        self.phase_bbox_observability_accumulators = {
+            phase: self._init_bbox_observability_accumulator() for phase in phases
+        }
+
         # --------------- Per-task metrics for each phase ---------------
         # We'll store acc1, acc3, and loss for each task, e.g. self.phase_task_metrics["train"]["taxa_L10"]["acc1"]
         self.phase_task_metrics = {phase: {} for phase in phases}
@@ -334,6 +345,73 @@ class MetricsTracker:
                 subset_metrics[subset_type][task_key] = wrapper
         return subset_metrics
 
+    @staticmethod
+    def _init_bbox_observability_accumulator() -> dict[str, Any]:
+        return {
+            "total_samples": 0,
+            "valid_samples": 0,
+            "clamped_samples": 0,
+            "empty_patch_samples": 0,
+            "fallback_samples": 0,
+            "area_values": [],
+            "aspect_values": [],
+            "coverage_values": [],
+        }
+
+    def _reset_bbox_observability_phase(self, phase: str) -> None:
+        self.phase_bbox_observability[phase] = empty_bbox_observability_metrics()
+        self.phase_bbox_observability_accumulators[phase] = self._init_bbox_observability_accumulator()
+
+    def get_bbox_observability_metrics(self, phase: str) -> dict[str, float]:
+        if phase not in self.phase_bbox_observability:
+            return {}
+        if self.phase_bbox_observability_accumulators.get(phase, {}).get("total_samples", 0) <= 0:
+            return {}
+        return dict(self.phase_bbox_observability[phase])
+
+    def update_bbox_observability(self, phase: str, batch_stats: dict[str, Any]) -> None:
+        """
+        Update running bbox observability aggregates for a phase.
+
+        Args:
+            phase: phase key (train/val/val_mask_meta/custom).
+            batch_stats: batch payload produced by collect_bbox_batch_observability().
+        """
+        if not batch_stats:
+            return
+
+        self._ensure_phase_exists(phase)
+        acc = self.phase_bbox_observability_accumulators[phase]
+
+        acc["total_samples"] += int(batch_stats.get("num_samples", 0))
+        acc["valid_samples"] += int(batch_stats.get("valid_samples", 0))
+        acc["clamped_samples"] += int(batch_stats.get("clamped_samples", 0))
+        acc["empty_patch_samples"] += int(batch_stats.get("empty_patch_samples", 0))
+        acc["fallback_samples"] += int(batch_stats.get("fallback_samples", 0))
+
+        for key in ("area_values", "aspect_values", "coverage_values"):
+            values = batch_stats.get(key, [])
+            if not values:
+                continue
+            for v in values:
+                try:
+                    vf = float(v)
+                except (TypeError, ValueError):
+                    continue
+                if torch.isfinite(torch.tensor(vf)):
+                    acc[key].append(vf)
+
+        self.phase_bbox_observability[phase] = summarize_bbox_observability_values(
+            total_samples=acc["total_samples"],
+            valid_samples=acc["valid_samples"],
+            clamped_samples=acc["clamped_samples"],
+            empty_patch_samples=acc["empty_patch_samples"],
+            fallback_samples=acc["fallback_samples"],
+            area_values=acc["area_values"],
+            aspect_values=acc["aspect_values"],
+            coverage_values=acc["coverage_values"],
+        )
+
     # -------------------------------------------------------------------------
     # Updating metrics batch-by-batch
     # -------------------------------------------------------------------------
@@ -373,6 +451,7 @@ class MetricsTracker:
         for tkey in self.phase_task_metrics[phase_name]:
             self.partial_task_sums[phase_name][tkey].clear()
             self.partial_task_counts[phase_name][tkey].clear()
+        self._reset_bbox_observability_phase(phase_name)
 
     def update_val_metrics(
         self,
@@ -447,6 +526,8 @@ class MetricsTracker:
             "epoch_duration_sec": Metric(f"{phase}_epoch_duration_sec", 0.0, higher_is_better=False),
             "avg_samples_per_sec": Metric(f"{phase}_avg_samples_per_sec", 0.0, higher_is_better=True),
         }
+        self.phase_bbox_observability[phase] = empty_bbox_observability_metrics()
+        self.phase_bbox_observability_accumulators[phase] = self._init_bbox_observability_accumulator()
 
         # Add to phase task metrics
         self.phase_task_metrics[phase] = {}
@@ -1265,6 +1346,21 @@ class MetricsTracker:
             if debug_validation and self.rank == 0:
                 logger.debug(f"[{phase}] Reset null/non-null partial sums and counts")
 
+        # Keep the finalized phase bbox metrics, but reset running accumulators for next phase cycle.
+        if phase in self.phase_bbox_observability_accumulators:
+            acc = self.phase_bbox_observability_accumulators[phase]
+            self.phase_bbox_observability[phase] = summarize_bbox_observability_values(
+                total_samples=acc["total_samples"],
+                valid_samples=acc["valid_samples"],
+                clamped_samples=acc["clamped_samples"],
+                empty_patch_samples=acc["empty_patch_samples"],
+                fallback_samples=acc["fallback_samples"],
+                area_values=acc["area_values"],
+                aspect_values=acc["aspect_values"],
+                coverage_values=acc["coverage_values"],
+            )
+            self.phase_bbox_observability_accumulators[phase] = self._init_bbox_observability_accumulator()
+
         if debug_validation and self.rank == 0:
             logger.debug(f"[{phase}] Reset partial sums and chain accumulators.")
 
@@ -1593,11 +1689,27 @@ class MetricsTracker:
             for tkey, metric_dict in self.partial_non_null_counts[phase].items():
                 partial_non_null_counts[phase][tkey] = dict(metric_dict)
 
+        phase_bbox_observability = {phase: dict(metrics) for phase, metrics in self.phase_bbox_observability.items()}
+        phase_bbox_observability_accumulators = {}
+        for phase, acc in self.phase_bbox_observability_accumulators.items():
+            phase_bbox_observability_accumulators[phase] = {
+                "total_samples": int(acc.get("total_samples", 0)),
+                "valid_samples": int(acc.get("valid_samples", 0)),
+                "clamped_samples": int(acc.get("clamped_samples", 0)),
+                "empty_patch_samples": int(acc.get("empty_patch_samples", 0)),
+                "fallback_samples": int(acc.get("fallback_samples", 0)),
+                "area_values": list(acc.get("area_values", [])),
+                "aspect_values": list(acc.get("aspect_values", [])),
+                "coverage_values": list(acc.get("coverage_values", [])),
+            }
+
         state = {
             "phase_metrics": phase_m,
             "phase_task_metrics": phase_t,
             "phase_null_metrics": phase_null_m,
             "phase_non_null_metrics": phase_non_null_m,
+            "phase_bbox_observability": phase_bbox_observability,
+            "phase_bbox_observability_accumulators": phase_bbox_observability_accumulators,
             "chain_data": chain_data,
             "loss_components": loss_comp,
             "historical_task_weights": hist_tw,
@@ -1682,6 +1794,31 @@ class MetricsTracker:
             for task_key, subm in tdict.items():
                 for stat_name, sm_state in subm.items():
                     self.phase_task_metrics[phase][task_key][stat_name].load_state_dict(sm_state)
+
+        if "phase_bbox_observability" in state:
+            for phase, metrics in state["phase_bbox_observability"].items():
+                self._ensure_phase_exists(phase)
+                merged = empty_bbox_observability_metrics()
+                merged.update({k: float(v) for k, v in metrics.items()})
+                self.phase_bbox_observability[phase] = merged
+
+        if "phase_bbox_observability_accumulators" in state:
+            for phase, acc in state["phase_bbox_observability_accumulators"].items():
+                self._ensure_phase_exists(phase)
+                restored = self._init_bbox_observability_accumulator()
+                restored.update(
+                    {
+                        "total_samples": int(acc.get("total_samples", 0)),
+                        "valid_samples": int(acc.get("valid_samples", 0)),
+                        "clamped_samples": int(acc.get("clamped_samples", 0)),
+                        "empty_patch_samples": int(acc.get("empty_patch_samples", 0)),
+                        "fallback_samples": int(acc.get("fallback_samples", 0)),
+                        "area_values": [float(v) for v in acc.get("area_values", [])],
+                        "aspect_values": [float(v) for v in acc.get("aspect_values", [])],
+                        "coverage_values": [float(v) for v in acc.get("coverage_values", [])],
+                    }
+                )
+                self.phase_bbox_observability_accumulators[phase] = restored
 
         # 2.1) Load null metrics
         if "phase_null_metrics" in state:
@@ -1908,6 +2045,10 @@ class MetricsTracker:
                 # Add percentage-based versions for chain accuracy and partial chain accuracy
                 if mname in ["chain_accuracy", "partial_chain_accuracy"]:
                     metrics[f"{phase}/{mname}_pct"] = mobj.value * 100.0
+
+        for phase, bbox_metrics in self.phase_bbox_observability.items():
+            for metric_name in BBOX_OBSERVABILITY_METRIC_KEYS:
+                metrics[f"{phase}/{metric_name}"] = float(bbox_metrics.get(metric_name, 0.0))
 
         ########################################################################
         # 2) PER-TASK METRICS (acc1, acc3, loss) FOR EACH PHASE

@@ -111,6 +111,28 @@ VAL:
   - Enabled consumer states for `MASK_POOLING`, `FOREGROUNDNESS`, and `SMALL_OBJECT_STRAT`.
   - `bbox_valid_frac` on the chosen labels split.
 
+## B2 Geometry Observability (POL-730)
+
+For B2/B2-minus runs (`MASK_POOLING.ENABLED=true`, `FOREGROUNDNESS.ENABLED=false`), use these metrics from `metrics_log.jsonl` and final summary rows:
+
+- Geometry:
+  - `bbox_valid_frac`
+  - `bbox_area_frac_mean/p50/p90`
+  - `bbox_aspect_ratio_mean/p50/p90`
+  - `bbox_clamped_frac`
+- Patch-mask:
+  - `mask_patch_coverage_mean/p50/p90`
+  - `mask_patch_empty_frac`
+  - `mask_pool_fallback_frac`
+
+Interpretation guide for B1 vs B2 vs B2-minus:
+
+- `bbox_valid_frac` down: likely key wiring or dataset quality drift, not model behavior.
+- `bbox_clamped_frac` up + `bbox_area_frac_p50` down: boxes are pushed out-of-frame and effective crop area shrinks.
+- `mask_patch_empty_frac` or `mask_pool_fallback_frac` up while bbox geometry is stable: patch-grid conversion is producing sparse masks; investigate image-size/patch-size alignment and tiny-box regimes.
+- B2/B2-minus classification drop with similar geometry/coverage metrics: regression is likely in downstream pooling/classification behavior, not bbox data geometry.
+- B2/B2-minus drop plus worse geometry/coverage metrics: treat as geometry-mediated regression first.
+
 ## POL-615 M2 Reboot (Canonical)
 
 This section is the in-repo canonical reference for the M2 reboot decision table and relaunch contract tracked in `POL-615`.

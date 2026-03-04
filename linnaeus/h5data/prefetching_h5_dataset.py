@@ -8,6 +8,7 @@ import numpy as np
 import torch
 
 from linnaeus.aug.base import AugmentationPipeline
+from linnaeus.utils.bbox_observability import resolve_bbox_observability_keys
 
 from .base_prefetching_dataset import BasePrefetchingDataset
 
@@ -155,6 +156,16 @@ class PrefetchingH5Dataset(BasePrefetchingDataset):
         self.class_to_idx = class_to_idx
         self.target_img_size = target_img_size
         self.config = config  # Store the config
+        self._bbox_observability_enabled = False
+        self._bbox_key = None
+        self._bbox_valid_key = None
+        self._bbox_missing_warned = False
+        if self.config is not None:
+            (
+                self._bbox_observability_enabled,
+                self._bbox_key,
+                self._bbox_valid_key,
+            ) = resolve_bbox_observability_keys(self.config)
 
         # At runtime, we pick which array to use:
         self._active_group_array: list[int] | None = None
@@ -181,6 +192,32 @@ class PrefetchingH5Dataset(BasePrefetchingDataset):
     def __len__(self) -> int:
         """Number of samples determined by 'img_identifiers' in labels_file."""
         return len(self.labels_file["img_identifiers"])
+
+    def _read_bbox_observability_sample(self, idx: int) -> tuple[torch.Tensor, torch.Tensor] | None:
+        """Read bbox payload for observability metrics when enabled."""
+        if not self._bbox_observability_enabled:
+            return None
+
+        if self._bbox_key not in self.labels_file or self._bbox_valid_key not in self.labels_file:
+            if not self._bbox_missing_warned:
+                self.main_logger.warning(
+                    "[PrefetchingH5Dataset] Bbox observability enabled but keys are missing "
+                    f"(bbox_key={self._bbox_key}, bbox_valid_key={self._bbox_valid_key}). "
+                    "Emitting zeroed bbox payloads."
+                )
+                self._bbox_missing_warned = True
+            return torch.zeros(4, dtype=torch.float32), torch.tensor(0.0, dtype=torch.float32)
+
+        bbox_raw = np.array(self.labels_file[self._bbox_key][idx], dtype=np.float32).reshape(-1)
+        bbox_padded = np.zeros((4,), dtype=np.float32)
+        copy_len = min(4, int(bbox_raw.size))
+        if copy_len > 0:
+            bbox_padded[:copy_len] = bbox_raw[:copy_len]
+
+        bbox_valid_raw = np.array(self.labels_file[self._bbox_valid_key][idx], dtype=np.float32).reshape(-1)
+        bbox_valid = float(bbox_valid_raw[0]) if bbox_valid_raw.size > 0 else 0.0
+
+        return torch.tensor(bbox_padded, dtype=torch.float32), torch.tensor(bbox_valid, dtype=torch.float32)
 
     def _read_raw_item(self, idx: int) -> tuple[torch.Tensor, dict[str, torch.Tensor], torch.Tensor, int, dict[str, int], torch.Tensor]:
         """
@@ -338,6 +375,10 @@ class PrefetchingH5Dataset(BasePrefetchingDataset):
         subs_id = {}
         if idx < len(self.subset_ids):
             subs_id = self.subset_ids[idx]
+        bbox_payload = self._read_bbox_observability_sample(idx)
+        if bbox_payload is not None:
+            bbox_tensor, bbox_valid_tensor = bbox_payload
+            return (image_tensor, targets, aux_info, group_id, subs_id, meta_validity_mask, bbox_tensor, bbox_valid_tensor)
 
         return (image_tensor, targets, aux_info, group_id, subs_id, meta_validity_mask)
 

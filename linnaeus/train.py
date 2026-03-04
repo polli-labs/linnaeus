@@ -190,9 +190,10 @@ def train_one_epoch(
 
             with prof("dataloader_iter", level=1):
                 # Unpack and move data to GPU
-                # batch_data: (images, targets_dict, aux_info, group_ids, subset_dict, meta_validity_mask, actual_meta_stats)
+                # batch_data: (images, targets_dict, aux_info, group_ids, subset_dict, meta_validity_mask, actual_meta_stats, bbox_observability_stats)
                 images, targets_dict, aux_info = batch_data[0], batch_data[1], batch_data[2]
                 actual_meta_stats = batch_data[6] if len(batch_data) > 6 else {}  # Safely get actual_meta_stats
+                bbox_observability_stats = batch_data[7] if len(batch_data) > 7 else {}
 
                 if emit_init_markers and rank == 0 and not init_first_batch_logged:
                     emit_init_timing("first_batch_fetched", logger_override=logger)
@@ -200,6 +201,9 @@ def train_one_epoch(
 
                 bsz = images.size(0)
                 total_samples_for_epoch_avg += bsz
+
+                if bbox_observability_stats:
+                    metrics_tracker.update_bbox_observability("train", bbox_observability_stats)
 
                 with prof("data/transfer", level=2):
                     images = images.cuda(non_blocking=True)

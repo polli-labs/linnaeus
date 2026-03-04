@@ -152,6 +152,7 @@ def validate_one_pass(
                         aux_info = aux_info.cuda(non_blocking=True)
 
                     subset_ids = batch_data[4] if len(batch_data) > 4 else {}
+                    bbox_observability_stats = batch_data[7] if len(batch_data) > 7 else {}
                 else:
                     # Dictionary format
                     images = batch_data["image"].cuda(non_blocking=True)
@@ -165,6 +166,7 @@ def validate_one_pass(
                             aux_info = torch.zeros_like(aux_info)
 
                     subset_ids = batch_data.get("subset_ids", {})
+                    bbox_observability_stats = {}
 
                 # 2) Forward pass
                 amp_enabled = config.TRAIN.AMP_OPT_LEVEL != "O0"
@@ -210,6 +212,8 @@ def validate_one_pass(
 
                     # Update metrics in the tracker
                     metrics_tracker.update_val_metrics(phase_name, loss_components, outputs, tdict_gpu, images.size(0), subset_ids)
+                    if bbox_observability_stats:
+                        metrics_tracker.update_bbox_observability(phase_name, bbox_observability_stats)
 
                     # Debug: Dump metrics state on first batch if enabled
                     if batch_idx == 0 and config.get("DEBUG", {}).get("DUMP_METRICS", False):
@@ -380,6 +384,7 @@ def validate_with_partial_mask(
                             aux_info[:, start_idx:end_idx] = 0.0
 
                     subset_ids = batch_data[4] if len(batch_data) > 4 else {}
+                    bbox_observability_stats = batch_data[7] if len(batch_data) > 7 else {}
                 else:
                     # Dictionary format
                     images = batch_data["image"].cuda(non_blocking=True)
@@ -394,6 +399,7 @@ def validate_with_partial_mask(
                             aux_info[:, start_idx:end_idx] = 0.0
 
                     subset_ids = batch_data.get("subset_ids", {})
+                    bbox_observability_stats = {}
 
                 amp_enabled = config.TRAIN.AMP_OPT_LEVEL != "O0"
                 with torch.cuda.amp.autocast(enabled=amp_enabled):
@@ -436,6 +442,8 @@ def validate_with_partial_mask(
 
                     # Update metrics
                     metrics_tracker.update_val_metrics(phase_name, loss_components, outputs, tdict_gpu, images.size(0), subset_ids)
+                    if bbox_observability_stats:
+                        metrics_tracker.update_bbox_observability(phase_name, bbox_observability_stats)
 
                     # Debug: Dump metrics state on first batch if enabled
                     if batch_idx == 0 and config.get("DEBUG", {}).get("DUMP_METRICS", False):

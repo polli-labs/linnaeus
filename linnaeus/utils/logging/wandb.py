@@ -325,6 +325,18 @@ def log_final_results(config, metrics_tracker):
             for stat_name, metric_obj in sub_metrics.items():
                 final_metrics[f"final_train_{stat_name}_{task_key}"] = metric_obj.best
 
+    # 4) Include bbox observability summaries as final_* values (current epoch values, not best-of-run)
+    if hasattr(metrics_tracker, "phase_bbox_observability"):
+        for phase, bbox_metrics in metrics_tracker.phase_bbox_observability.items():
+            if phase == "train":
+                prefix = "final_train_"
+            elif phase == "val":
+                prefix = "final_val_"
+            else:
+                prefix = f"final_{phase}_"
+            for metric_name, metric_value in bbox_metrics.items():
+                final_metrics[f"{prefix}{metric_name}"] = float(metric_value)
+
     # Write to JSONL first
     _write_metrics_to_jsonl(final_metrics, None)  # Final results typically don't have a step
 

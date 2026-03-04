@@ -216,6 +216,10 @@ class StepMetricsLogger:
                     if metric_name.startswith("acc"):
                         step_metrics[f"{metric_name}_{task_key}"] = metric_obj.value
 
+        if hasattr(self.metrics_tracker, "get_bbox_observability_metrics"):
+            for metric_name, metric_value in self.metrics_tracker.get_bbox_observability_metrics("train").items():
+                step_metrics[metric_name] = metric_value
+
         # Always accumulate metrics for wandb interval averaging, regardless of whether we log now
         if step_metrics:
             if debug_wandb_metrics:
