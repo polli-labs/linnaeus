@@ -30,6 +30,9 @@ from linnaeus.utils.metrics.subset_metric_wrapper import SubsetMetricWrapper
 logger = get_main_logger()
 
 
+_BBOX_PHASE_METRIC_NAMES = ("bbox_area_fraction", "bbox_valid_fraction")
+
+
 class Metric:
     """
     A simple metric accumulator that tracks:
@@ -198,6 +201,8 @@ class MetricsTracker:
                 "partial_chain_accuracy": Metric("train_partial_chain_accuracy", init_value=0.0, higher_is_better=True),
                 "epoch_duration_sec": Metric("train_epoch_duration_sec", init_value=0.0, higher_is_better=False),
                 "avg_samples_per_sec": Metric("train_avg_samples_per_sec", init_value=0.0, higher_is_better=True),
+                "bbox_area_fraction": Metric("train_bbox_area_fraction", init_value=0.0, higher_is_better=True),
+                "bbox_valid_fraction": Metric("train_bbox_valid_fraction", init_value=0.0, higher_is_better=True),
             },
             "val": {
                 "loss": Metric("val_loss", init_value=1e9, higher_is_better=False),
@@ -205,6 +210,8 @@ class MetricsTracker:
                 "partial_chain_accuracy": Metric("val_partial_chain_accuracy", init_value=0.0, higher_is_better=True),
                 "epoch_duration_sec": Metric("val_epoch_duration_sec", init_value=0.0, higher_is_better=False),
                 "avg_samples_per_sec": Metric("val_avg_samples_per_sec", init_value=0.0, higher_is_better=True),
+                "bbox_area_fraction": Metric("val_bbox_area_fraction", init_value=0.0, higher_is_better=True),
+                "bbox_valid_fraction": Metric("val_bbox_valid_fraction", init_value=0.0, higher_is_better=True),
             },
             "val_mask_meta": {
                 "loss": Metric("val_mask_meta_loss", init_value=1e9, higher_is_better=False),
@@ -212,7 +219,20 @@ class MetricsTracker:
                 "partial_chain_accuracy": Metric("val_mask_meta_partial_chain_accuracy", init_value=0.0, higher_is_better=True),
                 "epoch_duration_sec": Metric("val_mask_meta_epoch_duration_sec", init_value=0.0, higher_is_better=False),
                 "avg_samples_per_sec": Metric("val_mask_meta_avg_samples_per_sec", init_value=0.0, higher_is_better=True),
+                "bbox_area_fraction": Metric("val_mask_meta_bbox_area_fraction", init_value=0.0, higher_is_better=True),
+                "bbox_valid_fraction": Metric("val_mask_meta_bbox_valid_fraction", init_value=0.0, higher_is_better=True),
             },
+        }
+
+        # Track running means for bbox observability metrics so the step logger can emit
+        # a stable value before epoch finalization.
+        self.bbox_observability_running = {
+            phase: {
+                "bbox_area_fraction_sum": 0.0,
+                "bbox_valid_fraction_sum": 0.0,
+                "count": 0,
+            }
+            for phase in phases
         }
 
         # --------------- Per-task metrics for each phase ---------------
@@ -373,6 +393,60 @@ class MetricsTracker:
         for tkey in self.phase_task_metrics[phase_name]:
             self.partial_task_sums[phase_name][tkey].clear()
             self.partial_task_counts[phase_name][tkey].clear()
+        self.reset_bbox_observability(phase_name)
+
+    def reset_bbox_observability(self, phase: str) -> None:
+        """
+        Reset running bbox observability accumulators for a phase.
+
+        This should be called at the start of train/validation phases so each phase
+        reports its own running mean (rather than carrying over from prior epochs).
+        """
+        self._ensure_phase_exists(phase)
+        self.bbox_observability_running[phase] = {
+            "bbox_area_fraction_sum": 0.0,
+            "bbox_valid_fraction_sum": 0.0,
+            "count": 0,
+        }
+        for metric_name in _BBOX_PHASE_METRIC_NAMES:
+            if metric_name in self.phase_metrics[phase]:
+                self.phase_metrics[phase][metric_name].value = 0.0
+
+    def update_bbox_observability(self, phase: str, bbox_metrics: dict[str, float], sample_count: int = 1) -> None:
+        """
+        Update running bbox observability metrics for a phase.
+
+        Args:
+            phase: Metrics phase (e.g. train, val, val_mask_meta).
+            bbox_metrics: Dict containing bbox_area_fraction and bbox_valid_fraction.
+            sample_count: Effective sample weight for this update.
+        """
+        if not bbox_metrics:
+            return
+
+        self._ensure_phase_exists(phase)
+        if phase not in self.bbox_observability_running:
+            self.reset_bbox_observability(phase)
+
+        weight = max(int(sample_count), 1)
+        running = self.bbox_observability_running[phase]
+
+        for metric_name in _BBOX_PHASE_METRIC_NAMES:
+            if metric_name not in bbox_metrics:
+                continue
+            value = float(bbox_metrics[metric_name])
+            running[f"{metric_name}_sum"] += value * weight
+
+        running["count"] += weight
+        denom = max(running["count"], 1)
+
+        for metric_name in _BBOX_PHASE_METRIC_NAMES:
+            metric_sum_key = f"{metric_name}_sum"
+            if metric_sum_key not in running:
+                continue
+            if metric_name not in self.phase_metrics[phase]:
+                self.phase_metrics[phase][metric_name] = Metric(f"{phase}_{metric_name}", 0.0, higher_is_better=True)
+            self.phase_metrics[phase][metric_name].value = running[metric_sum_key] / denom
 
     def update_val_metrics(
         self,
@@ -446,6 +520,8 @@ class MetricsTracker:
             "partial_chain_accuracy": Metric(f"{phase}_partial_chain_accuracy", 0.0, higher_is_better=True),
             "epoch_duration_sec": Metric(f"{phase}_epoch_duration_sec", 0.0, higher_is_better=False),
             "avg_samples_per_sec": Metric(f"{phase}_avg_samples_per_sec", 0.0, higher_is_better=True),
+            "bbox_area_fraction": Metric(f"{phase}_bbox_area_fraction", 0.0, higher_is_better=True),
+            "bbox_valid_fraction": Metric(f"{phase}_bbox_valid_fraction", 0.0, higher_is_better=True),
         }
 
         # Add to phase task metrics
@@ -471,6 +547,11 @@ class MetricsTracker:
         # Add to partial sums and counts
         self.partial_task_sums[phase] = defaultdict(lambda: defaultdict(float))
         self.partial_task_counts[phase] = defaultdict(lambda: defaultdict(int))
+        self.bbox_observability_running[phase] = {
+            "bbox_area_fraction_sum": 0.0,
+            "bbox_valid_fraction_sum": 0.0,
+            "count": 0,
+        }
 
         # --- ADD INITIALIZATION FOR NULL/NON-NULL for the new phase ---
         if self.null_tracking_enabled:

@@ -1,7 +1,7 @@
 import gc  # For garbage collection
+from contextlib import nullcontext
 
 import torch
-from contextlib import nullcontext
 
 from linnaeus.h5data.base_prefetching_dataset import STOP_SENTINEL
 from linnaeus.loss.gradient_weighting import log_memory_usage
@@ -9,6 +9,7 @@ from linnaeus.loss.hierarchical_loss import weighted_hierarchical_loss
 from linnaeus.utils.debug_utils import check_debug_flag
 from linnaeus.utils.distributed import get_rank_safely
 from linnaeus.utils.init_timing import emit_init_timing
+from linnaeus.utils.metrics.bbox_observability import compute_bbox_observability_metrics
 from linnaeus.utils.metrics.step_metrics_logger import StepMetricsLogger
 from linnaeus.utils.profiling_helpers import prof, update_profiler_config
 
@@ -133,6 +134,8 @@ def train_one_epoch(
 
     step_logger = StepMetricsLogger(config, metrics_tracker, ops_schedule)
     step_logger.start_epoch()
+    if hasattr(metrics_tracker, "reset_bbox_observability"):
+        metrics_tracker.reset_bbox_observability("train")
 
     debug_training_loop = check_debug_flag(config, "DEBUG.TRAINING_LOOP")
 
@@ -206,11 +209,15 @@ def train_one_epoch(
                     aux_info = aux_info.cuda(non_blocking=True)
                     tdict_gpu = {k: v.cuda(non_blocking=True) for k, v in targets_dict.items()}
 
+                bbox_observability_metrics = compute_bbox_observability_metrics(config, tdict_gpu)
+                if bbox_observability_metrics and hasattr(metrics_tracker, "update_bbox_observability"):
+                    metrics_tracker.update_bbox_observability("train", bbox_observability_metrics, sample_count=bsz)
+
             # --- Forward Pass ---
             # The checkpoint flag for the forward pass is set *before* the loop
             # And reset *after* the loop in finally block.
             # For GradNorm re-forwards, its specific flag is passed directly.
-            
+
             # Prepare batch RNG for optimized drop path if available
             try:
                 from linnaeus.models.blocks.drop_path_optimized import DropPathOptimized, get_batch_rng
@@ -228,7 +235,7 @@ def train_one_epoch(
                     )
             except ImportError:
                 pass  # Optimized drop path not available
-            
+
             is_ddp = isinstance(model, torch.nn.parallel.DistributedDataParallel)
             should_sync_ddp = _should_sync_ddp_gradients(
                 is_ddp=is_ddp,
@@ -414,6 +421,7 @@ def train_one_epoch(
                         gradnorm_metrics=final_gradnorm_metrics_to_log if final_gradnorm_metrics_to_log else None,
                         lr_value=lr_scheduler.get_last_lr()[0] if hasattr(lr_scheduler, "get_last_lr") else None,
                         extra_info={"accum_steps": accumulation_steps, "is_gradnorm_step": is_gradnorm_update_step},
+                        extra_metrics=bbox_observability_metrics,
                         actual_meta_stats=actual_meta_stats,
                     )
                 with prof("logging/lr_metrics", level=2):

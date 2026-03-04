@@ -52,6 +52,7 @@ linnaeus-prof-run = "linnaeus.tools.profiling.run_profiling_trials:main"
 dev = [
     "pytest",
     "ruff",
+    "ty",
     "mkdocs",
     "mkdocs-material",
 ]

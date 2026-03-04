@@ -94,3 +94,16 @@ def test_bbox_lane_smoke_respects_max_samples(tmp_path, capsys):
     assert payload["bbox_valid_samples_scanned"] == 4
     assert payload["bbox_valid_samples_total"] == 20
     assert payload["bbox_valid_frac"] == 0.0
+    assert payload["bbox_area_frac"] == 0.0
+    assert "train/bbox_valid_fraction" in payload["expected_runtime_metric_keys"]
+    assert "val/bbox_area_fraction" in payload["expected_runtime_metric_keys"]
+
+
+def test_bbox_lane_smoke_fails_when_area_threshold_missed(tmp_path):
+    labels_path = tmp_path / "labels.h5"
+    cfg_path = tmp_path / "smoke.yaml"
+    _write_labels_h5(labels_path, valid_frac=1.0)
+    _write_cfg(cfg_path, labels_path)
+
+    rc = main(["--cfg", str(cfg_path), "--split", "all", "--min-bbox-area-frac", "0.3", "--json"])
+    assert rc == 1

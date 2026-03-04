@@ -109,7 +109,13 @@ VAL:
 - `tools/bbox_lane_smoke.py` outputs:
   - Resolved bbox key pair.
   - Enabled consumer states for `MASK_POOLING`, `FOREGROUNDNESS`, and `SMALL_OBJECT_STRAT`.
-  - `bbox_valid_frac` on the chosen labels split.
+  - `bbox_valid_frac` and `bbox_area_frac` on the chosen labels split.
+  - Required runtime metric contract keys (`train/*` and `val/*` bbox observability metrics).
+- `tools/smoke/bbox_metrics_contract_smoke.py` deterministically verifies first-step plus validation-boundary telemetry emission for:
+  - `train/bbox_valid_fraction`
+  - `train/bbox_area_fraction`
+  - `val/bbox_valid_fraction`
+  - `val/bbox_area_fraction`
 
 ## POL-615 M2 Reboot (Canonical)
 
