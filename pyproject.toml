@@ -52,8 +52,11 @@ linnaeus-prof-run = "linnaeus.tools.profiling.run_profiling_trials:main"
 dev = [
     "pytest",
     "ruff",
+    "ty",
     "mkdocs",
     "mkdocs-material",
+    # Needed by flash-attn metadata build when build isolation is disabled.
+    "setuptools>=70",
 ]
 cpu = [
     # Core ML stack — keep the three in sync

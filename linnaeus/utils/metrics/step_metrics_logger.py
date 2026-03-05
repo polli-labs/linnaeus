@@ -103,6 +103,7 @@ class StepMetricsLogger:
         lr_value: float | None = None,
         force_log: bool = False,
         extra_info: dict[str, Any] | None = None,
+        extra_metrics: dict[str, Any] | None = None,
         actual_meta_stats: dict[str, float] | None = None,
     ) -> None:
         """
@@ -118,6 +119,7 @@ class StepMetricsLogger:
             lr_value: Optional learning rate value
             force_log: If True, log regardless of intervals
             extra_info: Optional dictionary with additional information to display in logs
+            extra_metrics: Optional dictionary of additional numeric metrics to emit.
             actual_meta_stats: Optional dictionary mapping metadata component names to their
                                actual valid percentages after masking/mixing
         """
@@ -215,6 +217,12 @@ class StepMetricsLogger:
                     # Only include acc1, acc3 metrics (skip loss which is already included above)
                     if metric_name.startswith("acc"):
                         step_metrics[f"{metric_name}_{task_key}"] = metric_obj.value
+
+        # Add explicit per-step extras (e.g. bbox observability) when provided.
+        if extra_metrics:
+            for metric_name, metric_value in extra_metrics.items():
+                if isinstance(metric_value, (int, float)):
+                    step_metrics[metric_name] = float(metric_value)
 
         # Always accumulate metrics for wandb interval averaging, regardless of whether we log now
         if step_metrics:

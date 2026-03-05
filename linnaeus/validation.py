@@ -19,6 +19,7 @@ from linnaeus.loss.hierarchical_loss import weighted_hierarchical_loss
 from linnaeus.utils.debug_utils import check_debug_flag
 from linnaeus.utils.distributed import get_rank_safely
 from linnaeus.utils.logging.logger import get_main_logger
+from linnaeus.utils.metrics.bbox_observability import compute_bbox_observability_metrics
 
 logger = get_main_logger()
 
@@ -114,6 +115,8 @@ def validate_one_pass(
             total_samples_expected = len(data_loader.dataset)
 
         metrics_tracker.start_val_phase(phase_name, total_samples_expected)
+        if hasattr(metrics_tracker, "reset_bbox_observability"):
+            metrics_tracker.reset_bbox_observability(phase_name)
 
         # Get task keys from the criteria dict
         task_keys = sorted(list(criteria.keys()), key=lambda k: int(k.split("_L")[-1]))
@@ -165,6 +168,10 @@ def validate_one_pass(
                             aux_info = torch.zeros_like(aux_info)
 
                     subset_ids = batch_data.get("subset_ids", {})
+
+                bbox_observability_metrics = compute_bbox_observability_metrics(config, tdict_gpu)
+                if bbox_observability_metrics and hasattr(metrics_tracker, "update_bbox_observability"):
+                    metrics_tracker.update_bbox_observability(phase_name, bbox_observability_metrics, sample_count=images.size(0))
 
                 # 2) Forward pass
                 amp_enabled = config.TRAIN.AMP_OPT_LEVEL != "O0"
@@ -266,6 +273,14 @@ def validate_one_pass(
         logger.info(
             f"[{phase_name.capitalize()}] Epoch {epoch}, Overall Average loss: {final_avg_loss:.4f}, duration={elapsed:.1f}s"
         )  # Log the correct overall average
+        if phase_name in metrics_tracker.phase_metrics:
+            bbox_area_metric = metrics_tracker.phase_metrics[phase_name].get("bbox_area_fraction")
+            bbox_valid_metric = metrics_tracker.phase_metrics[phase_name].get("bbox_valid_fraction")
+            if bbox_area_metric is not None and bbox_valid_metric is not None:
+                logger.info(
+                    f"[{phase_name}] bbox observability => bbox_valid_fraction={bbox_valid_metric.value:.4f}, "
+                    f"bbox_area_fraction={bbox_area_metric.value:.4f}"
+                )
 
         return final_avg_loss  # Return the overall average loss
     except Exception as e:
@@ -333,6 +348,8 @@ def validate_with_partial_mask(
         if total_samples_expected == 0 and hasattr(data_loader, "dataset"):
             total_samples_expected = len(data_loader.dataset)
         metrics_tracker.start_val_phase(phase_name, total_samples_expected)
+        if hasattr(metrics_tracker, "reset_bbox_observability"):
+            metrics_tracker.reset_bbox_observability(phase_name)
 
         # Sort tasks
         task_keys = sorted(list(criteria.keys()), key=lambda k: int(k.split("_L")[-1]))
@@ -394,6 +411,10 @@ def validate_with_partial_mask(
                             aux_info[:, start_idx:end_idx] = 0.0
 
                     subset_ids = batch_data.get("subset_ids", {})
+
+                bbox_observability_metrics = compute_bbox_observability_metrics(config, tdict_gpu)
+                if bbox_observability_metrics and hasattr(metrics_tracker, "update_bbox_observability"):
+                    metrics_tracker.update_bbox_observability(phase_name, bbox_observability_metrics, sample_count=images.size(0))
 
                 amp_enabled = config.TRAIN.AMP_OPT_LEVEL != "O0"
                 with torch.cuda.amp.autocast(enabled=amp_enabled):
@@ -495,6 +516,14 @@ def validate_with_partial_mask(
         logger.info(
             f"[{phase_name}] Epoch {epoch}, Masked: {masked_desc}, Overall Average loss: {final_avg_loss:.4f}, duration={elapsed:.1f}s"
         )  # Log correct average
+        if phase_name in metrics_tracker.phase_metrics:
+            bbox_area_metric = metrics_tracker.phase_metrics[phase_name].get("bbox_area_fraction")
+            bbox_valid_metric = metrics_tracker.phase_metrics[phase_name].get("bbox_valid_fraction")
+            if bbox_area_metric is not None and bbox_valid_metric is not None:
+                logger.info(
+                    f"[{phase_name}] bbox observability => bbox_valid_fraction={bbox_valid_metric.value:.4f}, "
+                    f"bbox_area_fraction={bbox_area_metric.value:.4f}"
+                )
 
         return final_avg_loss
     except Exception as e:

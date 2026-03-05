@@ -34,6 +34,16 @@ uv sync --extra dev --extra cpu
 uv run pytest -q
 ```
 
+## Baseline Quality Gate
+
+Run the canonical local/CI gate scaffold:
+
+```bash
+uv run python tools/quality_gate.py
+```
+
+The gate runs lint (`ruff`), typecheck (`ty`), targeted bbox observability regression tests, and a deterministic prelaunch smoke for bbox telemetry contract emission.
+
 For detailed installation instructions, see [Installation Guide](docs/installation.md) and
 the [UV golden path](docs/dev/uv.md).
 
