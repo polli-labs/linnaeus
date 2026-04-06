@@ -21,6 +21,7 @@ except ImportError:
 
 # Import create_head from model_factory - crucial for hierarchical head instantiation
 from ..model_factory import create_head
+from .hierarchy_matrix_store import HierarchyMatrixStore
 
 # Import standard heads for direct use if needed, though create_head is preferred
 # Import the refactored hierarchical heads
@@ -193,8 +194,9 @@ def configure_classification_heads(
         logger.error(f"heads_config is not a dictionary, cannot configure heads. Got: {type(heads_config)}")
         return classification_heads  # Return empty dict
 
-    # *** NEW: Create shared level classifiers ONCE if needed ***
+    # *** NEW: Create shared hierarchical resources ONCE if needed ***
     shared_level_classifiers = None
+    shared_hierarchy_store = None
     if has_hierarchical_request and task_keys and num_classes_dict:
         shared_level_classifiers = nn.ModuleDict()
         for tk in task_keys:  # Use the full list of task keys
@@ -203,6 +205,8 @@ def configure_classification_heads(
                 raise ValueError(f"num_classes missing for task '{tk}'")
             shared_level_classifiers[tk] = nn.Linear(in_features, n_cls, bias=use_bias)
         logger.info(f"Created shared level classifiers for {len(shared_level_classifiers)} hierarchical levels.")
+        shared_hierarchy_store = HierarchyMatrixStore.from_taxonomy_tree(taxonomy_tree)
+        logger.info(f"Created shared hierarchy matrix store with {len(tuple(shared_hierarchy_store.keys()))} matrices.")
     # *** End NEW ***
 
     # Iterate through the tasks defined in the heads_config
@@ -266,7 +270,7 @@ def configure_classification_heads(
                 )
             else:
                 # Hierarchical head - add extra arguments and use create_head directly
-                if not all([task_keys, taxonomy_tree, num_classes_dict, shared_level_classifiers]):
+                if not all([task_keys, taxonomy_tree, num_classes_dict, shared_level_classifiers, shared_hierarchy_store]):
                     raise ValueError(f"Hierarchical context missing for hierarchical head '{task_str}'.")
 
                 # Add hierarchical context
@@ -276,6 +280,7 @@ def configure_classification_heads(
                 build_kwargs["num_classes"] = num_classes_dict
                 # *** NEW: Pass shared classifiers ***
                 build_kwargs["level_classifiers_override"] = shared_level_classifiers
+                build_kwargs["hierarchy_store_override"] = shared_hierarchy_store
 
                 # Clean up legacy/unused params and normalize parameter names
                 build_kwargs.pop("HIDDEN_DIM", None)

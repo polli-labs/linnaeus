@@ -15,13 +15,26 @@ class InferenceRequestMetadata(BaseModel):
     Matches the structure expected by LitServe/FastAPI.
     """
 
-    lat: float | None = Field(None, description="Latitude in decimal degrees.")
-    lon: float | None = Field(None, description="Longitude in decimal degrees.")
-    datetime_utc: datetime | None = Field(None, description="Timestamp of the observation in UTC.")
-    elevation_m: float | None = Field(None, description="Elevation in meters.")
-    # For advanced use cases where features are precomputed
-    unsafe_aux_override: bool = Field(False, description="If true, use aux_vector directly, skipping preprocessing.")
-    aux_vector: list[float] | None = Field(None, description="Precomputed auxiliary feature vector.")
+    lat: float | None = Field(None, description="Latitude in decimal degrees when the bundle metadata contract includes raw geolocation encoding.")
+    lon: float | None = Field(None, description="Longitude in decimal degrees when the bundle metadata contract includes raw geolocation encoding.")
+    datetime_utc: datetime | None = Field(
+        None,
+        description="Timestamp of the observation in UTC when the bundle metadata contract includes raw temporal encoding.",
+    )
+    elevation_m: float | None = Field(
+        None,
+        description="Elevation in meters when the bundle metadata contract includes raw elevation encoding.",
+    )
+    component_vectors: dict[str, list[float]] | None = Field(
+        None,
+        description=(
+            "Optional pre-encoded metadata vectors keyed by component name or source. "
+            "Use this for components that cannot be reconstructed from the raw scalar fields above."
+        ),
+    )
+    # For advanced use cases where the entire auxiliary vector is provided directly
+    unsafe_aux_override: bool = Field(False, description="If true, use aux_vector directly and skip metadata preprocessing entirely.")
+    aux_vector: list[float] | None = Field(None, description="Full precomputed auxiliary feature vector matching the model's expected length.")
     top_k: int | None = Field(None, description="Override default Top-K predictions.")
 
 

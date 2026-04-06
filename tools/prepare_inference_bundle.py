@@ -28,9 +28,10 @@ sys.path.append(str(PROJECT_ROOT))
 
 # Now we can import from linnaeus and typus
 try:
-    from typus.constants import RankLevel
-
+    from linnaeus.config_resolution import resolve_config, temporary_config_dir
     from linnaeus.inference.config import InferenceConfig, InferenceOptionsConfig, InputConfig, MetaConfig, ModelConfig, TaxonomyConfig
+    from linnaeus.inference.metadata_contract import build_metadata_components_from_data_cfg, sync_legacy_meta_fields
+    from linnaeus.utils.config_utils import cfg_node_to_dict, load_yaml_data, update_out_features
 except ImportError as e:
     print(f"Error: Failed to import linnaeus/typus modules. Ensure they are installed and PYTHONPATH is correct. Details: {e}")
     sys.exit(1)
@@ -39,6 +40,61 @@ except ImportError as e:
 # --- Setup Logging ---
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] - %(message)s")
 logger = logging.getLogger(__name__)
+
+PORTABLE_DINOV3_BACKBONE_ID_MAP: dict[str, str] = {
+    "/datasets/modelZoo/dinov3/dinov3-vitb16-pretrain-lvd1689m": "facebook/dinov3-vitb16-pretrain-lvd1689m",
+}
+PORTABLE_DINOV3_BACKBONE_BASENAME_MAP: dict[str, str] = {
+    Path(local_path).name: hf_id for local_path, hf_id in PORTABLE_DINOV3_BACKBONE_ID_MAP.items()
+}
+
+
+def _normalize_portable_dinov3_backbone_id(backbone_id: str) -> str:
+    normalized_backbone_id = backbone_id.strip()
+    if not normalized_backbone_id:
+        return normalized_backbone_id
+
+    if normalized_backbone_id in PORTABLE_DINOV3_BACKBONE_ID_MAP:
+        return PORTABLE_DINOV3_BACKBONE_ID_MAP[normalized_backbone_id]
+
+    candidate_path = Path(normalized_backbone_id)
+    if candidate_path.is_absolute():
+        return PORTABLE_DINOV3_BACKBONE_BASENAME_MAP.get(candidate_path.name, normalized_backbone_id)
+
+    return normalized_backbone_id
+
+
+def _extract_resolved_model_build_config(
+    resolved_cfg: CN,
+    *,
+    raw_cfg: CN | None = None,
+    portable: bool = False,
+) -> dict:
+    build_cfg = CN(new_allowed=True)
+    build_cfg.MODEL = resolved_cfg.MODEL.clone()
+    build_cfg.MODEL.defrost()
+    build_cfg.MODEL.BASE = []
+    build_cfg.MODEL.PRETRAINED = ""
+    if hasattr(build_cfg.MODEL, "RESUME"):
+        build_cfg.MODEL.RESUME = ""
+
+    build_cfg.DATA = CN(new_allowed=True)
+    build_cfg.DATA.TASK_KEYS_H5 = list(resolved_cfg.DATA.TASK_KEYS_H5)
+    if hasattr(resolved_cfg.DATA, "META"):
+        build_cfg.DATA.META = resolved_cfg.DATA.META.clone()
+
+    if portable and hasattr(build_cfg.MODEL, "DINOV3"):
+        portable_backbone_id = str(
+            getattr(getattr(getattr(raw_cfg, "MODEL", None), "DINOV3", None), "BACKBONE_ID", "")
+        ).strip()
+        if not portable_backbone_id:
+            portable_backbone_id = str(getattr(build_cfg.MODEL.DINOV3, "BACKBONE_ID", "")).strip()
+        if portable_backbone_id:
+            build_cfg.MODEL.DINOV3.BACKBONE_ID = _normalize_portable_dinov3_backbone_id(portable_backbone_id)
+
+    build_cfg.MODEL.freeze()
+
+    return cfg_node_to_dict(build_cfg)
 
 
 def process_weights(checkpoint_path: Path, output_dir: Path) -> None:
@@ -117,9 +173,16 @@ def process_class_index_map(assets_dir: Path, output_dir: Path) -> None:
     logger.info(f"Saved inverted class index map to: {dest_path}")
 
 
-def generate_inference_config(exp_dir: Path, output_dir: Path, epoch: int) -> None:
+def generate_inference_config(
+    exp_dir: Path,
+    output_dir: Path,
+    epoch: int,
+    *,
+    portable: bool = True,
+) -> None:
     """Generates the self-contained inference_config.yaml."""
     logger.info("Generating inference_config.yaml...")
+    output_dir.mkdir(parents=True, exist_ok=True)
 
     # --- Load Source Files ---
     exp_config_path = exp_dir / "configs" / "experiment_config.yaml"
@@ -130,12 +193,29 @@ def generate_inference_config(exp_dir: Path, output_dir: Path, epoch: int) -> No
     if not num_classes_path.is_file():
         raise FileNotFoundError(f"Number of classes file not found: {num_classes_path}")
 
-    with open(exp_config_path) as f:
-        # --- FIX: Use yaml.load with FullLoader to handle python/tuple tags ---
-        cfg = CN(yaml.load(f, Loader=yaml.FullLoader))
-        # --- END OF FIX ---
+    raw_cfg = CN(load_yaml_data(str(exp_config_path), allow_python_tuple=True))
     with open(num_classes_path) as f:
         num_classes_dict = json.load(f)
+
+    with temporary_config_dir(str(exp_config_path)):
+        cfg = resolve_config(str(exp_config_path), [])
+
+    ordered_num_classes = {key: num_classes_dict[key] for key in cfg.DATA.TASK_KEYS_H5}
+    update_out_features(cfg, ordered_num_classes)
+
+    architecture_variant_config_path = None
+    model_base_paths = getattr(getattr(raw_cfg, "MODEL", None), "BASE", None)
+    if model_base_paths:
+        for base_path in model_base_paths:
+            if base_path and str(base_path).strip():
+                architecture_variant_config_path = str(base_path)
+                break
+
+    resolved_model_config = _extract_resolved_model_build_config(
+        cfg,
+        raw_cfg=raw_cfg,
+        portable=portable,
+    )
 
     # --- Populate Pydantic Models ---
     task_keys = cfg.DATA.TASK_KEYS_H5
@@ -144,6 +224,9 @@ def generate_inference_config(exp_dir: Path, output_dir: Path, epoch: int) -> No
     # Model Config
     model_cfg = ModelConfig(
         architecture_name=cfg.MODEL.NAME,
+        architecture_type=cfg.MODEL.TYPE,
+        architecture_variant_config_path=architecture_variant_config_path,
+        resolved_model_config=resolved_model_config,
         weights_path="pytorch_model.bin",
         model_task_keys_ordered=task_keys,
         num_classes_per_task=num_classes_list,
@@ -159,11 +242,20 @@ def generate_inference_config(exp_dir: Path, output_dir: Path, epoch: int) -> No
     )
 
     # Metadata Preprocessing Config
-    meta_cfg = MetaConfig(
-        use_geolocation=cfg.DATA.META.COMPONENTS.SPATIAL.ENABLED,
-        use_temporal=cfg.DATA.META.COMPONENTS.TEMPORAL.ENABLED,
-        use_elevation=cfg.DATA.META.COMPONENTS.ELEVATION.ENABLED,
+    labels_path_str = (
+        getattr(getattr(cfg.DATA, "H5", None), "LABELS_PATH", None)
+        or getattr(getattr(cfg.DATA, "H5", None), "TRAIN_LABELS_PATH", None)
+        or getattr(getattr(cfg.DATA, "H5", None), "VAL_LABELS_PATH", None)
     )
+    labels_path = Path(labels_path_str) if labels_path_str else None
+    metadata_components = build_metadata_components_from_data_cfg(cfg.DATA, labels_path=labels_path)
+    meta_cfg = MetaConfig(
+        use_geolocation=False,
+        use_temporal=False,
+        use_elevation=False,
+        components=metadata_components or None,
+    )
+    sync_legacy_meta_fields(meta_cfg)
 
     # Taxonomy Data Config
     tax_cfg = TaxonomyConfig(
@@ -177,7 +269,7 @@ def generate_inference_config(exp_dir: Path, output_dir: Path, epoch: int) -> No
     # Inference Options Config
     options_cfg = InferenceOptionsConfig(
         default_top_k=5,
-        artifacts_source_uri=str(output_dir.resolve())
+        artifacts_source_uri="." if portable else str(output_dir.resolve())
     )
 
     # Final Inference Config
@@ -229,6 +321,12 @@ def main():
         default="INFO",
         help="Set the logging level.",
     )
+    parser.add_argument(
+        "--portable",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Emit bundle-local relative references instead of host-absolute paths.",
+    )
     args = parser.parse_args()
 
     # Setup logging
@@ -252,7 +350,12 @@ def main():
         process_weights(ckpt_path, output_dir)
         process_taxonomy_tree(assets_dir, output_dir)
         process_class_index_map(assets_dir, output_dir)
-        generate_inference_config(exp_dir, output_dir, args.epoch)
+        generate_inference_config(
+            exp_dir,
+            output_dir,
+            args.epoch,
+            portable=args.portable,
+        )
 
         logger.info("\n--- Inference Bundle Creation Complete ---")
         logger.info(f"Bundle contents saved to: {output_dir}")

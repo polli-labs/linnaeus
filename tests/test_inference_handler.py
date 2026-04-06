@@ -8,7 +8,7 @@ from PIL import Image
 
 from linnaeus.inference.handler import LinnaeusInferenceHandler
 from linnaeus.inference.config import InferenceConfig
-from linnaeus.inference.api_schemas import ModelInformation
+from linnaeus.inference.api_schemas import InferenceRequestMetadata, ModelInformation
 from typus.models.classification import HierarchicalClassificationResult, TaskPrediction
 from typus.constants import RankLevel
 
@@ -361,7 +361,7 @@ def test_predict_output_types(fixture_inference_bundle):
 
 
 def test_predict_with_without_metadata(fixture_inference_bundle):
-    """Test handler.predict() with and without metadata."""
+    """Test handler.predict() with explicit metadata components and overrides."""
     bundle_path = fixture_inference_bundle
     config_file = bundle_path / "mock_inference_config.yaml"
 
@@ -380,15 +380,41 @@ def test_predict_with_without_metadata(fixture_inference_bundle):
     # Modify a copy for this test
     config_dict_with_meta = json.loads(json.dumps(original_config_dict)) # Deep copy
 
-    # Enable one metadata component and set expected length
-    # Say, geolocation (3 features)
-    config_dict_with_meta["metadata_preprocessing"]["use_geolocation"] = True
-    # Our TinyModel's forward takes image_features, aux_vector.
-    # Let's make expected_aux_vector_length = 3 for this test.
-    # The handler will calculate this if set to None in config, or use value if provided.
-    # We will set it explicitly to 3.
-    config_dict_with_meta["model"]["expected_aux_vector_length"] = 3
-                                                                    # (lat,lon -> x,y,z)
+    config_dict_with_meta["metadata_preprocessing"] = {
+        "use_geolocation": True,
+        "use_temporal": False,
+        "use_elevation": False,
+        "elevation_scales": [],
+        "components": [
+            {
+                "name": "WEATHER",
+                "source": "weather_embed",
+                "dim": 2,
+                "idx": 0,
+                "columns": [],
+                "method": None,
+                "encoding_kind": "passthrough_vector",
+                "scales": None,
+                "temporal_basis": None,
+                "temporal_include_hour": False,
+                "raw_input_fields": [],
+            },
+            {
+                "name": "SPATIAL",
+                "source": "spatial",
+                "dim": 3,
+                "idx": 1,
+                "columns": [],
+                "method": "unit_sphere",
+                "encoding_kind": "latlon_unit_sphere",
+                "scales": None,
+                "temporal_basis": None,
+                "temporal_include_hour": False,
+                "raw_input_fields": ["lat", "lon"],
+            },
+        ],
+    }
+    config_dict_with_meta["model"]["expected_aux_vector_length"] = 5
 
     # Patch load_inference_config to return this modified config when handler loads
     modified_inference_config_obj = InferenceConfig(**config_dict_with_meta)
@@ -412,7 +438,7 @@ def test_predict_with_without_metadata(fixture_inference_bundle):
                 artifacts_base_dir=bundle_path
             )
 
-    assert handler.config.model.expected_aux_vector_length == 3
+    assert handler.config.model.expected_aux_vector_length == 5
     assert handler.config.metadata_preprocessing.use_geolocation is True
 
     # Patch the model's forward to handle flattening and also to check aux_vector presence
@@ -440,32 +466,42 @@ def test_predict_with_without_metadata(fixture_inference_bundle):
         dummy_pil_image = create_mock_pil_image()
 
         # --- Test Case 1: Prediction WITH metadata ---
-        metadata_with = [{"lat": 40.0, "lon": -70.0}] # Activates geolocation
+        metadata_with = [{"lat": 40.0, "lon": -70.0, "component_vectors": {"weather_embed": [0.25, 0.75]}}]
         handler.predict(images=[dummy_pil_image], metadata_list=metadata_with)
 
         assert last_aux_vector_received is not None, "Aux vector should be passed to model when metadata is provided"
         assert isinstance(last_aux_vector_received, torch.Tensor), "Aux vector should be a Tensor"
-        assert last_aux_vector_received.shape == (1, 3),             f"Aux vector shape incorrect. Expected (1,3), Got {last_aux_vector_received.shape}"
-        # Geolocation (x,y,z) for (40, -70) should not be all zeros.
-        assert not torch.all(last_aux_vector_received == 0).item(), "Aux vector from metadata should not be all zeros"
+        assert last_aux_vector_received.shape == (1, 5),             f"Aux vector shape incorrect. Expected (1,5), Got {last_aux_vector_received.shape}"
+        assert torch.allclose(last_aux_vector_received[0, :2], torch.tensor([0.25, 0.75]))
+        assert not torch.all(last_aux_vector_received[0, 2:] == 0).item(), "Spatial slice from metadata should not be all zeros"
 
-        # --- Test Case 2: Prediction WITHOUT metadata (empty dict) ---
+        # --- Test Case 2: Prediction with metadata provided through per-sample override ---
+        last_aux_vector_received = None
+        override = InferenceRequestMetadata(lat=41.0, lon=-71.0, component_vectors={"WEATHER": [0.1, 0.9]})
+        handler.predict(images=[dummy_pil_image], metadata_list=[{}], per_sample_overrides=[override])
+
+        assert last_aux_vector_received is not None
+        assert last_aux_vector_received.shape == (1, 5)
+        assert torch.allclose(last_aux_vector_received[0, :2], torch.tensor([0.1, 0.9]))
+        assert not torch.all(last_aux_vector_received[0, 2:] == 0).item()
+
+        # --- Test Case 3: Prediction WITHOUT metadata (empty dict) ---
         last_aux_vector_received = None # Reset
         handler.predict(images=[dummy_pil_image], metadata_list=[{}]) # Empty dict for metadata
 
         assert last_aux_vector_received is not None, "Aux vector should still be passed (as zeros) if model expects it"
         assert isinstance(last_aux_vector_received, torch.Tensor)
-        assert last_aux_vector_received.shape == (1, 3)
+        assert last_aux_vector_received.shape == (1, 5)
         # When metadata is missing but aux is expected, preprocess_metadata_batch creates zero tensor.
         assert torch.all(last_aux_vector_received == 0).item(), "Aux vector should be all zeros when metadata is missing but expected"
 
-        # --- Test Case 3: Prediction with metadata_list=None ---
+        # --- Test Case 4: Prediction with metadata_list=None ---
         last_aux_vector_received = None # Reset
         handler.predict(images=[dummy_pil_image], metadata_list=None)
 
         assert last_aux_vector_received is not None
         assert isinstance(last_aux_vector_received, torch.Tensor)
-        assert last_aux_vector_received.shape == (1, 3)
+        assert last_aux_vector_received.shape == (1, 5)
         assert torch.all(last_aux_vector_received == 0).item(), "Aux vector should be all zeros when metadata_list is None but expected"
 
     # Restore original model forward
@@ -525,7 +561,8 @@ def test_handler_loading():
     real_bundle_path = Path("/datasets/modelWorkshop/mFormerV1/linnaeus/amphibia_mFormerV1/amphibia_mFormerV1_sm_r3c_40e/inference")
     config_file = real_bundle_path / "inference_config.yaml"
 
-    assert config_file.exists(), f"Real inference config file should exist at {config_file}"
+    if not config_file.exists():
+        pytest.skip(f"Real inference bundle not present on this machine: {config_file}")
 
     try:
         handler = LinnaeusInferenceHandler.load_from_artifacts(config_file_path=config_file)
@@ -543,6 +580,9 @@ def test_info_method():
     """Test the info() method of the LinnaeusInferenceHandler."""
     real_bundle_path = Path("/datasets/modelWorkshop/mFormerV1/linnaeus/amphibia_mFormerV1/amphibia_mFormerV1_sm_r3c_40e/inference")
     config_file = real_bundle_path / "inference_config.yaml"
+
+    if not config_file.exists():
+        pytest.skip(f"Real inference bundle not present on this machine: {config_file}")
 
     handler = LinnaeusInferenceHandler.load_from_artifacts(config_file_path=config_file)
     model_info = handler.info()

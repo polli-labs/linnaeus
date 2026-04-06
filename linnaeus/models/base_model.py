@@ -1,5 +1,3 @@
-# linnaeus/models/base_model.py
-
 """
 Base Model Definition
 -------------------
@@ -130,7 +128,7 @@ class BaseModel(nn.Module):
         """
         raise NotImplementedError("Each model architecture must explicitly implement `pretrained_ckpt_handling_metadata`.")
 
-    def init_pretrained(self, pretrained_path: str):
+    def init_pretrained(self, pretrained_path: str) -> None:
         """
         Initialize model with pretrained weights.
 
@@ -142,17 +140,14 @@ class BaseModel(nn.Module):
             self.load_state_dict(state_dict, strict=False)
             logger.info(f"Loaded pretrained weights from {pretrained_path}")
 
-    def forward(self, x, meta=None, task_idx=0):
+    def forward(self, *args: Any, **kwargs: Any) -> Any:
         """
         Forward pass to be implemented by subclasses.
 
-        Args:
-            x (torch.Tensor): Input tensor.
-            meta (Optional[torch.Tensor]): Metadata tensor, if applicable.
-            task_idx (int): Index of the current task for multi-task models.
-
-        Returns:
-            torch.Tensor: Model output.
+        The concrete model families in linnaeus have diverged enough that the
+        base class cannot impose one shared positional/keyword signature
+        without creating invalid override noise. Keep the abstract contract
+        broad here and type the concrete subclasses directly.
 
         Raises:
             NotImplementedError: This method must be implemented by subclasses.
