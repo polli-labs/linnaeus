@@ -55,6 +55,7 @@ dev = [
     "pytest",
     "pytest-timeout",
     "ruff",
+    "ty",
     "mkdocs",
     "mkdocs-material",
 ]
