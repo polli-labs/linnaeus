@@ -29,8 +29,11 @@ For current guidance, start with:
 - [Linnaeus Dev/Public Release Contract](dev_public_release_contract.md)
   - introduced during the 2026 cutover, but still the authoritative reference
     for current `origin`/`public` remote roles, the
-    `~/dev/linnaeus/{dev,wt,public}` workspace contract, and the parity-report
-    entrypoint at `tools/release/public_parity_report.py`
+    `~/dev/linnaeus/{dev,wt,public}` workspace contract, the parity-report
+    entrypoint at `tools/release/public_parity_report.py`, and the
+    manifest-driven promotion helper at `tools/release/public_surface_sync.py`.
+    The recurring/manual runner for the same contract now lives at
+    `.github/workflows/public-parity-monitor.yml`.
 
 ## Historical cutover records
 
