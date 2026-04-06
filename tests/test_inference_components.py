@@ -1,10 +1,17 @@
-import torch
-import pytest
-from datetime import datetime
 import logging
+from datetime import datetime
 
+import pytest
+import torch
+from typus.constants import RankLevel
+from typus.models.classification import HierarchicalClassificationResult, TaskPrediction, TaxonomyContext
+
+from linnaeus.inference.artifacts import ClassIndexMapData, TaxonomyData
+from linnaeus.inference.postprocessing import enforce_hierarchical_consistency
 from linnaeus.inference.preprocessing import preprocess_metadata_batch
-from linnaeus.inference.config import MetaConfig
+from linnaeus.inference.config import MetaConfig, MetadataComponentConfig
+from linnaeus.utils.taxonomy.taxonomy_tree import TaxonomyTree
+from typus.services import projections as typus_projections
 
 # Configure logging for capturing warnings
 logger = logging.getLogger("linnaeus.inference")
@@ -166,12 +173,164 @@ def test_preprocess_metadata(caplog):
     assert output_empty_list_none_enabled.shape == (0, 0), f"Shape should be (0,0) for empty list and no components, got {output_empty_list_none_enabled.shape}"
 
 
-from typus.models.classification import HierarchicalClassificationResult, TaskPrediction, TaxonomyContext
-from typus.constants import RankLevel
+def test_preprocess_metadata_uses_explicit_component_idx_order():
+    meta_cfg = MetaConfig(
+        use_geolocation=True,
+        use_temporal=True,
+        use_elevation=True,
+        elevation_scales=[200.0, 300.0],
+        components=[
+            MetadataComponentConfig(
+                name="TEMPORAL",
+                source="temporal",
+                dim=2,
+                idx=0,
+                method="sinusoidal",
+                encoding_kind="temporal_sinusoids",
+                temporal_basis="month_of_year",
+                raw_input_fields=["datetime_utc"],
+            ),
+            MetadataComponentConfig(
+                name="SPATIAL",
+                source="spatial",
+                dim=3,
+                idx=1,
+                method="unit_sphere",
+                encoding_kind="latlon_unit_sphere",
+                raw_input_fields=["lat", "lon"],
+            ),
+            MetadataComponentConfig(
+                name="ELEVATION",
+                source="elevation_broadrange_2",
+                dim=4,
+                idx=2,
+                method="sinusoidal",
+                encoding_kind="elevation_sinusoids",
+                scales=[200.0, 300.0],
+                raw_input_fields=["elevation_m"],
+            ),
+        ],
+    )
 
-from linnaeus.inference.postprocessing import enforce_hierarchical_consistency
-from linnaeus.inference.artifacts import TaxonomyData, ClassIndexMapData
-from linnaeus.utils.taxonomy.taxonomy_tree import TaxonomyTree
+    sample_dt = datetime(2024, 7, 15, 10, 30, 0)
+    output = preprocess_metadata_batch(
+        [
+            {
+                "lat": 40.7128,
+                "lon": -74.0060,
+                "datetime_utc": sample_dt,
+                "elevation_m": 15.0,
+            }
+        ],
+        meta_cfg,
+        expected_aux_vector_length=9,
+    )
+
+    temporal_expected = typus_projections.datetime_to_temporal_sinusoids(sample_dt, use_jd=False, use_hour=False)
+    spatial_expected = typus_projections.latlon_to_unit_sphere(40.7128, -74.0060)
+    elevation_expected = typus_projections.elevation_to_sinusoids(15.0, scales=[200.0, 300.0])
+    expected = torch.tensor([*temporal_expected, *spatial_expected, *elevation_expected], dtype=torch.float32)
+
+    assert output.shape == (1, 9)
+    torch.testing.assert_close(output[0], expected)
+
+
+def test_preprocess_metadata_accepts_component_vectors_by_source():
+    meta_cfg = MetaConfig(
+        use_geolocation=True,
+        use_temporal=False,
+        use_elevation=False,
+        components=[
+            MetadataComponentConfig(
+                name="WEATHER",
+                source="weather_embed",
+                dim=2,
+                idx=0,
+                encoding_kind="passthrough_vector",
+            ),
+            MetadataComponentConfig(
+                name="SPATIAL",
+                source="spatial",
+                dim=3,
+                idx=1,
+                method="unit_sphere",
+                encoding_kind="latlon_unit_sphere",
+                raw_input_fields=["lat", "lon"],
+            ),
+        ],
+    )
+
+    output = preprocess_metadata_batch(
+        [
+            {
+                "lat": 40.7128,
+                "lon": -74.0060,
+                "component_vectors": {
+                    "weather_embed": [0.25, 0.75],
+                },
+            }
+        ],
+        meta_cfg,
+        expected_aux_vector_length=5,
+    )
+
+    spatial_expected = typus_projections.latlon_to_unit_sphere(40.7128, -74.0060)
+    expected = torch.tensor([0.25, 0.75, *spatial_expected], dtype=torch.float32)
+
+    assert output.shape == (1, 5)
+    torch.testing.assert_close(output[0], expected)
+
+
+def test_preprocess_metadata_rejects_component_vector_length_mismatch():
+    meta_cfg = MetaConfig(
+        use_geolocation=False,
+        use_temporal=False,
+        use_elevation=False,
+        components=[
+            MetadataComponentConfig(
+                name="WEATHER",
+                source="weather_embed",
+                dim=2,
+                idx=0,
+                encoding_kind="passthrough_vector",
+            )
+        ],
+    )
+
+    with pytest.raises(ValueError, match="Component vector length mismatch"):
+        preprocess_metadata_batch(
+            [
+                {
+                    "component_vectors": {
+                        "weather_embed": [0.25],
+                    }
+                }
+            ],
+            meta_cfg,
+            expected_aux_vector_length=2,
+        )
+
+
+def test_preprocess_metadata_rejects_expected_aux_vector_length_mismatch(caplog):
+    meta_cfg = MetaConfig(
+        use_geolocation=True,
+        use_temporal=False,
+        use_elevation=False,
+    )
+
+    with pytest.raises(ValueError, match="Auxiliary vector length mismatch"):
+        preprocess_metadata_batch(
+            [
+                {
+                    "lat": 40.7128,
+                    "lon": -74.0060,
+                }
+            ],
+            meta_cfg,
+            expected_aux_vector_length=2,
+        )
+
+    assert any("Auxiliary vector length mismatch" in record.message for record in caplog.records if record.levelno == logging.ERROR)
 
 # Helper function to create mock TaxonomyData
 def create_mock_taxonomy_data(hierarchy_map, task_keys, num_classes_per_task, root_id=None, source="test_source", version="1.0"):

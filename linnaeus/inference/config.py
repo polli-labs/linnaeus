@@ -9,14 +9,31 @@ from typing import Any
 import yaml
 from pydantic import BaseModel, Field, HttpUrl, validator
 
+LEGACY_METADATA_FIELD_NOTE = (
+    "Legacy field. When components is populated, it is authoritative and this field is synced from it. "
+    "New bundles should always populate components."
+)
+
 
 class ModelConfig(BaseModel):
     architecture_name: str = Field(
         description="Name of the model architecture (e.g., mFormerV1_sm). Corresponds to MODEL.NAME in Linnaeus training config."
     )
+    architecture_type: str | None = Field(
+        None,
+        description="Optional top-level registered model type (for example, 'mFormerV1'). Corresponds to MODEL.TYPE in the training config.",
+    )
     architecture_variant_config_path: str | None = Field(
         None,
         description="Optional path to the specific model architecture variant YAML file (e.g., relative to configs/ path, like 'model/archs/mFormerV1/mFormerV1_sm.yaml'). If provided, these settings are used to configure the model variant.",
+    )
+    resolved_model_config: dict[str, Any] | None = Field(
+        None,
+        description=(
+            "Optional base-free resolved config fragment used to reconstruct the training model for inference. "
+            "When present, it should already include the merged MODEL subtree plus any DATA metadata/task fields "
+            "required by the model builder."
+        ),
     )
     # Path can be local or 'hf://org/repo/path/to/weights.bin'
     weights_path: str = Field(description="Path or HuggingFace Hub ID for model weights (e.g., pytorch_model.bin).")
@@ -40,6 +57,13 @@ class ModelConfig(BaseModel):
         None, description="Expected length of the concatenated auxiliary feature vector. If None, derived from MetaConfig."
     )
 
+    @validator("num_classes_per_task")
+    def check_num_classes_length(cls, v, values):
+        task_keys = values.get("model_task_keys_ordered")
+        if task_keys is not None and len(v) != len(task_keys):
+            raise ValueError("num_classes_per_task must have the same length as model_task_keys_ordered.")
+        return v
+
 
 class InputConfig(BaseModel):
     image_size: list[int] = Field(default=[3, 224, 224], description="Expected image input dimensions [C, H, W]. C must be first.")
@@ -57,22 +81,75 @@ class InputConfig(BaseModel):
 
 
 class MetaConfig(BaseModel):
-    use_geolocation: bool = Field(True, description="Whether geographic location (lat/lon) is used.")
+    # Legacy compatibility booleans remain for older bundles. New bundles should use `components`.
+    use_geolocation: bool = Field(True, description=f"{LEGACY_METADATA_FIELD_NOTE} Whether geographic location (lat/lon) is used.")
 
-    use_temporal: bool = Field(True, description="Whether date/time is used.")
+    use_temporal: bool = Field(True, description=f"{LEGACY_METADATA_FIELD_NOTE} Whether date/time is used.")
     temporal_use_julian_day: bool = Field(
         False,
-        description="If True, use day-of-year for temporal encoding; else use month-of-year. Passed to typus.datetime_to_temporal_sinusoids as use_jd.",
+        description=(
+            f"{LEGACY_METADATA_FIELD_NOTE} If True, use day-of-year for temporal encoding; "
+            "else use month-of-year. Passed to typus.datetime_to_temporal_sinusoids as use_jd."
+        ),
     )
     temporal_use_hour: bool = Field(
-        False, description="If True, include hour-of-day sinusoidal features. Passed to typus.datetime_to_temporal_sinusoids as use_hour."
+        False,
+        description=(
+            f"{LEGACY_METADATA_FIELD_NOTE} If True, include hour-of-day sinusoidal features. "
+            "Passed to typus.datetime_to_temporal_sinusoids as use_hour."
+        ),
     )
 
-    use_elevation: bool = Field(True, description="Whether elevation is used.")
+    use_elevation: bool = Field(True, description=f"{LEGACY_METADATA_FIELD_NOTE} Whether elevation is used.")
     elevation_scales: list[float] = Field(
         default=[100.0, 1000.0, 5000.0],
-        description="Scale values (in meters) for elevation sinusoidal encoding. Passed to typus.elevation_to_sinusoids as scales.",
+        description=(
+            f"{LEGACY_METADATA_FIELD_NOTE} Scale values (in meters) for elevation sinusoidal encoding. "
+            "Passed to typus.elevation_to_sinusoids as scales."
+        ),
     )
+    components: list["MetadataComponentConfig"] | None = Field(
+        None,
+        description=(
+            "Optional explicit metadata component contract. When present, this is the authoritative "
+            "description of aux-vector ordering, dimensions, and encoding semantics."
+        ),
+    )
+
+
+class MetadataComponentConfig(BaseModel):
+    name: str = Field(description="Logical component name, typically matching the training config key such as SPATIAL or TEMPORAL.")
+    source: str | None = Field(None, description="Source dataset or logical source name used during training (for example 'spatial').")
+    dim: int = Field(description="Feature dimension contributed by this component to the aux vector.")
+    idx: int = Field(description="Component order index used when packing the aux vector.")
+    columns: list[str] = Field(default_factory=list, description="Resolved column names for this component when known.")
+    method: str | None = Field(None, description="Source-side encoding method when known (for example 'unit_sphere' or 'sinusoidal').")
+    encoding_kind: str = Field(
+        default="passthrough_vector",
+        description=(
+            "Inference-side encoding contract. Supported values currently include "
+            "'latlon_unit_sphere', 'temporal_sinusoids', 'elevation_sinusoids', and 'passthrough_vector'."
+        ),
+    )
+    scales: list[float] | None = Field(None, description="Optional scale values for sinusoidal encodings such as elevation.")
+    temporal_basis: str | None = Field(
+        None,
+        description="For temporal_sinusoids, the primary time basis ('month_of_year' or 'day_of_year').",
+    )
+    temporal_include_hour: bool = Field(
+        False,
+        description="For temporal_sinusoids, whether hour-of-day features are included after the primary basis.",
+    )
+    raw_input_fields: list[str] = Field(
+        default_factory=list,
+        description="Raw request field names that can be transformed into this component when supported.",
+    )
+
+
+try:
+    MetaConfig.model_rebuild()
+except AttributeError:
+    MetaConfig.update_forward_refs(MetadataComponentConfig=MetadataComponentConfig)
 
 
 class TaxonomyConfig(BaseModel):
@@ -116,16 +193,6 @@ class InferenceConfig(BaseModel):
     model_description: str | None = Field(
         None, description="A brief description of this model configuration (e.g., 'mFormerV1-small trained on iNat2021 full')."
     )
-
-    class Config:
-        # For YACS CfgNode compatibility when converting
-        # This is not strictly needed for Pydantic-only use but useful if interfacing with YACS.
-        @classmethod
-        def from_yacs(cls, yacs_cfg_node):
-            # Placeholder for potential YACS CfgNode to Pydantic conversion
-            # This would require mapping YACS keys to Pydantic model fields.
-            # For now, we assume direct YAML to Pydantic parsing.
-            raise NotImplementedError("YACS CfgNode to Pydantic InferenceConfig conversion not yet implemented.")
 
 
 def load_inference_config(config_path: Path) -> InferenceConfig:

@@ -4,6 +4,7 @@
 
 from .aggregation import *
 from .build import build_model
+from .dinov3_vnext import DinoV3MultiHead
 
 # Import all model variants to trigger registration
 from .mFormerV0 import mFormerV0

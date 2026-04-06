@@ -1,8 +1,9 @@
 # linnaeus/models/blocks/drop_path_optimized.py
 
+from typing import Optional
+
 import torch
 import torch.nn as nn
-from typing import Optional
 
 from linnaeus.utils.logging.logger import get_main_logger
 from linnaeus.utils.profiling_helpers import prof
@@ -25,9 +26,9 @@ class DropPathBatchRNG:
         self.batch_size = 0
         
     def generate_masks(
-        self, 
-        num_blocks: int, 
-        batch_size: int, 
+        self,
+        num_blocks: int,
+        batch_size: int,
         drop_probs: list[float],
         shape_template: tuple,
         dtype: torch.dtype,
@@ -53,8 +54,8 @@ class DropPathBatchRNG:
             for _ in range(accumulation_steps):
                 # Generate all random values for this accumulation step
                 all_random = torch.rand(
-                    (num_blocks, *shape_template), 
-                    dtype=dtype, 
+                    (num_blocks, *shape_template),
+                    dtype=dtype,
                     device=device
                 )
                 
@@ -101,8 +102,8 @@ def get_batch_rng() -> DropPathBatchRNG:
 
 
 def drop_path_optimized(
-    x: torch.Tensor, 
-    drop_prob: float = 0.0, 
+    x: torch.Tensor,
+    drop_prob: float = 0.0,
     training: bool = False,
     use_batch_rng: bool = True
 ) -> torch.Tensor:

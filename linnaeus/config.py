@@ -109,6 +109,12 @@ _C.EXPERIMENT.WANDB.KEY = ""  # Defaults to reading from env var WANDB_KEY if em
 # This is typically not needed as run_ids are automatically loaded from checkpoints,
 # but can be useful for resuming runs when checkpoint data is unavailable.
 _C.EXPERIMENT.WANDB.RUN_ID = ""
+# Guardrail: avoid indefinite hangs before first training step when wandb bootstrap blocks.
+# Set to <= 0 to disable timeout behavior.
+_C.EXPERIMENT.WANDB.INIT_TIMEOUT_SECONDS = 60
+# If True, wandb initialization errors/timeouts are logged and training continues with wandb disabled.
+# If False, initialization failures raise and fail the run.
+_C.EXPERIMENT.WANDB.FAIL_OPEN = True
 
 # Logging levels
 _C.EXPERIMENT.LOG_LEVEL_MAIN = "INFO"
@@ -223,6 +229,25 @@ _C.DATA.NUM_WORKERS = 8  # Default value, effectively ignored by H5DataLoader's 
 _C.DATA.SAMPLER = CN()
 _C.DATA.SAMPLER.TYPE = "grouped"  # 'grouped' or 'standard'
 _C.DATA.SAMPLER.GROUPED_MODE = "strict-group"  # 'strict-group' or 'mixed-pairs'
+
+# Multi-view "bag-of-photos" support for MIL / tracked-entity inference.
+# Disabled by default to preserve existing per-photo training behavior.
+_C.DATA.BAGS = CN()
+_C.DATA.BAGS.ENABLED = False
+_C.DATA.BAGS.MODE = "offsets"  # offsets|synthetic
+_C.DATA.BAGS.VIEWS_PER_BAG = 1
+_C.DATA.BAGS.VIEW_SELECTION = "first_k"  # first_k|random_k|primary_plus_random|primary_plus_first
+_C.DATA.BAGS.SEED = 0
+
+# Synthetic multi-view (K augmentations per photo). Used to prototype MIL pooling before
+# true multi-photo exports are wired (ibridaDB/ibrida changes).
+_C.DATA.BAGS.SYNTHETIC_AUG = CN()
+_C.DATA.BAGS.SYNTHETIC_AUG.ENABLED = True
+_C.DATA.BAGS.SYNTHETIC_AUG.HFLIP_P = 0.5
+_C.DATA.BAGS.SYNTHETIC_AUG.BRIGHTNESS_JITTER = 0.0
+_C.DATA.BAGS.SYNTHETIC_AUG.CONTRAST_JITTER = 0.0
+_C.DATA.BAGS.SYNTHETIC_AUG.NOISE_STD = 0.0
+_C.DATA.BAGS.SYNTHETIC_AUG.ASSUME_0_1_RANGE = False
 
 # HPC simulation / I/O usage:
 # - SIMULATE_HPC: whether to simulate HPC delays.
@@ -457,6 +482,7 @@ _C.MODEL.PRETRAINED = None  # TODO refactor this to clearly deliniate between mF
 _C.MODEL.PRETRAINED_SOURCE = None  # e.g. 'metaformer', which mapping function to use?
 ## mFormerV0: PRETRAINED (path to metaformer weights, PRETRAINED_SOURCE = 'metaformer'
 ## mFormerV1: PRETRAINED_CONVNEXT (path to ConvNeXt weights), PRETRAINED_ROPEVIT (path to RoPE-ViT weights), PRETRAINED_SOURCE = 'stitched_convnext_ropevit'
+_C.MODEL.RESUME = None  # Optional explicit checkpoint path for resume/validation-only execution
 _C.MODEL.PRETRAINED_CONVNEXT = None  # Path to ConvNeXt pretrained weights
 _C.MODEL.PRETRAINED_ROPEVIT = None  # Path to RoPE-ViT pretrained weights
 _C.MODEL.NUM_CLASSES = []
@@ -513,18 +539,53 @@ _C.MODEL.CLASSIFICATION.HEADS = CN(new_allowed=True)
 
 # Hierarchical heads configuration is now done through each head's config
 
-# Optional bbox-aware pooling/supervision consumers.
-# These defaults are no-op until explicitly enabled in experiment configs.
+# ----------------------------------------------------------------------------
+# DINOv3 vNext (frozen backbone + multi-head adapters)
+# ----------------------------------------------------------------------------
+_C.MODEL.DINOV3 = CN()
+_C.MODEL.DINOV3.BACKBONE_ID = "facebook/dinov3-vitb16-pretrain-lvd1689m"
+_C.MODEL.DINOV3.USE_STUB = False  # Real backbone by default; set True only in CI test fixtures
+_C.MODEL.DINOV3.PATCH_SIZE = 16
+_C.MODEL.DINOV3.EMBED_DIM = 768
+_C.MODEL.DINOV3.FREEZE_BACKBONE = True
+
+_C.MODEL.META_ADAPTER = CN()
+_C.MODEL.META_ADAPTER.ENABLED = False
+_C.MODEL.META_ADAPTER.NUM_LAYERS = 2
+_C.MODEL.META_ADAPTER.NUM_HEADS = 8
+_C.MODEL.META_ADAPTER.MLP_RATIO = 4.0
+_C.MODEL.META_ADAPTER.DROPOUT = 0.0
+_C.MODEL.META_ADAPTER.NUM_QUERIES = 0
+_C.MODEL.META_ADAPTER.USE_SELF_ATTN = True
+
 _C.MODEL.MASK_POOLING = CN()
 _C.MODEL.MASK_POOLING.ENABLED = False
+_C.MODEL.MASK_POOLING.EPS = 1e-6
+_C.MODEL.MASK_POOLING.USE_CLS_FALLBACK = True
+_C.MODEL.MASK_POOLING.DETACH_PRED_W = True  # default: stop taxonomy gradients from flowing into predicted W
+_C.MODEL.MASK_POOLING.BLEND_ALPHA = 1.0  # 1.0 => pure mask pooling, 0.0 => pure CLS token pooling
 _C.MODEL.MASK_POOLING.USE_BBOX_IF_AVAILABLE = False
-_C.MODEL.MASK_POOLING.BBOX_KEY = ""
-_C.MODEL.MASK_POOLING.BBOX_VALID_KEY = ""
+_C.MODEL.MASK_POOLING.BBOX_KEY = "bbox_xywh_norm"
+_C.MODEL.MASK_POOLING.BBOX_VALID_KEY = "bbox_valid"
+_C.MODEL.MASK_POOLING.BBOX_PAD_FRACTION = 0.0
+_C.MODEL.MASK_POOLING.BBOX_PAD_MAX_FRACTION = -1.0  # <0 disables cap; >=0 caps effective pad fraction
 
 _C.MODEL.FOREGROUNDNESS = CN()
 _C.MODEL.FOREGROUNDNESS.ENABLED = False
-_C.MODEL.FOREGROUNDNESS.BBOX_KEY = ""
-_C.MODEL.FOREGROUNDNESS.BBOX_VALID_KEY = ""
+_C.MODEL.FOREGROUNDNESS.HIDDEN_DIM = 0
+_C.MODEL.FOREGROUNDNESS.DROPOUT = 0.0
+_C.MODEL.FOREGROUNDNESS.LOSS_TYPE = "bce"  # bce | focal
+_C.MODEL.FOREGROUNDNESS.LOSS_POS_WEIGHT = 1.0
+_C.MODEL.FOREGROUNDNESS.LOSS_WEIGHT = 1.0
+_C.MODEL.FOREGROUNDNESS.FOCAL_GAMMA = 2.0
+_C.MODEL.FOREGROUNDNESS.BBOX_KEY = "bbox_xywh_norm"
+_C.MODEL.FOREGROUNDNESS.BBOX_VALID_KEY = "bbox_valid"
+
+_C.MODEL.MIL = CN()
+_C.MODEL.MIL.ENABLED = False
+_C.MODEL.MIL.POOLING = "logsumexp"
+_C.MODEL.MIL.TEMPERATURE = 1.0
+_C.MODEL.MIL.ATTENTION_HIDDEN_DIM = 128
 
 # Normalization subconfig
 _C.MODEL.NORMALIZATION = CN()
@@ -616,6 +677,10 @@ _C.TRAIN.AUTO_RESUME = True
 _C.TRAIN.STRICT_CHECKPOINT_LOADING = False  # If True, reject checkpoints with metadata mismatches
 _C.TRAIN.CHECKPOINT_NAMESPACING = False  # If True, save checkpoints in branch/commit subdirectories
 _C.TRAIN.ALLOW_WANDB_VAL_CHANGE = True  # Allow small value changes when resuming wandb runs
+_C.TRAIN.PARAMETER_SELECTION = CN(new_allowed=True)
+_C.TRAIN.PARAMETER_SELECTION.ENABLED = False
+_C.TRAIN.PARAMETER_SELECTION.RESET_REQUIRES_GRAD = False
+_C.TRAIN.PARAMETER_SELECTION.RULES = CN(new_allowed=True)
 
 # Grad norm logging (distinct from GradNorm loss re-weighting)
 # NOTE: default values preserve historical behavior (compute and log per-step grad norms).
@@ -693,11 +758,21 @@ _C.VAL.VAL_INTERVAL = 1
 _C.VAL.MASK_META_TEST = True
 _C.VAL.MASK_META_VAL_INTERVAL = 20
 _C.VAL.DISABLE_AUGMENTATIONS = True
-
+_C.VAL.MISSINGNESS_SWEEP = CN()
+_C.VAL.MISSINGNESS_SWEEP.ENABLED = False
+_C.VAL.MISSINGNESS_SWEEP.PATTERNS = ["none", "geo_only", "time_only", "both_missing", "random_p50"]
+_C.VAL.MISSINGNESS_SWEEP.RANDOM_P = 0.5
+_C.VAL.MISSINGNESS_SWEEP.SEED = 0
+_C.VAL.MISSINGNESS_SWEEP.INTERVAL_EPOCHS = 1
+_C.VAL.MISSINGNESS_SWEEP.TASK_KEYS = []
 _C.VAL.SMALL_OBJECT_STRAT = CN()
 _C.VAL.SMALL_OBJECT_STRAT.ENABLED = False
-_C.VAL.SMALL_OBJECT_STRAT.BBOX_KEY = ""
-_C.VAL.SMALL_OBJECT_STRAT.BBOX_VALID_KEY = ""
+_C.VAL.SMALL_OBJECT_STRAT.TASK_KEYS = []
+_C.VAL.SMALL_OBJECT_STRAT.BBOX_KEY = "bbox_xywh_norm"
+_C.VAL.SMALL_OBJECT_STRAT.BBOX_VALID_KEY = "bbox_valid"
+_C.VAL.SMALL_OBJECT_STRAT.BUCKET_EDGES = [0.01, 0.05, 0.20]
+# Backward-compat threshold list used by older foregroundness eval configs.
+_C.VAL.FOREGROUNDNESS_THRESHOLDS = [0.3, 0.5, 0.7]
 
 # ----------------------------------------------------------------------------
 # Optimizer Settings
@@ -938,6 +1013,7 @@ _C.DISTRIBUTED.DDP.static_graph = False  # Enable static graph optimization
 _C.DISTRIBUTED.DDP.find_unused_parameters = False  # Find unused parameters (migrated from MODEL.FIND_UNUSED_PARAMETERS)
 _C.DISTRIBUTED.DDP.gradient_as_bucket_view = True  # Use gradient as bucket view for efficiency
 _C.DISTRIBUTED.DDP.check_reduction_size = False  # Check reduction size for debugging
+_C.DISTRIBUTED.DDP.TIMEOUT_SECONDS = 3600  # Process-group init timeout in seconds
 
 # ----------------------------------------------------------------------------
 # Debug Settings

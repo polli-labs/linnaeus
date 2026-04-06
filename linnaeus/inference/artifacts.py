@@ -45,7 +45,7 @@ class ClassIndexMapData(BaseModel):
     num_classes_per_rank: dict[RankLevel, int]  # Maps RankLevel to num_classes for that rank
 
 
-def _get_rank_level_from_linnaeus_task_key(linnaeus_task_key: str) -> RankLevel:
+def get_rank_level_from_linnaeus_task_key(linnaeus_task_key: str) -> RankLevel:
     """Converts Linnaeus task key (e.g., 'taxa_L10') to typus.RankLevel."""
     try:
         numeric_part_str = linnaeus_task_key.split("_L")[-1]
@@ -60,8 +60,12 @@ def _get_rank_level_from_linnaeus_task_key(linnaeus_task_key: str) -> RankLevel:
             numeric_part = int(numeric_part_str)
 
         return RankLevel(numeric_part)
-    except ValueError:
-        logger.error(f"Cannot convert Linnaeus task key '{linnaeus_task_key}' to RankLevel integer value.")
+    except ValueError as exc:
+        logger.error(
+            "Cannot convert Linnaeus task key '%s' to RankLevel integer value. Error: %s",
+            linnaeus_task_key,
+            exc,
+        )
         raise
 
 
@@ -143,7 +147,7 @@ def load_class_index_maps_artifact(
         if linnaeus_task_key not in raw_class_maps:
             raise ValueError(f"Task key '{linnaeus_task_key}' not found in class map artifact.")
 
-        typus_rank_level = _get_rank_level_from_linnaeus_task_key(linnaeus_task_key)
+        typus_rank_level = get_rank_level_from_linnaeus_task_key(linnaeus_task_key)
 
         task_map_raw = raw_class_maps[linnaeus_task_key]
         current_task_idx_to_tid: dict[int, int] = {}

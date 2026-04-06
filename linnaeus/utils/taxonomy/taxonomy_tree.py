@@ -9,10 +9,11 @@ like taxonomy-aware label smoothing and hierarchical classification heads.
 It also supports saving its essential state to a JSON file and loading from it.
 """
 
+import hashlib
 import json
 import logging
 import os
-from collections import deque
+from collections import defaultdict, deque
 from typing import Any
 
 import torch
@@ -341,17 +342,52 @@ class TaxonomyTree:
     def build_distance_matrix(self, task_key: str) -> torch.Tensor:
         if task_key not in self.num_classes:
             raise KeyError(f"Task key '{task_key}' not found in num_classes.")
+
         n_classes = self.num_classes[task_key]
-        nodes_at_level = self.get_nodes_at_level(task_key)
         dist_matrix = torch.full((n_classes, n_classes), float("inf"), dtype=torch.float32)
-        for i in range(n_classes):
-            dist_matrix[i, i] = 0.0
-            node_i = nodes_at_level[i]
-            for j in range(i + 1, n_classes):
-                node_j = nodes_at_level[j]
-                distance = self.taxonomic_distance(node_i, node_j)
-                dist_matrix[i, j] = distance
-                dist_matrix[j, i] = distance
+        if n_classes == 0:
+            return dist_matrix
+
+        dist_matrix.fill_diagonal_(0.0)
+
+        task_index = self.task_keys.index(task_key)
+        max_hops = len(self.task_keys) - task_index - 1
+        if max_hops <= 0 or n_classes == 1:
+            return dist_matrix
+
+        nodes_at_level = self.get_nodes_at_level(task_key)
+
+        # Group class indices by their ancestor after d parent hops. Because this
+        # taxonomy only links adjacent ranks, any shared ancestor for same-rank
+        # nodes appears at the same hop depth from both nodes.
+        groups_by_depth: list[dict[Node, list[int]]] = []
+        current_ancestors: list[Node | None] = list(nodes_at_level)
+
+        for _depth in range(1, max_hops + 1):
+            groups: dict[Node, list[int]] = defaultdict(list)
+            next_ancestors: list[Node | None] = [None] * n_classes
+
+            for class_idx, ancestor in enumerate(current_ancestors):
+                if ancestor is None:
+                    continue
+                parent = self._child_to_parent.get(ancestor)
+                next_ancestors[class_idx] = parent
+                if parent is not None:
+                    groups[parent].append(class_idx)
+
+            groups_by_depth.append(groups)
+            current_ancestors = next_ancestors
+
+        # Fill from coarse to fine so nearer LCAs overwrite larger distances.
+        for depth in range(max_hops, 0, -1):
+            distance_value = float(2 * depth)
+            for member_indices in groups_by_depth[depth - 1].values():
+                if len(member_indices) < 2:
+                    continue
+                idx = torch.tensor(member_indices, dtype=torch.long)
+                dist_matrix[idx[:, None], idx[None, :]] = distance_value
+
+        dist_matrix.fill_diagonal_(0.0)
         return dist_matrix
 
     @torch.no_grad()
@@ -374,6 +410,39 @@ class TaxonomyTree:
             hierarchy_matrices[pair_key] = matrix
             # logger.debug(f"Built hierarchy matrix for {pair_key} with shape {matrix.shape}") # Reduce log noise
         return hierarchy_matrices
+
+    def _state_payload(self) -> dict[str, Any]:
+        """Build a deterministic, serialization-safe view of the tree state."""
+        return {
+            "version": 1,
+            "task_keys": list(self.task_keys),
+            "levels": [
+                {
+                    "task_key": task_key,
+                    "num_classes": int(self.num_classes[task_key]),
+                    "hierarchy_links": [
+                        [int(child_idx), int(parent_idx)]
+                        for child_idx, parent_idx in sorted(self._hierarchy_map_raw.get(task_key, {}).items())
+                    ],
+                }
+                for task_key in self.task_keys
+            ],
+        }
+
+    def state_hash(self) -> str:
+        """
+        Return a deterministic hash of the tree structure and class cardinalities.
+
+        This is used as the stable identity for caching taxonomy-derived artifacts.
+
+        Note: the hash is computed from the raw ``hierarchy_map`` *before*
+        validation filters out invalid links (e.g. out-of-bounds indices).  Two
+        trees that differ only in silently-filtered invalid links will therefore
+        produce different hashes, causing unnecessary cache misses but never
+        incorrect cache hits.
+        """
+        payload_json = json.dumps(self._state_payload(), sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+        return hashlib.sha256(payload_json.encode("utf-8")).hexdigest()
 
     # --- Serialization Methods ---
 

@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 
 import yaml
 from yacs.config import CfgNode as CN
@@ -6,6 +7,36 @@ from yacs.config import CfgNode as CN
 from linnaeus.utils.logging.logger import get_main_logger
 
 logger = get_main_logger()
+
+
+class TupleFriendlySafeLoader(yaml.SafeLoader):
+    """Safe YAML loader with narrow support for legacy `!!python/tuple` tags."""
+
+
+def _construct_python_tuple(loader: yaml.SafeLoader, node: yaml.Node) -> tuple:
+    return tuple(loader.construct_sequence(node))
+
+
+TupleFriendlySafeLoader.add_constructor("tag:yaml.org,2002:python/tuple", _construct_python_tuple)
+
+
+def load_yaml_data(path: str, *, allow_python_tuple: bool = False):
+    """Load YAML data from disk with optional tuple-tag compatibility."""
+
+    with open(path) as f:
+        if allow_python_tuple:
+            return yaml.load(f, Loader=TupleFriendlySafeLoader)
+        return yaml.safe_load(f)
+
+
+def cfg_node_to_dict(node):
+    """Recursively convert nested CfgNodes into plain Python containers."""
+
+    if isinstance(node, CN):
+        return {key: cfg_node_to_dict(value) for key, value in node.items()}
+    if isinstance(node, list):
+        return [cfg_node_to_dict(item) for item in node]
+    return node
 
 ##############################################################################
 #                             Basic Operations                                #
@@ -41,8 +72,7 @@ def load_config(config_path: str) -> CN:
     if not os.path.isfile(abs_path):
         raise FileNotFoundError(f"Config file does not exist: {abs_path}")
 
-    with open(abs_path) as f:
-        cfg = CN(yaml.safe_load(f))
+    cfg = CN(load_yaml_data(abs_path, allow_python_tuple=True))
     return cfg
 
 
@@ -76,12 +106,7 @@ def save_config(cfg: CN, save_path: str):
     """
 
     # Convert CfgNode to dict while preserving structure
-    def convert_to_dict(cfg_node):
-        if not isinstance(cfg_node, CN):
-            return cfg_node
-        return {k: convert_to_dict(v) for k, v in cfg_node.items()}
-
-    config_dict = convert_to_dict(cfg)
+    config_dict = cfg_node_to_dict(cfg)
 
     with open(save_path, "w") as f:
         # Use default_flow_style=False to force block style YAML
@@ -225,15 +250,25 @@ def update_out_features(cfg: CN, num_classes: dict[str, int]) -> None:
     """
     cfg.defrost()
 
-    # Check aggregator dimension
-    if "AGGREGATION" not in cfg.MODEL:
-        raise ValueError("No AGGREGATION config found in MODEL; cannot determine final dimension.")
+    # Determine the feature dimension that feeds classification heads.
+    #
+    # Most models (mFormerV0/V1) use MODEL.AGGREGATION.PARAMETERS.out_channels (set by model BASE configs).
+    # DINOv3MultiHead does *not* use the mFormer aggregation block; it feeds heads directly from the
+    # DINOv3 embedding dimension (MODEL.DINOV3.EMBED_DIM). Avoid forcing DINOv3 configs to define
+    # AGGREGATION.PARAMETERS.out_channels, which is not a declared default key.
+    if getattr(cfg.MODEL, "TYPE", "") == "DINOv3MultiHead":
+        if not hasattr(cfg.MODEL, "DINOV3") or not hasattr(cfg.MODEL.DINOV3, "EMBED_DIM"):
+            raise ValueError("MODEL.DINOV3.EMBED_DIM is required for DINOv3MultiHead to set classification head sizes.")
+        in_features = int(cfg.MODEL.DINOV3.EMBED_DIM)
+    else:
+        if "AGGREGATION" not in cfg.MODEL:
+            raise ValueError("No AGGREGATION config found in MODEL; cannot determine final dimension.")
 
-    agg_params = cfg.MODEL.AGGREGATION.get("PARAMETERS", None)
-    if not agg_params or "out_channels" not in agg_params:
-        raise ValueError("AGGREGATION.PARAMETERS.out_channels is missing; cannot set classification in_features.")
+        agg_params = cfg.MODEL.AGGREGATION.get("PARAMETERS", None)
+        if not agg_params or "out_channels" not in agg_params:
+            raise ValueError("AGGREGATION.PARAMETERS.out_channels is missing; cannot set classification in_features.")
 
-    aggregator_dim = agg_params["out_channels"]
+        in_features = int(agg_params["out_channels"])
 
     # For each classification head, set IN_FEATURES and OUT_FEATURES
     for task_str in cfg.DATA.TASK_KEYS_H5:  # NOTE: equivalent to num_classes.keys()
@@ -243,13 +278,13 @@ def update_out_features(cfg: CN, num_classes: dict[str, int]) -> None:
             raise ValueError(f"No num_classes found for {task_str}")
         head_cfg = cfg.MODEL.CLASSIFICATION.HEADS[task_str]
 
-        head_cfg.IN_FEATURES = aggregator_dim
+        head_cfg.IN_FEATURES = in_features
         head_cfg.OUT_FEATURES = num_classes[task_str]
 
     cfg.freeze()
 
 
-def setup_output_dirs(config):
+def setup_output_dirs(config, args=None, runtime_plan=None):
     """
     Sets up experiment output directory structure and updates config paths.
 
@@ -313,6 +348,11 @@ def setup_output_dirs(config):
             path = os.path.join(exp_dir, sub)
             os.makedirs(path, exist_ok=True)
             config.ENV.OUTPUT.DIRS[key] = path
+
+    if runtime_plan is not None:
+        runtime_plan.output_dir = Path(config.ENV.OUTPUT.DIRS.EXP_BASE)
+        runtime_plan.checkpoint_dir = Path(config.ENV.OUTPUT.DIRS.CHECKPOINTS)
+        runtime_plan.log_dir = Path(config.ENV.OUTPUT.DIRS.LOGS)
 
     config.freeze()
     return config

@@ -57,23 +57,20 @@ def enforce_hierarchical_consistency(
         logger.warning(f"Could not map RankLevel {rl} to a Linnaeus task key in TaxonomyTree. Keys: {tree.task_keys}")
         return None
 
-    for i, current_task_typus in enumerate(sorted_tasks):
+    # Track the last rank we successfully mapped into the Linnaeus task-key space. Unknown
+    # ranks (e.g. ones not present in tree.task_keys) should not become "parents" for
+    # consistency checks against known ranks.
+    last_mapped_rank_typus: RankLevel | None = None
+
+    for current_task_typus in sorted_tasks:
         current_rank_typus = current_task_typus.rank_level
 
         current_linnaeus_task_key = ranklevel_to_linnaeus_key(current_rank_typus)
         if not current_linnaeus_task_key:
             logger.warning(f"Skipping consistency for rank {current_rank_typus}, no Linnaeus task key found.")
-            # Store original prediction if key not found
-            if current_predictions[current_rank_typus]:
-                consistent_parent_nodes[current_rank_typus] = (
-                    None,
-                    current_predictions[current_rank_typus][0][0],
-                )  # Store taxon_id as a dummy
-            else:
-                consistent_parent_nodes[current_rank_typus] = None
             continue
 
-        parent_rank_typus: RankLevel | None = sorted_tasks[i - 1].rank_level if i > 0 else None
+        parent_rank_typus: RankLevel | None = last_mapped_rank_typus
 
         null_tid_current_rank = class_maps.null_taxon_ids.get(current_rank_typus)
 
@@ -85,6 +82,7 @@ def enforce_hierarchical_consistency(
                 )
             else:  # Cannot determine null node if null_tid is unknown
                 consistent_parent_nodes[current_rank_typus] = None
+            last_mapped_rank_typus = current_rank_typus
             continue
 
         current_top_pred_tid, _ = current_predictions[current_rank_typus][0]
@@ -102,6 +100,7 @@ def enforce_hierarchical_consistency(
                 consistent_parent_nodes[current_rank_typus] = current_pred_node
             else:  # Cannot nullify
                 consistent_parent_nodes[current_rank_typus] = None  # Treat as unknown consistency
+            last_mapped_rank_typus = current_rank_typus
             continue
 
         if parent_rank_typus and parent_rank_typus in consistent_parent_nodes:
@@ -126,6 +125,7 @@ def enforce_hierarchical_consistency(
                     consistent_parent_nodes[current_rank_typus] = (current_linnaeus_task_key, null_class_idx)
                 else:
                     consistent_parent_nodes[current_rank_typus] = current_pred_node  # Keep original if cannot nullify
+                last_mapped_rank_typus = current_rank_typus
                 continue
 
             # Parent is not null, check consistency
@@ -152,6 +152,8 @@ def enforce_hierarchical_consistency(
 
         else:  # This is the highest rank
             consistent_parent_nodes[current_rank_typus] = current_pred_node
+
+        last_mapped_rank_typus = current_rank_typus
 
     updated_tasks: list[TaskPrediction] = []
     for task_typus in sorted_tasks:  # Iterate in original sorted order
