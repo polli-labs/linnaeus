@@ -89,24 +89,74 @@ This report checks:
 - current `public/main...origin/main` counts
 - patch-unique public-only commits
 - known public-only exceptions from the manifest
-- threshold breaches for public lag or unclassified public-only drift
+- per-group pending sync state for manifest promotion groups
+- threshold breaches for actionable public-sync debt
 
-The first thresholds recorded in the manifest are intentionally simple:
+The current thresholds recorded in the manifest are:
 
-- public more than 25 private commits behind
 - public more than 14 days older than private main
 - any unclassified patch-unique public-only commits
+- any pending promotion groups
+- any pending files inside audited promotion groups
+
+Raw commit divergence remains in the report for context, but it is no longer
+the primary alert signal. The actionable question is whether audited public
+promotion groups have deltas waiting to be promoted.
+
+The report is also wired into the private repo's scheduled/manual workflow at
+`.github/workflows/public-parity-monitor.yml`, which prepares both repos on the
+GitHub runner, uploads the JSON report as an artifact, and fails only on the
+actionable threshold breaches above.
+
+# Promotion helper
+
+The promotion entrypoint is:
+
+```bash
+uv run python tools/release/public_surface_sync.py \
+  --group public_site_q2_docs \
+  --json
+```
+
+This helper is dry-run by default. It expands explicit promotion groups or
+explicit `--path` selections, classifies the resulting files against the
+manifest, and shows which files would be created, updated, or deleted in the
+public clone.
+
+When you are ready to materialize a batch, use `--apply` with an explicit
+public branch:
+
+```bash
+uv run python tools/release/public_surface_sync.py \
+  --group public_site_q2_docs \
+  --apply \
+  --public-branch caleb/public-site-q2-docs \
+  --commit-message "docs: sync public site docs from linnaeus-dev"
+```
+
+The helper intentionally does **not** support “sync an entire path class”
+directly. Classes are still useful for trust classification, but public
+promotion must start from an audited group or an explicit path list until the
+manifest is granular enough for blind class-wide sync.
 
 # Path classes
 
 The current path-class policy is recorded in
 `tools/release/public_sync_manifest.json`:
 
-- `public_auto`: straightforward public-docs surfaces such as `README.md` and
-  `docs/**`
+- `public_auto`: audited site-facing files that are currently safe to promote
+  without extra review
 - `public_manual_review`: code and workflow surfaces that may be public-safe
   but should never be promoted blindly
 - `private_only`: repo paths that must not be promoted from the private repo
+
+# Promotion groups
+
+`tools/release/public_sync_manifest.json` also records named promotion groups.
+The first one is `public_site_q2_docs`, which captures the README, MkDocs nav,
+and the audited documentation files from the 2026 Q2 truth-pass. Treat groups
+as the executable sync surface; treat classes as trust metadata used by the
+helper to catch unsafe selections.
 
 # Guardrails
 
