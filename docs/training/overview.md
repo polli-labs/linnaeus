@@ -1,213 +1,100 @@
-# Training with Linnaeus
+# Training Overview
 
-Linnaeus provides a comprehensive training system designed for taxonomic classification with specializations for hierarchical learning, multi-task models, and efficient data processing.
+> Status: current training entrypoint is `uv run python -m linnaeus.main --cfg ...`.
+> The active experimentation line is `DINOv3MultiHead`. Older mFormer config
+> files still exist in the tree but are no longer the main public story.
 
-## Training Command
+This page focuses on what matters for training now: how to preflight configs,
+launch runs honestly, and interpret the main decision surfaces.
 
-The basic training command follows this pattern:
+## Current Training Loop
+
+The canonical launch path is:
 
 ```bash
-python -m linnaeus.train \
-  --cfg configs/model/archs/mFormerV1/mFormerV1_sm.yaml \
-  --opts \
-  DATA.TRAIN_DATASET /path/to/dataset.h5 \
-  EXPERIMENT.OUTPUT_DIR /path/to/outputs \
-  TRAIN.BATCH_SIZE 64
+uv run python -m linnaeus.main \
+  --cfg /abs/path/to/experiment.yaml \
+  --opts EXPERIMENT.WANDB.ENABLED True
 ```
 
-Key parameters:
-- `--cfg`: Path to the base configuration file
-- `--opts`: Overrides for specific configuration values
-- `--log-level`: Control verbosity (DEBUG, INFO, WARNING, ERROR)
-- `--seed`: Set random seed for reproducibility
+Before you launch a real run, use the config preflight surface:
 
-## Training Pipeline
-
-The training process includes these key components:
-
-### 1. Data Loading
-
-Linnaeus uses an optimized HDF5-based data loading system:
-
-```python
-# Configuration
-cfg.DATA.TRAIN_DATASET = "/path/to/dataset.h5"
-cfg.DATA.BATCH_SIZE = 64
-cfg.DATA.META_FEATURES_KEY = "meta_features"  # Name of metadata field
-cfg.DATA.TAXONOMY_LEVEL_KEYS = ["family", "genus", "species"]  # Taxonomy levels
+```bash
+uv run linnaeus config render --cfg /abs/path/to/experiment.yaml
+uv run linnaeus config validate --cfg /abs/path/to/experiment.yaml
+uv run linnaeus config explain MODEL.TYPE --cfg /abs/path/to/experiment.yaml
 ```
 
-Features:
-- Memory-mapped datasets for efficiency
-- Prefetching with customizable queue size
-- Multi-process data loading
-- Image verification and validation
+That is the right way to inspect the resolved config stack. Do not guess from a
+single YAML file.
 
-→ [Data Loading Details](data_loading.md)
+## What The Training Stack Covers
 
-### 2. Augmentation System
+Linnaeus training combines:
 
-Comprehensive augmentation pipeline:
+- HDF5-first and hybrid image/label data loading
+- one or more taxonomic output heads on a shared model body
+- hierarchy-aware loss and taxonomy smoothing
+- optional metadata features and metadata-masked validation
+- distributed and mixed-precision training
+- profiling, validation-only runs, and operator tooling
 
-```python
-# Configuration
-cfg.AUGMENTATION.ENABLED = True
-cfg.AUGMENTATION.RAND_ERASE.PROBABILITY = 0.25
-cfg.AUGMENTATION.MIXUP.ALPHA = 0.8
-cfg.AUGMENTATION.CUTMIX.ALPHA = 1.0
-```
+See these pages for depth:
 
-Features:
-- CPU and GPU augmentations
-- Selective mixup/cutmix with taxonomic awareness
-- AutoAugment policies
-- Configurable probabilities and strengths
+- [Data Loading](data_loading.md)
+- [Scheduling](scheduling.md)
+- [Metrics](metrics.md)
+- [Checkpoint Management](checkpoint_management.md)
+- [Train a Custom Model](training_custom_model_example.md)
 
-→ [Augmentation Details](augmentations.md)
+## Config Reality Today
 
-### 3. Multi-Task Learning
+Three facts matter here:
 
-Support for multiple classification tasks with shared backbone:
+1. YACS still owns runtime resolution.
+2. Typed/Pydantic-backed validation is being added incrementally.
+3. The codebase still contains older mFormer defaults and arch files even
+   though the active experimentation line has moved to DINOv3.
 
-```python
-# Configuration
-cfg.MODEL.CLASSIFICATION.HEADS.task_family.TYPE = "LinearHead"
-cfg.MODEL.CLASSIFICATION.HEADS.task_family.NUM_CLASSES = 100
-cfg.MODEL.CLASSIFICATION.HEADS.task_species.TYPE = "ConditionalClassifierHead"
-cfg.MODEL.CLASSIFICATION.HEADS.task_species.NUM_CLASSES = 1000
-```
+For DINOv3 runs, operators usually set `MODEL.TYPE: DINOv3MultiHead` and avoid
+inheriting mFormer arch files by accident. Use `linnaeus config render` or
+`linnaeus config explain MODEL.TYPE` to confirm what actually resolved.
 
-Features:
-- Independent heads for each task
-- Task-specific losses and weighting
-- Hierarchical relationship modeling
+## Metrics That Drive Decisions
 
-→ [Multi-Task Training Details](multi_task_training.md)
+The current DINOv3 campaign uses this hierarchy:
 
-### 4. Hierarchical Classification
+- **Primary objective:** partial chain accuracy (PCA)
+- **Co-primary diagnostic:** DWPCA
+- **Guardrails:** per-rank accuracies such as `acc1_taxa_L10` through
+  `acc1_taxa_L40`
+- **Supportive only:** scalar validation loss
 
-Specialized support for taxonomic hierarchies:
+A lower loss does not rescue a run that regresses PCA.
 
-```python
-# Configuration
-cfg.LOSS.TAXONOMY_SMOOTHING.ENABLED = True
-cfg.LOSS.TAXONOMY_SMOOTHING.ALPHA = 0.1
-cfg.LOSS.TAXONOMY_SMOOTHING.BETA = 1.0
-```
+## Common Operator Traps
 
-Features:
-- Taxonomy-aware label smoothing
-- Hierarchical softmax implementations
-- Conditional classifier heads
-- Distance-based loss formulations
+- `MODEL.DINOV3.USE_STUB=True` means random features. Do not use it for real
+  training or evaluation.
+- The config system still has YACS-type footguns. Use float values where the
+  schema expects floats.
+- Validation sweeps can dominate wall-clock time if you enable every masking
+  mode aggressively.
+- The older `MODEL.FIND_UNUSED_PARAMETERS` key is gone; use
+  `DISTRIBUTED.DDP.find_unused_parameters`.
 
-→ [Hierarchical Approaches](../advanced_topics/hierarchical_approaches.md)
+## Recommended Workflow
 
-### 5. Training Dynamics
+1. Prepare your dataset and taxonomy surfaces.
+2. Author or adapt an experiment config.
+3. Run `linnaeus config render|validate`.
+4. Launch with `python -m linnaeus.main`.
+5. Watch PCA, DWPCA, per-rank accuracies, and schedule summaries.
+6. Use profiling or validation-only flows when you need operator-level receipts.
 
-Comprehensive scheduling and optimization:
+## Related Docs
 
-```python
-# Configuration
-cfg.OPTIMIZER.TYPE = "AdamW"
-cfg.OPTIMIZER.BASE_LR = 0.001
-cfg.LR_SCHEDULER.TYPE = "cosine"
-cfg.LR_SCHEDULER.WARMUP_EPOCHS = 5
-```
-
-Features:
-- Multi-optimizer support
-- Parameter-group specific learning rates
-- Warmup and decay scheduling
-- GradNorm for dynamic task weighting
-
-→ [Scheduling Details](scheduling.md)
-
-### 6. Metadata Integration
-
-Handling of non-image metadata features:
-
-```python
-# Configuration
-cfg.MODEL.META_DIMS = [16]  # Metadata dimensions
-cfg.MODEL.META_EMBED_DIM = 64  # Embedding dimension
-cfg.TRAIN.META_MASKING.ENABLED = True
-cfg.TRAIN.META_MASKING.PROBABILITY = 0.1
-```
-
-Features:
-- Dynamic metadata masking for robustness
-- Configurable metadata embedding layers
-- Missing value handling strategies
-
-→ [Meta Masking Details](meta_masking.md)
-
-### 7. Logging and Monitoring
-
-Comprehensive logging and visualization:
-
-```python
-# Configuration
-cfg.EXPERIMENT.WANDB.ENABLED = True
-cfg.EXPERIMENT.WANDB.PROJECT = "linnaeus-experiments"
-cfg.EXPERIMENT.WANDB.ENTITY = "your-entity"
-```
-
-Features:
-- Weights & Biases integration
-- Per-step metrics logging
-- Confusion matrix generation
-- Class-level performance tracking
-
-→ [Metrics Details](metrics.md)
-
-### 8. Checkpoint Management
-
-Robust checkpoint system:
-
-```python
-# Configuration
-cfg.CHECKPOINT.SAVE_INTERVAL = 5  # Save every 5 epochs
-cfg.CHECKPOINT.MAX_KEEP = 3  # Keep 3 most recent checkpoints
-cfg.CHECKPOINT.AUTO_RESUME = True  # Auto-resume from latest
-```
-
-Features:
-- Regular checkpoint saving
-- Automatic training resumption
-- Pretrained weight loading
-- State synchronization for optimizers and schedulers
-
-→ [Checkpoint Management Details](checkpoint_management.md)
-
-## Advanced Features
-
-Linnaeus includes specialized training features:
-
-- **[Auto Batch Sizing](../advanced_topics/autobatch.md)**: Automatically determine optimal batch size for GPU
-- **Distributed Training**: Multi-GPU training with DDP
-- **Mixed Precision**: AMP for faster training
-- **GradNorm**: Adaptive task weighting for multi-task learning
-- **Null Masking**: Handling null labels in hierarchical data
-
-## Example Training Configurations
-
-Linnaeus provides several example configurations:
-
-1. **Basic mFormerV1 Small**:  
-   `configs/model/archs/mFormerV1/mFormerV1_sm.yaml`
-
-2. **Multi-Task Hierarchical**:  
-   Custom configuration needed with appropriate head setup
-
-3. **Large Model with Mixed Precision**:  
-   `configs/model/archs/mFormerV1/mFormerV1_lg.yaml` with AMP settings
-
-## Best Practices
-
-1. **Start Small**: Begin with smaller models (mFormerV1_sm) and gradually increase complexity
-2. **Verify Data**: Use the image verification tools to ensure dataset quality
-3. **Monitor Early**: Enable WandB logging from the start to catch issues
-4. **Taxonomy Structure**: Ensure your taxonomy hierarchy is properly defined
-5. **Mixed Precision**: Use AMP for larger models to improve speed and memory usage
-6. **Checkpoint Frequently**: Set appropriate checkpoint intervals for long training runs
+- [Train a Custom Model](training_custom_model_example.md)
+- [Validation](../evaluation/validation.md)
+- [Profiling Overview](../profiling/README.md)
+- [Current State](../current_state.md)

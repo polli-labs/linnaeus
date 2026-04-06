@@ -1,14 +1,26 @@
-<WARNING> Possibly out of data, simplified some phase metrics (for various val phases/types) since drafting, unclear if we reviewed/revised this doc </WARNING>
+# Validation in Linnaeus
 
-# Validation in linnaeus
+> Status: current reference for validation scheduling and phase behavior. This
+> page is aligned to `linnaeus/validation.py` and the current scheduling/config
+> surface. For canonical observability naming, prefer slash-delimited metrics
+> such as `val/loss` and `val_mask_meta/loss`. Validation-only profiling
+> preflight currently does not support
+> `SCHEDULE.VALIDATION.PARTIAL_MASK_META.ENABLED=True` or
+> `FINAL_EPOCH.EXHAUSTIVE_PARTIAL_META_VALIDATION=True`.
 
 ## Overview
 
-This document describes the validation system in linnaeus, including the different types of validation, how to configure validation schedules, and best practices for effective model evaluation.
+This document describes the current validation surface in Linnaeus: what kinds
+of validation runs exist, how they are scheduled, and where the expensive traps
+are.
 
-Validation in linnaeus provides critical insight into model performance on unseen data, helping to detect overfitting and assess model generalization capabilities. The system supports several validation modes to comprehensively evaluate model performance under different conditions.
+In practice, validation is the main evaluation surface for ongoing work. That
+means schedule choices matter. It is easy to configure a run that spends more
+time validating than training if you enable every masking mode at aggressive
+intervals.
 
-The validation implementation can be found in `linnaeus/validation.py`, which contains the core validation functions that are called from the main training loop.
+The core implementation lives in `linnaeus/validation.py`, while scheduling and
+conflict checks are enforced by `linnaeus/utils/schedule_utils.py`.
 
 ## Validation Types
 
@@ -210,12 +222,16 @@ This generates and evaluates all possible combinations (except the empty set) of
 
 Validation results are tracked separately for each validation type and component combination:
 
-- `val_loss`, `val_accuracy`: Standard validation metrics
-- `val_mask_meta_loss`, `val_mask_meta_accuracy`: Metrics with all metadata masked
-- `val_mask_TEMPORAL_loss`, `val_mask_TEMPORAL_accuracy`: Metrics with only TEMPORAL component masked
-- `val_mask_TEMPORAL_SPATIAL_loss`, `val_mask_TEMPORAL_SPATIAL_accuracy`: Metrics with both TEMPORAL and SPATIAL components masked
+- `val/loss`, `val/chain_accuracy`, `val/partial_chain_accuracy`: standard validation metrics
+- `val_mask_meta/loss`, `val_mask_meta/chain_accuracy`, `val_mask_meta/partial_chain_accuracy_pct`: metrics with all metadata masked
+- `val_mask_TEMPORAL/...`: metrics with only `TEMPORAL` masked
+- `val_mask_TEMPORAL_SPATIAL/...`: metrics with both `TEMPORAL` and `SPATIAL` masked
 
-These metrics allow for comprehensive analysis of how different metadata components impact model performance.
+Per-task metrics follow the same prefix pattern, for example `val/acc1_taxa_L10`
+or `val_mask_meta/loss_taxa_L20`.
+
+These metrics let you compare metadata dependence directly instead of guessing
+from one aggregate loss number.
 
 ### Null Masking During Validation
 

@@ -82,7 +82,7 @@ The linnaeus system supports two group-aware mixing techniques, Selective Mixup 
 
 Key features of both techniques:
 
-1.  **Group-Aware Pairwise Mixing**: Mixes only samples belonging to the same *group ID*. Group IDs are typically derived from a specific taxonomic rank (e.g., species `taxa_L10`) via the `GroupedBatchSampler`. See [Scheduling Documentation](./scheduling.md#mixup-scheduling).
+1.  **Group-Aware Pairwise Mixing**: Mixes only samples belonging to the same *group ID*. Group IDs are typically derived from a specific taxonomic rank (e.g., species `taxa_L10`) via the `GroupedBatchSampler`. See [Scheduling Documentation](./scheduling.md), especially the Mixup Scheduling section.
 2.  **Chunk-Wise Metadata Handling**: For auxiliary metadata (`aux_info`), both techniques perform a "hard pick" for discrete chunks (derived from `DATA.META.COMPONENTS`) to maintain physical plausibility (e.g., choosing spatial coordinates from one sample or the other, not interpolating them).
 3.  **Null Sample Exclusion**: Can optionally exclude samples with null labels (`class_idx=0`) from being mixed using `SCHEDULE.MIX.EXCLUDE_NULL_SAMPLES: True`.
 
@@ -128,7 +128,7 @@ As an alternative to `GroupedBatchSampler`, a standard batch sampler can be used
 
 The configuration allows specifying multiple `GROUP_LEVELS` and `LEVEL_SWITCH_STEPS`/`EPOCHS` to change the grouping criterion during training.
 
-**IMPORTANT LIMITATION:** As detailed in [Design Decisions](../dev/design_decisions.md#schedule-initialization-and-dataloader-length-calculation), scheduled switching of the mixup group level is **currently disabled**.
+**IMPORTANT LIMITATION:** As detailed in [Design Decisions](../dev/99_design_decisions.md#schedule-initialization-and-dataloader-length-calculation), scheduled switching of the mixup group level is **currently disabled**.
 
 -   The fields `SCHEDULE.MIX.LEVEL_SWITCH_STEPS` and `SCHEDULE.MIX.LEVEL_SWITCH_EPOCHS` **must be empty** in the configuration. Providing values will result in a `NotImplementedError` at startup.
 -   The system will **only use the *first* task key listed** in `SCHEDULE.MIX.GROUP_LEVELS` for the *entire* training duration.

@@ -1,5 +1,5 @@
 site_name: Polli Linnaeus
-site_description: "An open-source deep learning framework for taxonomic image classification."
+site_description: "Research codebase for taxonomy-aware visual classification, source training, and bundle-based inference."
 repo_url: https://github.com/polli-labs/linnaeus
 
 theme:
@@ -19,12 +19,14 @@ extra_javascript:
 
 nav:
   - Home: index.md
+  - Current State: current_state.md
   - Getting Started:
       - Installation: installation.md
-      - Quickstart: getting_started.md
-      - Dataset Generation: datasets/dataset_generation.md
+      - Source Orientation: getting_started.md
       - FAQ: FAQ.md
-  - Model Zoo: models/model_zoo.md
+  - Models:
+      - Release Posture: models/model_zoo.md
+      - Model System Overview: models/model_system_overview.md
   - Training:
       - Overview: training/overview.md
       - Custom Model Example: training/training_custom_model_example.md
@@ -41,7 +43,7 @@ nav:
       - Image Verification: training/data/image_verification.md
   - Inference:
       - Overview: inference/overview.md
-      - Using Pre-trained Models: inference/running_inference_with_pretrained_models.md
+      - Bundle Workflow: inference/running_inference_with_pretrained_models.md
       - Inference Bundle: inference/inference_bundle.md
       - LitServe: inference/litserve.md
   - Evaluation:
@@ -51,9 +53,16 @@ nav:
       - Overview: profiling/README.md
       - Profiling Levels: profiling/profiling-levels.md
       - Prof CLI: profiling/prof-cli.md
+      - Prof Validate: profiling/prof-validate.md
       - Prof Run: profiling/prof-run.md
       - Best Practices: profiling/best-practices.md
       - DINOv3 vNext Blade Runbook: profiling/dinov3_vnext_blade_ablation_runbook.md
+  - Migration and Historical:
+      - Overview: migration/index.md
+      - Dev/Public Release Contract: migration/dev_public_release_contract.md
+      - Deployment to Dev Map: migration/linnaeus_deployment_to_linnaeus_dev_map.md
+      - Cutover Gate G1 Report: migration/cutover_gate_g1_report.md
+      - Dataset Provenance (Historical): datasets/dataset_generation.md
   - Advanced Topics:
       - Overview: advanced_topics/index.md
       - Automatic Batch Sizing: advanced_topics/autobatch.md
@@ -70,4 +79,3 @@ nav:
       - Architecture Notes: dev/98_architecture_notes.md
       - Design Decisions: dev/99_design_decisions.md
   - Known Limitations: known_limitations.md
-  - TODO: todo.md

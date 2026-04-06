@@ -1,134 +1,97 @@
 # Polli Linnaeus
 
-Polli Linnaeus is a deep learning framework for taxonomic image classification, designed for biodiversity monitoring applications. Built on PyTorch, it combines hierarchical classification, multitask learning, and metadata integration with efficient training and inference pipelines. Polli Linnaeus is an open-source deep learning framework. It serves as a research platform for developing and evaluating novel approaches to ecological image analysis.
+Polli Linnaeus is a research codebase for taxonomy-aware visual classification.
+The active line today is a frozen-backbone DINOv3 system with hierarchical
+heads and optional multi-view pooling. The repository still contains older
+mFormer-era model families, configs, and migration records because they remain
+part of the project's provenance.
 
-[View Changelog](CHANGELOG.md)
+[View changelog](CHANGELOG.md)
 
-## Key Features
+## Current Public Position
 
-- **Advanced Architectures**: Implements `mFormerV1` and `mFormerV0` with hybrid CNN-Transformer designs
-- **Hierarchical Classification**: Natively supports taxonomy-aware classification with specialized loss functions
-- **Metadata Integration**: Combines image data with categorical/numerical metadata for improved accuracy
-- **H5 Optimized Dataloading**: High-throughput data loading using HDF5 datasets
-- **Reproducible Workflows**: Configuration-driven experiments with deterministic training
-- **Streamlined Inference:** Includes a comprehensive inference pipeline (`LinnaeusInferenceHandler`) with support for Hugging Face Hub models, `typus` structured outputs, and metadata integration.
-- **Deployment Ready**: Includes `LinnaeusInferenceHandler` for use with LitServe and other serving platforms.
+- The active architecture is `DINOv3MultiHead`: frozen ViT-B/16 backbone,
+  per-rank classification heads, and optional MIL pooling over multi-view bags.
+- The documented inference path is bundle-first. Start from a local
+  `inference_config.yaml`; do not assume a bare model-ID loader or a hosted API
+  surface.
+- No verified public Linnaeus model registry is live from this repo today.
+- The older plan to publish a North American `mFormerV1_sm` suite has been
+  retired.
+- The config system is mid-transition. YACS still drives runtime resolution
+  today while typed/Pydantic validation work continues.
 
-## Open Source and Pre-trained Models
+If you want the shortest honest overview, start with
+[Current State](docs/current_state.md).
 
-We are excited to announce that Polli Linnaeus is fully open-source and will be hosted at [https://github.com/polli-labs/linnaeus](https://github.com/polli-labs/linnaeus). We are also in the process of releasing a suite of pre-trained `mFormerV1_sm` models on Hugging Face Hub under the user `polli-caleb` (project: `linnaeus`). The first set of models, planned for release in early July, will cover the following North American taxa:
+## Private Development Mirror
 
-*   North American Aves (Birds) - `mFormerV1_sm`
-*   North American Amphibia (Amphibians) - `mFormerV1_sm`
-*   North American Reptilia (Reptiles) - `mFormerV1_sm`
-*   North American Primary Terrestrial Arthropoda (Insects, Spiders, etc.) - `mFormerV1_sm`
-*   North American Angiospermae (Flowering Plants) - `mFormerV1_sm`
-*   North American Mammalia (Mammals) - `mFormerV1_sm`
+`polli-labs/linnaeus-dev` is the private development mirror for this codebase.
+`polli-labs/linnaeus` is the public release repository.
 
-## Installation
+For the remote contract (`origin` = private dev, `public` = public upstream),
+promotion flow, and cutover guardrails, see
+[docs/migration/dev_public_release_contract.md](docs/migration/dev_public_release_contract.md).
+
+## Install From Source
 
 ```bash
-# Create and activate a project-specific virtual environment
 uv venv .venv
 uv sync --extra dev --extra cpu
-uv run pytest -q
+uv run linnaeus --help
+uv run mkdocs build --strict
 ```
 
-## Baseline Quality Gate
+Use `--extra cuda` instead of `--extra cpu` on a CUDA host.
 
-Run the canonical local/CI gate scaffold:
+For setup details, see [Installation](docs/installation.md) and the
+[UV guide](docs/dev/uv.md).
+
+For the repo gate that mirrors the core CI baseline, run:
 
 ```bash
-uv run python tools/quality_gate.py
+bash tools/ci/run_core_baseline_gate.sh
 ```
 
-The gate runs lint (`ruff`), typecheck (`ty`), targeted bbox observability regression tests, and a deterministic prelaunch smoke for bbox telemetry contract emission.
+See [docs/dev/05_quality_gates.md](docs/dev/05_quality_gates.md) for scope and
+failure triage.
 
-For detailed installation instructions, see [Installation Guide](docs/installation.md) and
-the [UV golden path](docs/dev/uv.md).
+## What This Repo Covers
 
-## Docker Images
+- Source training for hierarchical taxonomic classifiers
+- HDF5-first and hybrid image/label data pipelines
+- Bundle-based inference via `LinnaeusInferenceHandler`
+- Experiment preflight, validation, profiling, and operator tooling
+- Migration-era records that explain how the current layout replaced older
+  deployment and path conventions
 
-Polli Linnaeus provides Docker images for development and deployment. These images are built using a two-stage process, which significantly speeds up iteration cycles when developing the Linnaeus codebase.
+## Start Here
 
-**Key Benefits:**
-- **Faster Rebuilds:** Core dependencies like CUDA, PyTorch, and `flash-attn` are pre-built into a `base` image. Changes to the Linnaeus application code only require rebuilding the lightweight `runtime` image, making the process much quicker.
-- **Consistency:** Ensures a consistent development and deployment environment across different setups.
+- [Current State](docs/current_state.md): what is true today, what is in
+  flight, and what not to assume
+- [Documentation Hub](docs/index.md): top-level routing
+- [Getting Started](docs/getting_started.md): source checkout orientation
+- [Training Overview](docs/training/overview.md): current training surface
+- [Inference Overview](docs/inference/overview.md): current bundle-first
+  inference contract
+- [Model System Overview](docs/models/model_system_overview.md): active vs
+  legacy model families
+- [Profiling Overview](docs/profiling/README.md): operator-facing run and
+  analysis surface
 
-**Available Architectures:**
-The primary development image, `frontierkodiak/linnaeus-dev`, supports common NVIDIA GPU architectures:
-- Turing (e.g., T4, RTX 20xx)
-- Ampere (e.g., A100, RTX 30xx)
-- Hopper (e.g., H100)
+## Docker
 
-**Detailed Docker Guide:**
-For comprehensive information on building and using the Docker images, including details on image tags, architecture-specific configurations, and how to leverage the two-stage build system, please refer to the **[Docker Build System Guide](./tools/docker/README.md)**.
+Linnaeus ships a two-stage Docker build system so dependency-heavy base images
+can be reused while the runtime layer changes quickly with the code.
 
-## Quick Start
-
-```python
-import torch
-from linnaeus.models import build_model
-from linnaeus.config import get_default_config
-
-# Load a configuration
-cfg = get_default_config()
-cfg.merge_from_file("configs/model/archs/mFormerV1/mFormerV1_sm.yaml")
-
-# Build the model
-model = build_model(cfg)
-
-# Run inference
-image = torch.randn(1, 3, 224, 224)
-metadata = torch.randn(1, cfg.MODEL.META_DIMS[0])
-with torch.no_grad():
-    predictions = model(image, metadata)
-```
-
-For more examples, see [Getting Started](docs/getting_started.md).
-
-The example above shows how to build a model from a configuration. For a guide on running inference with our upcoming pre-trained models, please see our [Inference Tutorial](docs/inference/running_inference_with_pretrained_models.md) (coming soon!) and the [Getting Started Guide](docs/getting_started.md).
-
-## Model Zoo
-
-Learn more about available models in the [Model Zoo](docs/models/model_zoo.md).
-
-| Model | Size | Parameters | GFLOPs | Features |
-|-------|------|------------|--------|----------|
-| mFormerV0 | Small | 15M | 2.8 | Hybrid Conv-Transformer with RelativeAttention |
-| mFormerV0 | Medium | 35M | 4.5 | Hybrid Conv-Transformer with RelativeAttention |
-| mFormerV0 | Large | 55M | 7.3 | Hybrid Conv-Transformer with RelativeAttention |
-| mFormerV1 | Small | 18M | 3.1 | 2D RoPE, FlashAttention compatible |
-| mFormerV1 | Medium | 38M | 5.0 | 2D RoPE, FlashAttention compatible |
-| mFormerV1 | Large | 65M | 8.2 | 2D RoPE, FlashAttention compatible |
-| mFormerV1 | XLarge | 120M | 15.1 | 2D RoPE, FlashAttention compatible |
-
-## Documentation
-
-Explore our comprehensive documentation to get the most out of Polli Linnaeus. Start with our [Documentation Hub](docs/index.md) or use the links below:
-
-- **[Installation](docs/installation.md)**: Detailed installation steps
-- **[Getting Started](docs/getting_started.md)**: Quick introduction to Linnaeus
-- **[Training](docs/training/overview.md)**: Guide to training models
-- **[Inference](docs/inference/overview.md)**: Running models for predictions
-- **[Model System](docs/models/model_system_overview.md)**: Architecture details
-- **[Advanced Topics](docs/advanced_topics/index.md)**: In-depth guides
-
-## Batch Size Analysis Workflow
-
-Use `tools/analyze_batch_sizes.py` to estimate the largest train and validation batch sizes for different GPU memory budgets.
-
-```bash
-python tools/analyze_batch_sizes.py --cfg my_exp.yaml --fractions 0.5,0.8 --modes train,val
-```
-
-Review the results and then enable AutoBatch in your config (or set the batch size manually) before starting training.
+For image layout, tags, and build workflow, see
+[tools/docker/README.md](tools/docker/README.md).
 
 ## Research Use
 
-If you use Polli Linnaeus in your research, please cite:
+If you use Polli Linnaeus in research, cite:
 
-```
+```text
 @software{pollilinnaeus2024,
   author = {Sowers, Caleb},
   title = {Polli Linnaeus: A Deep Learning Framework for Taxonomic Recognition},
@@ -140,7 +103,9 @@ If you use Polli Linnaeus in your research, please cite:
 
 ## Community and Contributions
 
-Polli Linnaeus is an open-source project, and we welcome contributions from the community. Whether it's reporting issues, suggesting new features, or contributing code, please visit our [GitHub repository](https://github.com/polli-labs/linnaeus) to learn more. Check our [Contribution Guidelines](CONTRIBUTING.md) (to be created) for more details.
+Open issues and public discussion belong in
+[`polli-labs/linnaeus`](https://github.com/polli-labs/linnaeus). Internal work
+lands in the private dev mirror first and is promoted outward deliberately.
 
 ## License
 

@@ -1,6 +1,7 @@
 # Known Limitations
 
-This page documents current limitations and known issues in Polli Linnaeus, along with recommended workarounds.
+This page captures the limitations that still matter in current Linnaeus
+workflows.
 
 ## AutoBatch with Multi-GPU (DDP) Training
 
@@ -8,14 +9,14 @@ This page documents current limitations and known issues in Polli Linnaeus, alon
 
 **Gotcha**: In DDP, **every rank must call** `auto_find_batch_size()` so that rank 0 can compute the result and broadcast it to all ranks. If only rank 0 calls, you can get collective mismatches / timeouts.
 
-**Recommended usage**:
+Use it this way:
 
 - If you're using `python -m linnaeus.main`, no special handling is required: the training entrypoint calls autobatch on all ranks and uses a single internal broadcast to synchronize the discovered batch size.
 - If you're calling `auto_find_batch_size()` directly in custom code, do **not** wrap it in `if rank == 0:`. Let rank 0 compute and all ranks receive via broadcast.
 
 **Note (even batch sizes)**: If you're training with the grouped sampler in `mixed-pairs` mode, batch size must be even. AutoBatch will restrict the search to even candidates for training mode in that configuration.
 
-**Optional workflow** (still useful for expensive runs):
+Still useful for expensive runs:
 1. Run AutoBatch once (single GPU or DDP) to discover good train/val batch sizes.
 2. Copy the discovered values into config and disable autobatch to avoid paying the search cost on every run.
 
@@ -25,15 +26,15 @@ This page documents current limitations and known issues in Polli Linnaeus, alon
 
 **Impact**: For profiling trials that need to exit after a small number of optimizer steps (e.g., 20 steps), the early exit won't trigger until a full epoch completes. With large datasets, this can mean thousands of steps instead of the intended 20.
 
-**Workaround**: For profiling trials shorter than one epoch:
-1. **Use wrapper timeout**: Rely on the profiling wrapper's timeout mechanism rather than early exit parameters
-2. **Set appropriate timeout**: Use `/prof_run` with `--timeout` based on expected profiling duration
-3. **Profile early steps**: PyTorch profiler can capture the first few steps even if the trial is terminated by timeout
+For profiling trials shorter than one epoch:
+1. Use the runner timeout rather than early-exit parameters.
+2. Set `--timeout` based on the profiling window you actually need.
+3. Let the profiler capture the early steps even if the wrapper stops the run.
 
 Example:
 ```bash
-# For GPU mixing profiling (typically needs ~60s for meaningful samples)
-/prof_run spec_file.md --timeout 120
+# Example shape only; fill in your own manifest/output paths.
+uv run linnaeus run --trial-params-file trials.jsonl --output-dir results --timeout 120
 ```
 
 **Note**: This limitation affects both debug and production early exit mechanisms. Mid-epoch exit support requires refactoring the training loop architecture.
@@ -42,7 +43,9 @@ Example:
 
 ## Concurrent Profiling (Experimental)
 
-**Issue**: Running profiling trials concurrently (e.g. `linnaeus-prof-run --max-concurrent 2`) can be sensitive to Docker Compose template details and may fail if templates introduce cross-trial collisions.
+**Issue**: Running profiling trials concurrently (for example
+`uv run linnaeus run --max-concurrent 2`) can be sensitive to Docker Compose
+template details and may fail if templates introduce cross-trial collisions.
 
 **Common footguns**:
 - Avoid hard-coding `container_name` in compose templates; explicit container names can collide even when Compose projects differ.

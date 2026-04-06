@@ -1,31 +1,34 @@
-# Installing Linnaeus
+# Installation
 
-This guide covers installing Linnaeus and its dependencies in various environments.
+For most readers, the right way to use this repo is still a local source
+checkout with `uv`. That is the path the docs, CLI checks, and current training
+surface are written around.
 
 ## Requirements
 
-- Python ≥ 3.10
-- For specific versions of core dependencies, see `pyproject.toml`
+- Python 3.10 or newer
+- `uv` 0.5.3 or newer
 
-## Recommended Installation Method (uv)
+If you want exact dependency versions, inspect `pyproject.toml` and `uv.lock`.
 
-We recommend using `uv`, a fast, reliable Python package installer and resolver. The
-golden-path instructions are documented in `docs/dev/uv.md`.
-These instructions require **uv >= 0.5.3**.
+## Source Install
 
-### CPU-only (recommended for pytest / macOS / CI-like)
+### CPU-only
+
+This is the default path for docs work, CI-like checks, and most local
+development on macOS or non-GPU Linux hosts.
 
 ```bash
-# Install uv (if not already installed)
 curl -LsSf https://astral.sh/uv/install.sh | sh
 
 rm -rf .venv
 uv venv .venv
 uv sync --extra dev --extra cpu
-uv run pytest -q
 ```
 
-### CUDA (Linux + GPU)
+### CUDA
+
+Use this on Linux GPU hosts.
 
 ```bash
 rm -rf .venv
@@ -34,10 +37,13 @@ uv sync --extra dev --extra cuda
 uv run python -c "import torch; print(torch.__version__, torch.cuda.is_available(), torch.version.cuda)"
 ```
 
-Note: CUDA wheels are pinned to **cu126** to match the training containers. If you need a
-different CUDA version, adjust the uv indices/sources in `pyproject.toml` or use Docker.
+CUDA wheels are pinned to `cu126` to match the current training containers. If
+you need a different CUDA stack, adjust the repo’s dependency sources rather
+than layering ad hoc installs on top.
 
-Optional Flash-Attention (FA2/FA3):
+### Optional Flash Attention
+
+If you need the CUDA Flash Attention extras:
 
 ```bash
 uv sync --extra dev --extra cuda
@@ -45,82 +51,67 @@ MAX_JOBS=4 uv sync --extra dev --extra cuda --extra cuda-fa
 uv run python -c "import flash_attn; print('flash_attn ok')"
 ```
 
-## Installation from Source
+## Verify The Checkout
 
-For development or customization, install from source:
-
-```bash
-# Clone repository
-git clone https://github.com/polli-labs/linnaeus.git
-cd linnaeus
-
-uv venv .venv
-uv sync --extra dev --extra cpu
-```
-
-## Manual Dependency Management
-
-If you need to pin specific PyTorch builds, prefer `uv sync` with `cpu` / `cuda` extras
-and adjust versions in `pyproject.toml` so the lockfile stays consistent.
-
-## Docker Installation
-
-For containerized use:
+Use the current CLI surfaces for a fast sanity check:
 
 ```bash
-# Pull pre-built image
-docker pull polli-labs/linnaeus:latest
-
-# Or build from source
-git clone https://github.com/polli-labs/linnaeus.git
-cd linnaeus
-docker build -t linnaeus -f tools/docker/Dockerfile .
+uv run linnaeus --help
+uv run linnaeus config --help
+uv run mkdocs build --strict
 ```
 
-## Verification
+If you want a Python import smoke test too:
 
-Verify your installation:
-
-```python
+```bash
+uv run python - <<'PY'
 import linnaeus
 import torch
 
-# Check versions
-print(f"Linnaeus version: {linnaeus.__version__}")
-print(f"PyTorch version: {torch.__version__}")
-print(f"CUDA available: {torch.cuda.is_available()}")
-if torch.cuda.is_available():
-    print(f"CUDA version: {torch.version.cuda}")
-    print(f"GPU: {torch.cuda.get_device_name(0)}")
-
-# Import key modules
-from linnaeus.models import build_model
-from linnaeus.config import get_default_config
-
-# Verify default configuration loads
-cfg = get_default_config()
-print("Installation verified successfully!")
+print(linnaeus.__version__)
+print(torch.__version__)
+print(torch.cuda.is_available())
+PY
 ```
+
+## Docker
+
+Docker is primarily a CI and operator surface in this repo, not the main
+public onboarding path.
+
+There is no documented stable `polli-labs/linnaeus:latest` image contract
+here. If you need container builds or runtime images, use:
+
+- [CI & Docker Guide](ci.md)
+- [`tools/docker/README.md`](https://github.com/polli-labs/linnaeus/blob/main/tools/docker/README.md)
+
+Those docs describe the current `Dockerfile.base` / `Dockerfile.runtime`
+split and the published `frontierkodiak/linnaeus-*` image lineage.
 
 ## Troubleshooting
 
-### Common Issues
+### Flash Attention import fails
 
-1. **FlashAttention Installation Fails**
-   - Ensure you have CUDA toolkit installed
-   - Ensure `nvcc` is on PATH
-   - Use `MAX_JOBS=4` (or similar) to reduce memory spikes during compile
-   - On Ubuntu 20.04 / glibc 2.31, `flash-attn` 2.7.x may fail to import
-     (`GLIBC_2.32` missing). Use Docker or a newer host (e.g., Ubuntu 22.04).
-   - On blade (Ubuntu 20.04), use containerized runs for Flash-Attention
-     profiling/training until the host is upgraded.
+- make sure `nvcc` is available
+- reduce compile parallelism with `MAX_JOBS=4`
+- on Ubuntu 20.04 / glibc 2.31, some `flash-attn` 2.7.x builds fail to import;
+  use Docker or a newer host
 
-2. **CUDA Version Mismatch**
-   - Ensure PyTorch CUDA version matches system CUDA
-   - Check with `torch.version.cuda` and `nvcc --version`
+### CUDA mismatch
 
-3. **Import Errors**
-   - Verify installation with `pip list | grep linnaeus`
-   - Check Python path with `python -c "import sys; print(sys.path)"`
+Check both:
 
-For further assistance, please [open an issue](https://github.com/polli-labs/linnaeus/issues).
+- `torch.version.cuda`
+- `nvcc --version`
+
+### Imports fail after install
+
+Check the resolved environment directly:
+
+```bash
+uv run python -c "import sys; print(sys.executable); print(sys.path)"
+uv pip list | rg linnaeus
+```
+
+If the problem is in the repo rather than your machine, file it in
+[`polli-labs/linnaeus`](https://github.com/polli-labs/linnaeus/issues).

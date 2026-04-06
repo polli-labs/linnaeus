@@ -8,7 +8,7 @@ The linnaeus scheduling system (`linnaeus/ops_schedule/`) provides a flexible wa
 
 1.  **Clarity and Validation**: Schedule parameters should be unambiguous. The system validates configurations at startup to catch conflicts (e.g., defining both step-based and fraction-based intervals for the same event).
 2.  **Step-Based Internal Logic**: While configuration allows for epoch or fraction definitions, the internal scheduling decisions (within `OpsSchedule`) are primarily driven by the global step count maintained by `TrainingProgress`.
-3.  **Accurate Total Steps**: The total number of training steps (`total_steps`) is crucial for resolving fraction-based parameters and LR decay. This value is calculated accurately in `main.py` *after* the training dataloader is built and its initial length (based on the first mixup group level) is determined. See [Design Decisions](../dev/design_decisions.md#schedule-initialization-and-dataloader-length-calculation) for details.
+3.  **Accurate Total Steps**: The total number of training steps (`total_steps`) is crucial for resolving fraction-based parameters and LR decay. This value is calculated accurately in `main.py` *after* the training dataloader is built and its initial length (based on the first mixup group level) is determined. See [Design Decisions](../dev/99_design_decisions.md#schedule-initialization-and-dataloader-length-calculation) for details.
 4.  **Automatic LR Scaling**: Learning rates are automatically scaled based on the effective batch size.
 
 ## Parameter Definition Methods
@@ -214,7 +214,7 @@ SCHEDULE:
 ```
 
 -   **Probability:** Decreases linearly like meta-masking.
--   **Level Switching:** **Currently disabled.** `LEVEL_SWITCH_STEPS` and `LEVEL_SWITCH_EPOCHS` must be empty. The system uses only the *first* level specified in `GROUP_LEVELS` for the entire run. This is due to the schedule initialization dependency explained in [Design Decisions](../dev/design_decisions.md#schedule-initialization-and-dataloader-length-calculation).
+-   **Level Switching:** **Currently disabled.** `LEVEL_SWITCH_STEPS` and `LEVEL_SWITCH_EPOCHS` must be empty. The system uses only the *first* level specified in `GROUP_LEVELS` for the entire run. This is due to the schedule initialization dependency explained in [Design Decisions](../dev/99_design_decisions.md#schedule-initialization-and-dataloader-length-calculation).
 -   See [Augmentations Documentation](./augmentations.md) for details on mixup and configuration best practices.
 
 ### Metrics Logging (`SCHEDULE.METRICS`)

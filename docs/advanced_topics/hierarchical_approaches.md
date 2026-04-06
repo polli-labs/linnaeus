@@ -1,6 +1,10 @@
 # Hierarchical Classification Approaches in Linnaeus
 
-This document describes approaches within Linnaeus that leverage taxonomic hierarchies to improve model training and prediction, including Taxonomy-Guided Label Smoothing and specialized hierarchical classification heads. These components utilize the centralized `TaxonomyTree` representation detailed in [Taxonomy Representation](./taxonomy_representation.md).
+This document covers the hierarchy-aware pieces of Linnaeus training and
+prediction, including taxonomy-guided label smoothing and hierarchical
+classification heads. They all depend on the shared `TaxonomyTree`
+representation described in
+[Taxonomy Representation](./taxonomy_representation.md).
 
 ## 1. Taxonomy-Guided Label Smoothing
 

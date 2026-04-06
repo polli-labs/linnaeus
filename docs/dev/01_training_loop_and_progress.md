@@ -14,7 +14,7 @@ The main training entry point is `linnaeus/main.py`. The overall flow is:
     *   Process dataset metadata (`process_and_save_dataset_metadata`, `TaxonomyTree`).
     *   Build the model (`build_model`).
     *   Build optimizer(s) and LR scheduler (`build_optimizer`, `build_scheduler`).
-    *   Calculate `total_steps` based on dataloader length and epochs/accumulation. **Crucially, this happens *after* dataloader initialization.** See [Design Decisions](../dev/design_decisions.md).
+    *   Calculate `total_steps` based on dataloader length and epochs/accumulation. **Crucially, this happens *after* dataloader initialization.** See [Design Decisions](../dev/99_design_decisions.md#schedule-initialization-and-dataloader-length-calculation).
     *   Initialize `TrainingProgress`, `OpsSchedule`, `MetricsTracker`, `StepMetricsLogger`.
     *   Resolve schedule parameters (fractions -> steps) using `resolve_all_schedule_params`.
     *   Attempt checkpoint loading / auto-resume (`load_checkpoint`, `auto_resume_helper`). If resuming, complete any pending validation runs.

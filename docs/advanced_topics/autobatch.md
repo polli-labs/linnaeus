@@ -48,9 +48,9 @@ The discovered batch size will overwrite `DATA.BATCH_SIZE` (and `DATA.BATCH_SIZE
 ## Usage Example
 
 ```bash
-python -m linnaeus.train \
-    DATA.AUTOBATCH.ENABLED True \
-    DATA.AUTOBATCH.TARGET_MEMORY_FRACTION 0.85
+uv run python -m linnaeus.main \
+    --cfg /abs/path/to/experiment.yaml \
+    --opts DATA.AUTOBATCH.ENABLED True DATA.AUTOBATCH.TARGET_MEMORY_FRACTION 0.85
 ```
 
 AutoBatch will log the trial results and set the final batch size accordingly.

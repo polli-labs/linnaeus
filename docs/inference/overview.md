@@ -1,95 +1,100 @@
-# Inference with Polli Linnaeus Models
+# Inference Overview
 
-Polli Linnaeus provides robust mechanisms for performing inference with its trained hierarchical classification models. This includes direct inference using PyTorch for local processing and integration with `LitServe` for deploying models as scalable services.
+> Status: the documented inference contract is bundle-first. Start from a local
+> `inference_config.yaml` and load the handler with
+> `LinnaeusInferenceHandler.load_from_artifacts(...)`. This repo does not
+> document a bare model-ID loader on the handler itself.
 
-## Core Component: `LinnaeusInferenceHandler`
+Linnaeus inference is a Python-level, bundle-backed surface. It is good enough
+for local use, bundle validation, and lightweight service adapters. It should
+not be described as a finished public inference platform.
 
-The primary interface for inference is the `linnaeus.inference.handler.LinnaeusInferenceHandler`. This class is responsible for:
+## What Is Stable Today
 
-*   Loading all necessary artifacts (model weights, taxonomy data, class mappings, and configurations). This can be from a self-contained **Inference Bundle** (a local directory) or directly from a **Hugging Face Hub model identifier** (which may download and cache the bundle).
-*   Preprocessing input images and optional metadata (such as geolocation, timestamp, and elevation) using `typus` projection utilities.
-*   Executing the model to obtain raw predictions.
-*   Postprocessing the predictions, which includes:
-    *   Mapping model output indices to `typus` `taxon_id`s.
-    *   Applying softmax and selecting top-K predictions for each taxonomic rank.
-    *   Optionally, enforcing hierarchical consistency to ensure that child predictions align with their parent predictions in the taxonomy.
-*   Returning structured results as a list of `typus.models.classification.HierarchicalClassificationResult` objects.
+The core inference seam is `linnaeus.inference.handler.LinnaeusInferenceHandler`.
+The handler is responsible for:
 
-## The Inference Bundle
+- loading a bundle and reconstructing the model
+- preprocessing images and optional metadata
+- producing `typus` hierarchical classification results
+- exposing bundle metadata through `info()`
 
-To ensure portability and ease of use, Linnaeus employs an **Inference Bundle**. This is a directory that packages the model's weights, the `inference_config.yaml` (which orchestrates the loading and behavior of the handler), taxonomic data, and class mapping files. While pre-trained models from Hugging Face Hub are distributed as inference bundles, the `LinnaeusInferenceHandler` aims to abstract away the manual management of these bundles when loading directly via a model identifier.
+The documented load surface is:
 
-For detailed information on the structure of the inference bundle, its components, and how to create one, please see the [Inference Bundle Documentation](./inference_bundle.md).
+```python
+handler = LinnaeusInferenceHandler.load_from_artifacts(
+    config_file_path="/abs/path/to/inference_bundle/inference_config.yaml",
+    artifacts_base_dir=None,
+    model_weights_path_override=None,
+    taxonomy_tree_path_override=None,
+    class_index_map_path_override=None,
+)
+```
 
-## Running Inference
+## The Current Contract
 
-Inference can be performed in several ways, primarily differing in how the model assets are obtained and managed:
+Inference starts from a local bundle directory. That bundle contains:
 
-1.  **Using a Local Inference Bundle**: Instantiate `LinnaeusInferenceHandler` by pointing it to the `inference_config.yaml` within your bundle. This is suitable for batch processing, integration into larger Python applications, or debugging.
-    ```python
-    from pathlib import Path
-    from PIL import Image
-    from linnaeus.inference.handler import LinnaeusInferenceHandler
+- `inference_config.yaml`
+- model weights
+- taxonomy data
+- class index maps
 
-    # Path to the configuration file within your inference bundle
-    bundle_config_path = Path("path/to/your_model_bundle/inference_config.yaml")
+The bundle may still refer to remote-backed weights by using `hf://...` inside
+`model.weights_path`, but the entrypoint is still the local config file.
 
-    # Load the handler
-    handler = LinnaeusInferenceHandler.load_from_artifacts(config_file_path=bundle_config_path)
+When `metadata_preprocessing.components` is present, it is the authoritative
+metadata contract. For older local bundles that lack that section, the handler
+can still recover metadata semantics from sibling training config artifacts in
+some cases.
 
-    # Load an image
-    image = Image.open("path/to/your_image.jpg")
+See [Inference Bundle](./inference_bundle.md) for the full artifact format.
 
-    # Make predictions
-    # Metadata can optionally be provided as a list of dictionaries
-    results = handler.predict(images=[image], metadata_list=None)
+## What Is Not Promised
 
-    # Print the top result (example)
-    if results:
-        print(results[0].model_dump_json(indent=2))
-    ```
+Do not assume any of the following:
 
-2.  **Using a Hugging Face Model Identifier**:
-    For models available on Hugging Face Hub, you can often load the `LinnaeusInferenceHandler` by providing the model's Hugging Face identifier. The handler may manage the download and caching of the necessary bundle components. This is the recommended approach for using official pre-trained Polli Linnaeus models.
-    ```python
-    from PIL import Image
-    from linnaeus.inference.handler import LinnaeusInferenceHandler
-    # Assuming LinnaeusInferenceHandler or a helper can resolve HF IDs
-    # This is a simplified conceptual example.
-    # Actual implementation might involve LinnaeusInferenceHandler.load_from_hf_hub("polli-caleb/...")
-    # or ensuring the HF model is cached locally such that load_from_artifacts can find it.
-    # Please refer to the [Running Inference with Pre-trained Models](./running_inference_with_pretrained_models.md) tutorial for detailed examples.
+- a bare Hugging Face repo ID is the primary loading surface
+- a public bundle registry exists
+- observation-level or multi-view inference is first-class in the public API
+- the LitServe page is a production deployment guide
 
-    MODEL_ID = "polli-caleb/linnaeus-aves-mformerV1_sm-v1" # Example HF Model ID
-    # handler = LinnaeusInferenceHandler.load_from_artifacts(hf_model_id=MODEL_ID) # Or similar API
+The current inference architecture is deliberately narrow. That is by design.
 
-    # --- Placeholder: Illustrative ---
-    # The exact API for direct HF load needs to be shown as per its implementation.
-    # For now, we point to the tutorial which has a more detailed, albeit temporary, approach.
-    print(f"For direct Hugging Face model loading, please see the tutorial: running_inference_with_pretrained_models.md")
-    # image = Image.open("path/to/your_image.jpg")
-    # results = handler.predict(images=[image])
-    # if results:
-    #     print(results[0].model_dump_json(indent=2))
-    ```
+## Minimal Example
 
-3.  **As a Service with `LitServe`**: The `LinnaeusInferenceHandler` can be easily integrated into a `LitServe` API, allowing you to serve your model over a network. See the [LitServe Integration Guide](./litserve.md) for more details.
+```python
+from pathlib import Path
+from PIL import Image
+from linnaeus.inference.handler import LinnaeusInferenceHandler
 
-## Automated Testing
+bundle_config_path = Path("/abs/path/to/inference_bundle/inference_config.yaml")
+handler = LinnaeusInferenceHandler.load_from_artifacts(config_file_path=bundle_config_path)
 
-The `linnaeus.inference` module is equipped with a suite of automated tests to ensure its correctness and robustness. These tests cover:
+image = Image.open("/abs/path/to/image.jpg").convert("RGB")
+results = handler.predict(images=[image], metadata_list=None)
 
-*   **Unit Tests (`tests/test_inference_components.py`)**: For individual functions responsible for metadata preprocessing (`preprocess_metadata_batch`) and hierarchical consistency enforcement (`enforce_hierarchical_consistency`).
-*   **Integration Tests (`tests/test_inference_handler.py`)**: For the end-to-end functionality of `LinnaeusInferenceHandler`. These tests use a mock inference bundle to verify:
-    *   Successful loading of the handler from artifacts.
-    *   Correctness of the `handler.info()` method.
-    *   Proper output types and structure from `handler.predict()`.
-    *   Behavior of `handler.predict()` with and without metadata, and for batch inputs.
+if results:
+    print(results[0].model_dump_json(indent=2))
+```
 
-These tests are crucial for maintaining code quality and preventing regressions as the inference system evolves. They can be run using `pytest` from the project root.
+If the bundle expects metadata, pass canonical raw fields such as `lat`, `lon`,
+`datetime_utc`, and `elevation_m`, plus `component_vectors` for any component
+the bundle cannot derive from those raw scalars.
+
+## Testing
+
+The repo keeps targeted inference coverage in:
+
+- `tests/test_inference_handler.py`
+- `tests/test_inference_components.py`
+- `tests/test_inference_bundle_contract.py`
+
+Those tests are the best way to tell whether a handler or bundle change is
+still honest.
 
 ## Further Reading
 
-*   **[Running Inference with Pre-trained Models](./running_inference_with_pretrained_models.md)**: A step-by-step guide for using models from Hugging Face Hub.
-*   [Inference Bundle Details](./inference_bundle.md)
-*   [Serving with LitServe](./litserve.md)
+- [Running Inference from a Bundle](./running_inference_with_pretrained_models.md)
+- [Inference Bundle](./inference_bundle.md)
+- [LitServe Sketch](./litserve.md)

@@ -1,14 +1,37 @@
+---
+title: "Official Dataset Provenance (ibrida-v0-r1)"
+summary: "Historical provenance record for the initial official Linnaeus release datasets."
+tags: [docs, datasets, provenance, historical]
+x:
+  project: linnaeus
+  doc_type: docs_page
+---
+
 # Official Dataset Provenance (ibrida-v0-r1)
 
-This document details the generation process for the initial set of official Polli Linnaeus pre-trained models. These models (covering North American Mammalia, Amphibia, Reptilia, Aves, Primary Terrestrial Arthropoda, and Angiospermae) were trained on datasets derived from the `ibrida-v0-r1` database. Understanding this provenance is crucial for interpreting model performance, taxonomic scope, and applicability.
+> Status: historical provenance record. This page documents the dataset program
+> behind the retired initial release plan. It is useful for provenance and for
+> understanding older model claims. It is not the current dataset-preparation
+> guide.
 
-For guidance on preparing your own custom datasets for Polli Linnaeus, please refer to [Data Loading for Training](../training/data_loading.md).
+This document records how the initial planned Linnaeus release datasets were
+assembled from `ibrida-v0-r1`. Those datasets covered North American Mammalia,
+Amphibia, Reptilia, Aves, Primary Terrestrial Arthropoda, and Angiospermae.
+
+That history still matters if you are trying to understand older model scopes,
+older docs, or older experimental claims. It does not describe the current
+DINOv3 vNext training program.
+
+For current dataset-preparation guidance, use
+[Data Loading for Training](../training/data_loading.md).
 
 ## Dataset Generation Tool: `ibrida.generator`
 
 The datasets were generated using an internal tool called `ibrida.generator`.
 
-> **Note on `ibrida.generator` Availability:** The `ibrida.generator` tool is currently internal. We plan to open-source it in late summer 2025. If you have a pressing need for this tool before then, please open an issue on the [Polli Linnaeus GitHub repository](https://github.com/polli-labs/linnaeus), and we may be able to prioritize its release based on demand.
+> Historical note: the forward-looking release statement that used to live here
+> is no longer current. Treat `ibrida.generator` as an internal provenance tool
+> for the purposes of this document unless newer release notes say otherwise.
 
 ## Executive Summary of Dataset Provenance
 
