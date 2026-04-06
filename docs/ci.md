@@ -31,7 +31,13 @@ Linnaeus CI uses a slim Docker workflow designed to run on GitHub's free runners
 
 ### Workflow Configuration
 
-The runtime build workflow ([`.github/workflows/build-runtime.yml`](../.github/workflows/build-runtime.yml)) includes several critical settings:
+The runtime build workflow
+([`.github/workflows/build-runtime.yml`](https://github.com/polli-labs/linnaeus/blob/main/.github/workflows/build-runtime.yml))
+includes several critical settings:
+
+These GitHub links intentionally point at `polli-labs/linnaeus`, the public
+release surface. If you are working in `linnaeus-dev`, use the same paths
+locally in that repo.
 
 ```yaml
 # Reserve disk space for BuildKit
@@ -93,7 +99,9 @@ docker buildx build \
   --push .
 ```
 
-See the [Docker build guide](../tools/docker/README.md) for complete build commands for all architectures.
+See the [Docker build
+guide](https://github.com/polli-labs/linnaeus/blob/main/tools/docker/README.md)
+for complete build commands for all architectures.
 
 ### Updating the Workflow
 
@@ -163,4 +171,5 @@ The `MAX_JOBS` build argument only affects base image builds (Flash Attention co
 - Limited memory: `MAX_JOBS=4`
 - CI runtime builds: Parameter not used
 
-For more detailed information about the Docker build system, see the [Docker build guide](../tools/docker/README.md).
+For more detailed information about the Docker build system, see the [Docker
+build guide](https://github.com/polli-labs/linnaeus/blob/main/tools/docker/README.md).

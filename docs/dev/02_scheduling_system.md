@@ -30,7 +30,7 @@ Scheduling is primarily configured within the `SCHEDULE` section of the YAML con
 
 ### Parameter Definition Methods
 
-As outlined in the [Style Guide](./style_guides/schedule_parameters.md) (to be replaced by this doc section):
+Use the following parameter-definition rules for schedule configuration:
 
 -   Use **absolute steps** (`*_STEPS`), **fraction of total steps** (`*_FRACTION`), or **epochs** (`*_EPOCHS`).
 -   **Choose only ONE method** per parameter. Set unused step/epoch parameters to `0` or `None` for fractions.

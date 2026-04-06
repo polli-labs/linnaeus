@@ -1,33 +1,18 @@
-# Serving with LitServe
+# LitServe Sketch
 
-LitServe provides a lightweight way to expose the `LinnaeusInferenceHandler` (which can be loaded from a local inference bundle or a Hugging Face model identifier) as a REST API.  After installing `litserve`, create a small server script that loads the handler and registers its `predict` method.
+> Status: narrow integration sketch, not a production deployment guide.
+
+If you already trust a bundle and want a thin HTTP wrapper around the local
+handler, LitServe is one reasonable adapter.
 
 ```python
 # server.py
 import litserve as ls
 from linnaeus.inference.handler import LinnaeusInferenceHandler
 
-# Option 1: Load from a local inference bundle
-# handler = LinnaeusInferenceHandler.load_from_artifacts(
-#     config_file_path="path/to/your_model_bundle/inference_config.yaml"
-# )
-
-# Option 2: Load from Hugging Face Hub (conceptual - adapt to actual API)
-# This assumes the handler can be loaded directly or you have a helper function.
-# See 'running_inference_with_pretrained_models.md' for more detailed loading.
-# For example, if Linnaeu[sInferenceHandler has a method like 'load_from_hf_hub':
-# handler = LinnaeusInferenceHandler.load_from_hf_hub(
-#     hf_model_id="polli-caleb/linnaeus-aves-mformerV1_sm-v1"
-# )
-# For this example, we'll assume the handler is already loaded, e.g., from a local bundle:
 handler = LinnaeusInferenceHandler.load_from_artifacts(
-     config_file_path="path/to/your_model_bundle/inference_config.yaml" # Replace this
+    config_file_path="/abs/path/to/inference_bundle/inference_config.yaml"
 )
-# Ensure 'handler' is correctly initialized using one of the methods above
-# before passing to LitServer.
-
-if handler is None:
-    raise ValueError("LinnaeusInferenceHandler could not be loaded. Please check configuration.")
 
 app = ls.LitServer()
 app.add_route("/predict", handler.predict, methods=["POST"])
@@ -37,4 +22,12 @@ if __name__ == "__main__":
     app.run()
 ```
 
-By default LitServe will batch concurrent requests and place the model on the best available device (CPU, CUDA or MPS).  The `/info` route returns the metadata produced by `handler.info()` so clients can discover the model’s expected inputs and taxonomy details.
+The `/info` route exposes the metadata returned by `handler.info()`, which is
+usually the easiest way for a client to discover expected inputs and taxonomy
+details.
+
+What this page does not claim:
+
+- that LitServe is the blessed long-term serving stack
+- that multi-view or observation-level inference is solved here
+- that the repo ships a complete production deployment recipe

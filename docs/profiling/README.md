@@ -1,98 +1,107 @@
-# Linnaeus Profiling System
+# Profiling Overview
 
-The Linnaeus profiling system provides comprehensive tools for performance analysis, optimization validation, and automated benchmarking of training runs.
+The profiling docs cover two related surfaces:
 
-## Quick Start
+- the public CLI and analysis tools that live in this repo
+- operator workflows that often depend on private trial manifests, private
+  compose templates, and host-specific runtime setup that are not published
+  here
+
+If you are reading this from the public repo, treat this section as a guide to
+the tooling contract, not as a promise that every launch recipe is runnable from
+public assets alone.
+
+## CLI Surface
+
+The current discovery path is:
 
 ```bash
-# Install with profiling dependencies
-pip install -e ".[profiling]"
-
-# Run automated profiling trials
-linnaeus-prof-run --trial-params-file trials.jsonl --output-dir results --timeout 600
-
-# Analyze profiler traces
-linnaeus-prof summary /path/to/experiment/run --output-format md
-
-# Compare baseline vs optimized
-linnaeus-prof diff baseline_run/ optimized_run/ --output-format md --save comparison.md
+uv run linnaeus --help
 ```
 
-## Components
+Current mapping:
 
-### 1. [linnaeus-prof-run](./prof-run.md) - Automated Trial Execution
-Orchestrates multiple training trials with different configurations, git branches, and environments in isolated Docker containers.
+- `linnaeus run ...` delegates to the trial runner surface
+- `linnaeus prof ...` delegates to the profiler analysis surface
+- `linnaeus config render|validate|validation-plan ...` handles preflight
+  config work without launching a run
+- legacy `linnaeus-prof` and `linnaeus-prof-run` commands still exist
 
-### 2. [linnaeus-prof](./prof-cli.md) - Performance Analysis CLI
-Analyzes PyTorch profiler traces, compares runs, and generates reports for identifying bottlenecks and validating optimizations.
+## Public-Safe Quickstart
 
-### 3. [Multi-Level Profiling](./profiling-levels.md) - Instrumentation System
-Configurable profiling depth from high-level timing (Level 1) to per-module breakdowns (Level 3).
+You can verify the profiling toolchain from source without any private
+manifests:
 
-## Workflow Overview
-
-```mermaid
-graph LR
-    A[Define Trials<br/>JSONL] --> B[Execute with<br/>prof-run]
-    B --> C[Collect Traces<br/>& Metrics]
-    C --> D[Analyze with<br/>prof CLI]
-    D --> E[Compare &<br/>Validate]
-```
-
-## Common Use Cases
-
-### A/B Testing Optimizations
-```jsonl
-{"name": "baseline", "git_ref": "main", "config_file": "configs/test.yaml"}
-{"name": "optimized", "git_ref": "feature/optimization", "config_file": "configs/test.yaml"}
-```
-
-### Multi-GPU Concurrent Execution
 ```bash
-linnaeus-prof-run \
-  --trial-params-file trials.jsonl \
-  --max-concurrent 2 \
-  --gpu-assignment auto
+uv sync --extra dev --extra profiling --extra cpu
+uv run linnaeus --help
+uv run linnaeus prof --help
+uv run linnaeus config validate --help
 ```
 
-### Performance Regression Detection
+If you already have a profiler output directory, you can analyze it directly:
+
 ```bash
-linnaeus-prof diff production_baseline/ latest_commit/ \
-  --output-format json | jq '.summary.avg_speedup < 0.95'
+uv run linnaeus prof summary /path/to/run --output-format md
+uv run linnaeus prof diff /path/to/baseline /path/to/candidate --output-format md
 ```
 
-## Key Features
+## What Usually Stays Private
 
-- **Reproducible Benchmarking**: Git commit pinning, environment control
-- **Concurrent GPU Execution**: 2x speedup on dual-GPU systems
-- **Automated Trace Repair**: Fixes H100 DDP corruption patterns
-- **Component-Level Analysis**: Detailed breakdown of model stages, data pipeline, losses
-- **Multiple Output Formats**: Console, JSON, Markdown, HTML
+Real profiling launches often need inputs that are not part of the public repo:
 
-## Documentation
+- host-specific Docker Compose templates
+- private experiment config banks
+- local dataset paths
+- machine-specific environment overlays
 
-- [Automated Trial Execution Guide](./prof-run.md)
-- [Performance Analysis CLI Reference](./prof-cli.md)
-- [Multi-Level Profiling Configuration](./profiling-levels.md)
-- [Best Practices & Troubleshooting](./best-practices.md)
+That split is intentional. The public repo documents the code and the CLI
+contract. Internal operator runbooks add the deployment details on top.
 
-## Integration with Development Workflow
+## Main Components
 
-The profiling system is integral to the Linnaeus model architecture development workflow (Phases 3-5):
+### 1. [Prof Run](./prof-run.md)
 
-**Phase 3: Profile-Guided Development**
-- Establish baseline performance metrics
-- Identify bottlenecks with Level 2/3 profiling
-- Test optimizations with A/B trials
+Trial orchestration for repeated or comparative runs.
 
-**Phase 4: Scale Testing**
-- Validate performance across hardware configurations
-- Test distributed training efficiency
-- Benchmark memory usage patterns
+### 2. [Prof CLI](./prof-cli.md)
 
-**Phase 5: Production Validation**
-- Final performance certification
-- Regression testing against baselines
-- Documentation of achieved improvements
+Trace inspection, summaries, and run-to-run comparison.
 
-For internal workflow details, see `.claude/workflow_reference/model_arch_dev_workflow.md`.
+### 3. [Prof Validate](./prof-validate.md)
+
+Preflight checks for config, trial manifests, and runtime assumptions.
+
+### 4. [Profiling Levels](./profiling-levels.md)
+
+Instrumentation depth from coarse timing to detailed module-level traces.
+
+## Common Workflows
+
+### Analyze an existing run
+
+Use this when you already have profiler output and want a readable summary.
+
+### Compare baseline vs candidate
+
+Use this when you want to test a model or runtime change against a known
+baseline.
+
+### Preflight a launch surface
+
+Use `linnaeus config validate` and `prof-validate` before long profiling waves.
+That catches path, config, and contract failures sooner than a failed Docker
+launch.
+
+## Scope Notes
+
+These docs are current for the profiling toolchain itself. They are not a full
+recipe book for every internal operator workflow. If you need those details,
+you are in the private-runtime lane, not the public-docs lane.
+
+## Read Next
+
+- [Prof Run](./prof-run.md)
+- [Prof CLI](./prof-cli.md)
+- [Prof Validate](./prof-validate.md)
+- [Best Practices](./best-practices.md)
