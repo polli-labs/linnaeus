@@ -184,7 +184,7 @@ def validate_resolved_config(config: Any, *, runtime_contract_policy: str = "err
     from linnaeus.utils.bbox_config_validation import validate_bbox_key_consistency
     from linnaeus.utils.runtime_contract_checks import collect_runtime_contract_findings
     from linnaeus.utils.schedule_utils import validate_schedule_config
-    from linnaeus.utils.training_consistency import validate_gradnorm_config, validate_loss_config
+    from linnaeus.utils.training_consistency import validate_gradnorm_config, validate_loss_config, validate_mixed_pairs_batch_config
 
     errors: list[str] = []
     warnings: list[str] = []
@@ -263,6 +263,7 @@ def validate_resolved_config(config: Any, *, runtime_contract_policy: str = "err
 
     errors.extend(validate_gradnorm_config(config))
     errors.extend(validate_loss_config(config))
+    errors.extend(validate_mixed_pairs_batch_config(config))
 
     dinov3_report = validate_dinov3_consistency(config)
     errors.extend(dinov3_report.errors)
