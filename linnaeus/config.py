@@ -104,6 +104,10 @@ _C.EXPERIMENT.WANDB.ENABLED = False
 # Note: This is distinct from TRAIN.AUTO_RESUME - when loading from a checkpoint with
 # a wandb_run_id, we always resume that wandb run regardless of this setting.
 _C.EXPERIMENT.WANDB.RESUME = False
+# Controls WandB behavior for full-state checkpoint resumes.
+# - "same_run": restore the checkpoint wandb_run_id and continue the same remote run.
+# - "fresh_run": keep training-state resume but fork a new WandB run explicitly.
+_C.EXPERIMENT.WANDB.CHECKPOINT_RESUME_POLICY = "same_run"
 _C.EXPERIMENT.WANDB.KEY = ""  # Defaults to reading from env var WANDB_KEY if empty
 # Run ID can be manually specified to resume a specific wandb run.
 # This is typically not needed as run_ids are automatically loaded from checkpoints,

@@ -5,7 +5,20 @@ from linnaeus.config import get_config
 from linnaeus.models.blocks.mask_pooling import mask_weighted_pool
 from linnaeus.models.blocks.query_token_adapter import MetaTokenEncoder
 from linnaeus.models.blocks.mil_pooling import MILPooling
-from linnaeus.models.dinov3_vnext import DinoV3MultiHead
+from linnaeus.models.dinov3_vnext import DinoV3MultiHead, get_disabled_optional_module_state_stems
+
+
+def _make_stub_dinov3_cfg() -> CN:
+    cfg = get_config()
+    cfg.MODEL.TYPE = "DINOv3MultiHead"
+    cfg.MODEL.IN_CHANS = 3
+    cfg.MODEL.DINOV3.USE_STUB = True
+    cfg.MODEL.DINOV3.EMBED_DIM = 32
+    cfg.MODEL.DINOV3.PATCH_SIZE = 4
+    cfg.DATA.TASK_KEYS_H5 = ["taxa_L10"]
+    cfg.MODEL.CLASSIFICATION.HEADS = CN(new_allowed=True)
+    cfg.MODEL.CLASSIFICATION.HEADS["taxa_L10"] = {"TYPE": "Linear"}
+    return cfg
 
 
 def test_mask_weighted_pool_simple():
@@ -205,3 +218,50 @@ def test_detach_pred_w_stops_taxonomy_grads_to_foreground_head():
     out_attached.sum().backward()
     attached_grads = [p.grad for p in model_attached.foreground_head.parameters() if p.requires_grad]
     assert any(g is not None and g.abs().sum().item() > 0 for g in attached_grads)
+
+
+def test_disabled_optional_modules_are_absent_from_trainable_set():
+    cfg = _make_stub_dinov3_cfg()
+    cfg.MODEL.META_ADAPTER.ENABLED = False
+    cfg.MODEL.FOREGROUNDNESS.ENABLED = False
+    cfg.MODEL.MIL.ENABLED = False
+
+    model = DinoV3MultiHead(cfg, num_classes={"taxa_L10": 5}, taxonomy_tree=None)
+
+    assert model.meta_encoder is None
+    assert model.meta_adapter is None
+    assert model.query_tokens is None
+    assert model.foreground_head is None
+    assert model.mil_pool is None
+
+    disabled_stems = get_disabled_optional_module_state_stems(cfg)
+    trainable_names = [name for name, param in model.named_parameters() if param.requires_grad]
+    leaking = [name for name in trainable_names if any(name == stem or name.startswith(f"{stem}.") for stem in disabled_stems)]
+    assert leaking == []
+
+
+def test_enabled_optional_modules_are_constructed_when_requested():
+    cfg = _make_stub_dinov3_cfg()
+    cfg.MODEL.META_ADAPTER.ENABLED = True
+    cfg.MODEL.META_ADAPTER.NUM_QUERIES = 2
+    cfg.MODEL.FOREGROUNDNESS.ENABLED = True
+    cfg.MODEL.FOREGROUNDNESS.HIDDEN_DIM = 16
+    cfg.MODEL.MIL.ENABLED = True
+
+    model = DinoV3MultiHead(cfg, num_classes={"taxa_L10": 5}, taxonomy_tree=None)
+
+    assert model.meta_encoder is not None
+    assert model.meta_adapter is not None
+    assert model.query_tokens is not None
+    assert model.foreground_head is not None
+    assert model.mil_pool is not None
+
+
+def test_zero_query_meta_adapter_marks_query_tokens_as_disabled_for_checkpoint_cleanup():
+    cfg = _make_stub_dinov3_cfg()
+    cfg.MODEL.META_ADAPTER.ENABLED = True
+    cfg.MODEL.META_ADAPTER.NUM_QUERIES = 0
+
+    disabled_stems = get_disabled_optional_module_state_stems(cfg)
+
+    assert "query_tokens" in disabled_stems
