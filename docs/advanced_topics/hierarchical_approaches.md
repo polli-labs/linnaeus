@@ -199,19 +199,28 @@ The standard and recommended solution provided by PyTorch for this scenario is t
 ```python
 # Inside main.py
 
-find_unused = config.DISTRIBUTED.DDP.find_unused_parameters # Default from config
+ddp_kwargs = {
+    "find_unused_parameters": config.DISTRIBUTED.DDP.find_unused_parameters,
+    "gradient_as_bucket_view": config.DISTRIBUTED.DDP.gradient_as_bucket_view,
+    "bucket_cap_mb": config.DISTRIBUTED.DDP.bucket_cap_mb,
+    "static_graph": config.DISTRIBUTED.DDP.static_graph,
+}
 # FORCE True if using GradNorm with hierarchical heads
 if config.LOSS.GRAD_WEIGHTING.TASK.TYPE == 'gradnorm' and \
    any(h.get("TYPE", "").startswith(("Hierarchical", "Conditional"))
        for h in config.MODEL.CLASSIFICATION.HEADS.values()):
-    if not find_unused:
+    if not ddp_kwargs["find_unused_parameters"]:
         logger.warning("GradNorm + Hierarchical Heads require find_unused_parameters=True for DDP. Overriding.")
-    find_unused = True
+    ddp_kwargs["find_unused_parameters"] = True
 
-model = DDP(model, device_ids=[local_rank], find_unused_parameters=find_unused)
+model = DDP(model, device_ids=[local_rank], **ddp_kwargs)
 ```
 
 -   **Effect:** This tells DDP to dynamically detect which parameters were *actually* used in the backward pass and only wait for those gradients, ignoring parameters that didn't receive gradients (like the unused shared classifiers during a specific GradNorm task backward).
+-   **Bucket truthfulness:** Other supported DDP wrap-time settings such as
+    `gradient_as_bucket_view`, `bucket_cap_mb`, and `static_graph` should still
+    follow the operator config directly; only `find_unused_parameters` gets the
+    GradNorm safety override.
 -   **Trade-off:** Setting `find_unused_parameters=True` introduces a small performance overhead during the backward pass as DDP needs to analyze the computation graph. However, it ensures correctness when using complex architectures like shared-parameter hierarchical heads with GradNorm.
 -   **Current Implementation:** linnaeus automatically forces this setting in `main.py` when `LOSS.GRAD_WEIGHTING.TASK.TYPE` is `'gradnorm'` to prevent the DDP error.
 
@@ -231,15 +240,20 @@ As noted in section 5.2, using GradNorm with DDP requires setting `find_unused_p
 
 ```python
 # In main.py
-find_unused = config.DISTRIBUTED.DDP.find_unused_parameters  # Default from config
+ddp_kwargs = {
+    "find_unused_parameters": config.DISTRIBUTED.DDP.find_unused_parameters,
+    "gradient_as_bucket_view": config.DISTRIBUTED.DDP.gradient_as_bucket_view,
+    "bucket_cap_mb": config.DISTRIBUTED.DDP.bucket_cap_mb,
+    "static_graph": config.DISTRIBUTED.DDP.static_graph,
+}
 
 # Force find_unused_parameters=True for all GradNorm usage
 if config.LOSS.GRAD_WEIGHTING.TASK.GRADNORM_ENABLED:
-    if not find_unused:
+    if not ddp_kwargs["find_unused_parameters"]:
         logger.warning("Forcing find_unused_parameters=True for DDP because GradNorm is enabled")
-    find_unused = True
+    ddp_kwargs["find_unused_parameters"] = True
     
-model = DDP(model, device_ids=[local_rank], find_unused_parameters=find_unused)
+model = DDP(model, device_ids=[local_rank], **ddp_kwargs)
 ```
 
 This setting is critical for preventing deadlocks during distributed communication, especially when GradNorm performs separate forward and backward passes for each task.

@@ -209,6 +209,87 @@ def _check_dinov3_stub_backbone(config: CN, *, policy: RuntimeContractPolicy) ->
     ]
 
 
+def _build_dinov3_optional_module_probe_model(config: CN):
+    from linnaeus.models.dinov3_vnext import DinoV3MultiHead
+
+    probe_cfg = config.clone()
+    probe_cfg.defrost()
+    probe_cfg.MODEL.DINOV3.USE_STUB = True
+    if not list(getattr(probe_cfg.DATA, "TASK_KEYS_H5", [])):
+        probe_cfg.DATA.TASK_KEYS_H5 = ["taxa_L10"]
+    probe_cfg.MODEL.CLASSIFICATION.HEADS = CN(new_allowed=True)
+    for task_key in probe_cfg.DATA.TASK_KEYS_H5:
+        probe_cfg.MODEL.CLASSIFICATION.HEADS[task_key] = {"TYPE": "Linear"}
+    probe_cfg.freeze()
+
+    num_classes = {task_key: 2 for task_key in probe_cfg.DATA.TASK_KEYS_H5}
+    return DinoV3MultiHead(probe_cfg, num_classes=num_classes, taxonomy_tree=None)
+
+
+def _check_dinov3_disabled_optional_modules_are_absent(
+    config: CN, *, policy: RuntimeContractPolicy
+) -> list[RuntimeContractFinding]:
+    # This is intentionally a narrow structural check. It only verifies that
+    # config-disabled optional modules are absent from the trainable set. It
+    # does not prove that config-enabled optional modules are exercised on
+    # every runtime path.
+    model_type = str(getattr(config.MODEL, "TYPE", ""))
+    if model_type != "DINOv3MultiHead":
+        return []
+
+    if bool(getattr(config.DISTRIBUTED.DDP, "find_unused_parameters", False)):
+        return []
+
+    from linnaeus.models.dinov3_vnext import get_disabled_optional_module_state_stems
+
+    disabled_stems = get_disabled_optional_module_state_stems(config)
+    if not disabled_stems:
+        return []
+
+    try:
+        model = _build_dinov3_optional_module_probe_model(config)
+    except Exception as exc:
+        return [
+            RuntimeContractFinding(
+                severity=_severity_for(policy),
+                code="DINOV3_OPTIONAL_MODULE_PROBE_FAILED",
+                message=(
+                    "Unable to verify DINOv3 optional-module topology for "
+                    "DISTRIBUTED.DDP.find_unused_parameters=False: "
+                    f"{exc}"
+                ),
+                remediation=(
+                    "Fix the DINOv3 optional-module probe or use "
+                    "DISTRIBUTED.DDP.find_unused_parameters=True until the model topology can be verified."
+                ),
+            )
+        ]
+
+    leaking = [
+        name
+        for name, param in model.named_parameters()
+        if param.requires_grad and any(name == stem or name.startswith(f"{stem}.") for stem in disabled_stems)
+    ]
+    if not leaking:
+        return []
+
+    return [
+        RuntimeContractFinding(
+            severity=_severity_for(policy),
+            code="DINOV3_DISABLED_OPTIONAL_MODULES_REMAIN_TRAINABLE",
+            message=(
+                "DISTRIBUTED.DDP.find_unused_parameters=False is unsafe for the current DINOv3 config: "
+                "disabled optional modules still expose trainable parameters "
+                f"({', '.join(leaking)})."
+            ),
+            remediation=(
+                "Structurally gate disabled optional modules out of the model, or keep "
+                "DISTRIBUTED.DDP.find_unused_parameters=True for this run."
+            ),
+        )
+    ]
+
+
 def _check_warmup_exceeds_training(config: CN, *, policy: RuntimeContractPolicy) -> list[RuntimeContractFinding]:
     """Warn when warmup epochs exceed total training epochs."""
     warmup_epochs = float(getattr(config.LR_SCHEDULER, "WARMUP_EPOCHS", 0))
@@ -388,6 +469,7 @@ def collect_runtime_contract_findings(
     findings: list[RuntimeContractFinding] = []
     findings.extend(_check_mask_pooling_bbox_runtime(config, policy=normalized_policy))
     findings.extend(_check_dinov3_stub_backbone(config, policy=normalized_policy))
+    findings.extend(_check_dinov3_disabled_optional_modules_are_absent(config, policy=normalized_policy))
     findings.extend(_check_warmup_exceeds_training(config, policy=normalized_policy))
     findings.extend(_check_taxonomy_smoothing_loss_coupling(config, policy=normalized_policy))
     findings.extend(_check_deprecated_key_aliases(config, policy=normalized_policy))

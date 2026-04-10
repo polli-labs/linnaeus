@@ -1,5 +1,6 @@
 import os
 from pathlib import Path
+from typing import Any
 
 import yaml
 from yacs.config import CfgNode as CN
@@ -119,6 +120,20 @@ def save_config(cfg: CN, save_path: str):
             sort_keys=False,
             allow_unicode=True,
             width=1000,  # Prevent line wrapping
+        )
+
+
+def save_yaml_payload(payload: dict[str, Any], save_path: str) -> None:
+    """Persist a plain YAML payload with the same formatting used for configs."""
+
+    with open(save_path, "w", encoding="utf-8") as f:
+        yaml.dump(
+            payload,
+            f,
+            default_flow_style=False,
+            sort_keys=False,
+            allow_unicode=True,
+            width=1000,
         )
 
 

@@ -24,6 +24,19 @@ from .blocks.query_token_adapter import MetaTokenEncoder, QueryTokenAdapter
 logger = get_main_logger()
 
 
+def get_disabled_optional_module_state_stems(config: CN) -> tuple[str, ...]:
+    stems: list[str] = []
+    if not bool(config.MODEL.META_ADAPTER.ENABLED):
+        stems.extend(["meta_encoder", "meta_adapter", "query_tokens"])
+    elif int(config.MODEL.META_ADAPTER.NUM_QUERIES) <= 0:
+        stems.append("query_tokens")
+    if not bool(config.MODEL.FOREGROUNDNESS.ENABLED):
+        stems.append("foreground_head")
+    if not bool(config.MODEL.MIL.ENABLED):
+        stems.append("mil_pool")
+    return tuple(stems)
+
+
 class DinoV3Backbone(nn.Module):
     def __init__(
         self,
@@ -129,35 +142,46 @@ class DinoV3MultiHead(BaseModel):
 
         self.use_meta_adapter = bool(config.MODEL.META_ADAPTER.ENABLED)
         self.meta_dims = self._resolve_meta_dims(config)
-        self.meta_encoder = MetaTokenEncoder(self.meta_dims, self.embed_dim)
-        self.meta_adapter = QueryTokenAdapter(
-            embed_dim=self.embed_dim,
-            num_layers=config.MODEL.META_ADAPTER.NUM_LAYERS,
-            num_heads=config.MODEL.META_ADAPTER.NUM_HEADS,
-            mlp_ratio=config.MODEL.META_ADAPTER.MLP_RATIO,
-            dropout=config.MODEL.META_ADAPTER.DROPOUT,
-            use_self_attn=config.MODEL.META_ADAPTER.USE_SELF_ATTN,
-        )
         self.num_queries = int(config.MODEL.META_ADAPTER.NUM_QUERIES)
-        if self.num_queries > 0:
-            self.query_tokens = nn.Parameter(torch.zeros(1, self.num_queries, self.embed_dim))
+        if self.use_meta_adapter:
+            self.meta_encoder = MetaTokenEncoder(self.meta_dims, self.embed_dim)
+            self.meta_adapter = QueryTokenAdapter(
+                embed_dim=self.embed_dim,
+                num_layers=config.MODEL.META_ADAPTER.NUM_LAYERS,
+                num_heads=config.MODEL.META_ADAPTER.NUM_HEADS,
+                mlp_ratio=config.MODEL.META_ADAPTER.MLP_RATIO,
+                dropout=config.MODEL.META_ADAPTER.DROPOUT,
+                use_self_attn=config.MODEL.META_ADAPTER.USE_SELF_ATTN,
+            )
+            if self.num_queries > 0:
+                self.query_tokens = nn.Parameter(torch.zeros(1, self.num_queries, self.embed_dim))
+            else:
+                self.register_parameter("query_tokens", None)
         else:
-            self.query_tokens = None
+            self.meta_encoder = None
+            self.meta_adapter = None
+            self.register_parameter("query_tokens", None)
 
         self.use_foreground = bool(config.MODEL.FOREGROUNDNESS.ENABLED)
-        self.foreground_head = ForegroundnessHead(
-            embed_dim=self.embed_dim,
-            hidden_dim=config.MODEL.FOREGROUNDNESS.HIDDEN_DIM,
-            dropout=config.MODEL.FOREGROUNDNESS.DROPOUT,
-        )
+        if self.use_foreground:
+            self.foreground_head = ForegroundnessHead(
+                embed_dim=self.embed_dim,
+                hidden_dim=config.MODEL.FOREGROUNDNESS.HIDDEN_DIM,
+                dropout=config.MODEL.FOREGROUNDNESS.DROPOUT,
+            )
+        else:
+            self.foreground_head = None
 
         self.use_mil = bool(config.MODEL.MIL.ENABLED)
-        self.mil_pool = MILPooling(
-            embed_dim=self.embed_dim,
-            mode=config.MODEL.MIL.POOLING,
-            temperature=config.MODEL.MIL.TEMPERATURE,
-            attention_hidden_dim=config.MODEL.MIL.ATTENTION_HIDDEN_DIM,
-        )
+        if self.use_mil:
+            self.mil_pool = MILPooling(
+                embed_dim=self.embed_dim,
+                mode=config.MODEL.MIL.POOLING,
+                temperature=config.MODEL.MIL.TEMPERATURE,
+                attention_hidden_dim=config.MODEL.MIL.ATTENTION_HIDDEN_DIM,
+            )
+        else:
+            self.mil_pool = None
 
         num_classes = kwargs.get("num_classes")
         task_keys = config.DATA.TASK_KEYS_H5
@@ -193,7 +217,7 @@ class DinoV3MultiHead(BaseModel):
         cls, patch_tokens, grid_size = self.backbone(images)
 
         fg_logits = None
-        if self.use_foreground:
+        if self.use_foreground and self.foreground_head is not None:
             fg_logits = self.foreground_head(patch_tokens)
 
         cls_pooled = cls.squeeze(1)
@@ -222,7 +246,7 @@ class DinoV3MultiHead(BaseModel):
             else:
                 pooled = blend_alpha * masked_pooled + (1.0 - blend_alpha) * cls_pooled
 
-        if self.use_meta_adapter and meta is not None:
+        if self.use_meta_adapter and self.meta_encoder is not None and self.meta_adapter is not None and meta is not None:
             meta_tokens = self.meta_encoder(meta, meta_validity_mask)
             query_list = [pooled.unsqueeze(1)]
             if self.query_tokens is not None:
@@ -297,7 +321,7 @@ class DinoV3MultiHead(BaseModel):
                     )
             pooled, fg_logits = self._forward_single(flat, meta_flat, meta_mask_flat, mask_flat)
             view_tokens = pooled.view(bsz, views, -1)
-            if self.use_mil:
+            if self.use_mil and self.mil_pool is not None:
                 bag_token = self.mil_pool(view_tokens, view_mask=view_mask)
             else:
                 bag_token = self._masked_mean_views(view_tokens, view_mask=view_mask)
