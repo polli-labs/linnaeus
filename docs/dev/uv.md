@@ -16,7 +16,8 @@ ephemeral environments (CI-like, or local dev without Docker).
 
 ## Requirements
 
-- **uv >= 0.5.3**
+- **uv >= 0.11.11**. The seven-day `exclude-newer` cooldown uses uv's
+  friendly-duration configuration, which older uv releases do not parse.
 - **Python >= 3.10**
 - **CUDA builds (Linux GPU)**: CUDA toolkit + `nvcc` installed on the host
 
