@@ -37,7 +37,7 @@ ephemeral environments (CI-like, or local dev without Docker).
 rm -rf .venv
 uv venv .venv
 uv sync --locked --extra dev --extra cpu
-uv run pytest -q
+uv run --locked pytest -q
 ```
 
 ## Canonical baseline gate
@@ -57,7 +57,7 @@ That command performs the locked sync plus the current scoped lint, test, and ty
 rm -rf .venv
 uv venv .venv
 uv sync --locked --extra dev --extra cuda
-uv run python -c "import torch; print(torch.__version__, torch.cuda.is_available(), torch.version.cuda)"
+uv run --locked python -c "import torch; print(torch.__version__, torch.cuda.is_available(), torch.version.cuda)"
 ```
 
 ### Optional: Flash-Attention (FA2/FA3)
@@ -68,7 +68,7 @@ It builds against the installed PyTorch and requires CUDA tooling.
 ```bash
 uv sync --locked --extra dev --extra cuda
 MAX_JOBS=4 uv sync --locked --extra dev --extra cuda --extra cuda-fa
-uv run python -c "import flash_attn; print('flash_attn ok')"
+uv run --locked python -c "import flash_attn; print('flash_attn ok')"
 ```
 
 Helpful build knobs:
