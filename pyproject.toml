@@ -40,7 +40,7 @@ dependencies = [
     "termcolor",
     "rich",
     "polli-typus>=0.1.10",
-    "huggingface-hub",
+    "huggingface-hub>=1.5,<2",
     "python-dateutil",
     "pydantic>=2",
 ]
@@ -121,6 +121,7 @@ Homepage = "https://github.com/polli-labs/linnaeus"
 Issues = "https://github.com/polli-labs/linnaeus/issues"
 
 [tool.uv]
+exclude-newer = "7 days"
 conflicts = [
   [
     { extra = "cpu" },
@@ -165,7 +166,7 @@ flash-attn = [
 
 # Build system uses hatchling for modern, deterministic builds.
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling>=1.27,<2"]
 build-backend = "hatchling.build"
 
 # Explicit package discovery for Hatchling.

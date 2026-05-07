@@ -60,8 +60,11 @@ def main(argv: list[str] | None = None) -> int:
                 [
                     "uv",
                     "run",
+                    "--locked",
                     "--extra",
                     "dev",
+                    "--extra",
+                    "cpu",
                     "ruff",
                     "check",
                     "--select",
@@ -74,13 +77,27 @@ def main(argv: list[str] | None = None) -> int:
             )
 
         if not args.skip_typecheck:
-            _run(["uv", "run", "--extra", "dev", "ty", "check", *typecheck_targets], cwd=repo_root)
+            _run(["uv", "run", "--locked", "--extra", "dev", "--extra", "cpu", "ty", "check", *typecheck_targets], cwd=repo_root)
 
         if not args.skip_tests:
-            _run(["uv", "run", "--extra", "dev", "pytest", "-q", *pytest_targets], cwd=repo_root)
+            _run(["uv", "run", "--locked", "--extra", "dev", "--extra", "cpu", "pytest", "-q", *pytest_targets], cwd=repo_root)
 
         if not args.skip_smoke:
-            _run(["uv", "run", "python", "tools/smoke/bbox_metrics_contract_smoke.py", "--json"], cwd=repo_root)
+            _run(
+                [
+                    "uv",
+                    "run",
+                    "--locked",
+                    "--extra",
+                    "dev",
+                    "--extra",
+                    "cpu",
+                    "python",
+                    "tools/smoke/bbox_metrics_contract_smoke.py",
+                    "--json",
+                ],
+                cwd=repo_root,
+            )
     except subprocess.CalledProcessError as exc:
         print(f"quality_gate failed with exit code {exc.returncode}", file=sys.stderr)
         return exc.returncode
