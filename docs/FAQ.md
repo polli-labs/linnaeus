@@ -54,11 +54,10 @@ For source training, the current entrypoint is:
 uv run python -m linnaeus.main --cfg path/to/experiment.yaml
 ```
 
-Use the config helpers before launching long runs:
+For public source checkouts, inspect the training entrypoint directly:
 
 ```bash
-uv run linnaeus config render --cfg path/to/experiment.yaml --dry-run --format yaml
-uv run linnaeus config validate --cfg path/to/experiment.yaml --dry-run
+uv run python -m linnaeus.main --help
 ```
 
 See [Training Overview](training/overview.md) for the current source-training

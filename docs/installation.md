@@ -1,8 +1,8 @@
 # Installation
 
 For most readers, the right way to use this repo is still a local source
-checkout with `uv`. That is the path the docs, CLI checks, and current training
-surface are written around.
+checkout with `uv`. That is the path the docs, import checks, profiling CLIs,
+and current training surface are written around.
 
 ## Requirements
 
@@ -53,11 +53,12 @@ uv run python -c "import flash_attn; print('flash_attn ok')"
 
 ## Verify The Checkout
 
-Use the current CLI surfaces for a fast sanity check:
+Use the current public surfaces for a fast sanity check:
 
 ```bash
-uv run linnaeus --help
-uv run linnaeus config --help
+uv run python -c "import linnaeus; print(linnaeus.__version__)"
+uv run python -m linnaeus.main --help
+uv run linnaeus-prof --help
 uv run mkdocs build --strict
 ```
 

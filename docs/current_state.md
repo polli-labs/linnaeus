@@ -36,9 +36,10 @@ shared DINOv3 vNext workstream.
 These are the surfaces you can rely on today:
 
 - source training entrypoint: `uv run python -m linnaeus.main --cfg ...`
-- config preflight: `uv run linnaeus config render|validate|explain ...`
-- profiling and experiment tooling: `uv run linnaeus prof ...` and
-  `uv run linnaeus run ...`
+- profiling analysis: `uv run linnaeus-prof ...`
+- profiling trial orchestration: `uv run linnaeus-prof-run ...`
+- config preflight for private operator launches lives with the corresponding
+  private trial manifests and runtime workflows
 - inference contract: bundle-first loading through
   `LinnaeusInferenceHandler.load_from_artifacts(...)`
 - result semantics: `typus`-backed hierarchical outputs

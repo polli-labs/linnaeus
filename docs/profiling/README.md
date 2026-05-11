@@ -16,16 +16,16 @@ public assets alone.
 The current discovery path is:
 
 ```bash
-uv run linnaeus --help
+uv run linnaeus-prof --help
+uv run linnaeus-prof-run --help
 ```
 
 Current mapping:
 
-- `linnaeus run ...` delegates to the trial runner surface
-- `linnaeus prof ...` delegates to the profiler analysis surface
-- `linnaeus config render|validate|validation-plan ...` handles preflight
-  config work without launching a run
-- legacy `linnaeus-prof` and `linnaeus-prof-run` commands still exist
+- `linnaeus-prof ...` provides profiler analysis and reporting
+- `linnaeus-prof-run ...` orchestrates repeated or comparative profiling runs
+- config preflight for private operator launches lives with the corresponding
+  private trial manifests and runtime workflows
 
 ## Public-Safe Quickstart
 
@@ -34,16 +34,15 @@ manifests:
 
 ```bash
 uv sync --extra dev --extra profiling --extra cpu
-uv run linnaeus --help
-uv run linnaeus prof --help
-uv run linnaeus config validate --help
+uv run linnaeus-prof --help
+uv run linnaeus-prof-run --help
 ```
 
 If you already have a profiler output directory, you can analyze it directly:
 
 ```bash
-uv run linnaeus prof summary /path/to/run --output-format md
-uv run linnaeus prof diff /path/to/baseline /path/to/candidate --output-format md
+uv run linnaeus-prof summary /path/to/run --output-format md
+uv run linnaeus-prof diff /path/to/baseline /path/to/candidate --output-format md
 ```
 
 ## What Usually Stays Private
@@ -89,7 +88,7 @@ baseline.
 
 ### Preflight a launch surface
 
-Use `linnaeus config validate` and `prof-validate` before long profiling waves.
+Use the private-runtime config validation path before long profiling waves.
 That catches path, config, and contract failures sooner than a failed Docker
 launch.
 

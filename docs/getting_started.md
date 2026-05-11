@@ -26,14 +26,15 @@ These commands tell you quickly whether the repo and entrypoints are in working
 order:
 
 ```bash
-uv run linnaeus --help
-uv run linnaeus config --help
-uv run linnaeus prof --help
+uv run python -c "import linnaeus; print(linnaeus.__version__)"
+uv run python -m linnaeus.main --help
+uv run linnaeus-prof --help
+uv run linnaeus-prof-run --help
 uv run mkdocs build --strict
 ```
 
 If you are working on code changes rather than docs only, use the relevant
-quality gate from [docs/dev/05_quality_gates.md](dev/05_quality_gates.md).
+quality gate from [CI & Docker Guide](ci.md).
 
 ## Know What Is Current
 
@@ -54,20 +55,18 @@ replacing YACS all at once.
 
 ## Learn the Command Surfaces
 
-The main entrypoints are:
+The public package does not expose a root `linnaeus` CLI. Use the source
+training module and the profiling entrypoints directly:
 
 ```bash
-uv run linnaeus --help
-uv run linnaeus config render --help
-uv run linnaeus config validate --help
-uv run linnaeus config explain --help
-uv run linnaeus prof --help
-uv run linnaeus run --help
+uv run python -m linnaeus.main --help
+uv run linnaeus-prof --help
+uv run linnaeus-prof-run --help
 ```
 
-Use `linnaeus config render|validate|explain` before launching long runs. That
-surface exists specifically so you do not have to guess how the config stack
-resolved.
+The training entrypoint consumes the resolved YACS config at launch time. For
+long operator runs, use the private-runtime validation and profiling surfaces
+that correspond to your trial manifests.
 
 ## Next Steps
 

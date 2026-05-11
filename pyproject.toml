@@ -46,7 +46,6 @@ dependencies = [
 ]
 
 [project.scripts]
-linnaeus = "linnaeus.cli:main"
 linnaeus-prof = "linnaeus.profiling.cli:main"
 linnaeus-prof-run = "linnaeus.tools.profiling.run_profiling_trials:main"
 

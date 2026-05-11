@@ -19,7 +19,7 @@ detail:
     final-summary metrics, and interpretation guidance
 *   [Metrics and Logging](../dev/03_metrics_and_logging.md): canonical
     observability naming and payload structure
-*   [Quality Gates](../dev/05_quality_gates.md): broader repo verification
+*   [CI & Docker Guide](../ci.md): broader repo verification
     posture
 *   [Prof Validate](../profiling/prof-validate.md): validation-only preflight
     surface for profiling/operator workflows
@@ -55,5 +55,5 @@ The validation-only profiling validator currently rejects these settings:
 *   `FINAL_EPOCH.EXHAUSTIVE_PARTIAL_META_VALIDATION=True`
 
 That limitation matters for operator workflows that rely on
-`linnaeus config validate` or the profiling validator before launching
+private-runtime config validation or the profiling validator before launching
 validation-only runs.

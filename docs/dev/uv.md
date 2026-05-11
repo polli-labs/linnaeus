@@ -3,7 +3,7 @@ title: "UV Local Dev (Golden Path)"
 summary: "Repeatable uv-based CPU and CUDA setup for Linnaeus without Docker."
 tags: [docs, dev, uv]
 date: 2026-01-15
-lastmod: 2026-05-06
+lastmod: 2026-05-11
 x:
   project: linnaeus
   doc_type: docs_page
@@ -49,7 +49,7 @@ bash tools/ci/run_core_baseline_gate.sh
 ```
 
 That command performs the locked sync plus the current scoped lint, test, and type checks. See
-[05_quality_gates.md](./05_quality_gates.md) for the preserved target set and failure triage.
+[CI & Docker Guide](../ci.md) for the preserved target set and failure triage.
 
 ## CUDA (Linux + GPU, e.g., blade)
 

@@ -67,8 +67,9 @@ The model system sits inside a broader config transition:
 
 - YACS still owns runtime config resolution today
 - `resolve_config()` is the canonical merge path
-- `linnaeus config render|validate|explain` exists so operators can inspect the
-  final resolved shape before launching a run
+- public source checkouts launch through `python -m linnaeus.main`; private
+  operator workflows own the preflight path for inspecting the final resolved
+  shape before launching a run
 - typed/Pydantic-backed validation is being layered in incrementally, not
   swapped in one shot
 
@@ -84,7 +85,7 @@ If you are adding a new model family:
 2. register it with the model factory
 3. add or update the config surface needed to instantiate it
 4. make the training and inference contracts explicit enough that
-   `linnaeus config validate` and bundle export can fail honestly
+   runtime validation and bundle export can fail honestly
 
 If you are only changing output behavior, adding or extending a classification
 head is usually the cleaner seam.
