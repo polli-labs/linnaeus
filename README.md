@@ -38,7 +38,8 @@ promotion flow, and cutover guardrails, see
 ```bash
 uv venv .venv
 uv sync --extra dev --extra cpu
-uv run linnaeus --help
+uv run python -c "import linnaeus; print(linnaeus.__version__)"
+uv run linnaeus-prof --help
 uv run mkdocs build --strict
 ```
 
@@ -53,8 +54,7 @@ For the repo gate that mirrors the core CI baseline, run:
 bash tools/ci/run_core_baseline_gate.sh
 ```
 
-See [docs/dev/05_quality_gates.md](docs/dev/05_quality_gates.md) for scope and
-failure triage.
+See [docs/ci.md](docs/ci.md) for CI scope and failure triage.
 
 ## What This Repo Covers
 

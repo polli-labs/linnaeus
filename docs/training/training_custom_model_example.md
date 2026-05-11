@@ -66,19 +66,18 @@ TRAIN:
   EPOCHS: 10
 ```
 
-The point of the example is the contract, not the exact hyperparameters. Use
-the config preflight tools to inspect what your real config resolves to.
+The point of the example is the contract, not the exact hyperparameters.
+Before long operator runs, inspect what your real config resolves to through
+the private-runtime preflight path that owns your trial manifests.
 
-## 3. Render And Validate Before Launch
+## 3. Inspect Before Launch
 
 ```bash
-uv run linnaeus config render --cfg /abs/path/to/my_experiment.yaml
-uv run linnaeus config validate --cfg /abs/path/to/my_experiment.yaml
-uv run linnaeus config explain MODEL.TYPE --cfg /abs/path/to/my_experiment.yaml
+uv run python -m linnaeus.main --help
 ```
 
-If validation fails, fix that first. Do not start training and hope the runtime
-will sort it out.
+If private-runtime validation fails, fix that first. Do not start training and
+hope the runtime will sort it out.
 
 ## 4. Launch Training
 

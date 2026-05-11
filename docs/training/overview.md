@@ -4,8 +4,9 @@
 > The active experimentation line is `DINOv3MultiHead`. Older mFormer config
 > files still exist in the tree but are no longer the main public story.
 
-This page focuses on what matters for training now: how to preflight configs,
-launch runs honestly, and interpret the main decision surfaces.
+This page focuses on what matters for training now: how to launch runs
+honestly, keep config provenance clear, and interpret the main decision
+surfaces.
 
 ## Current Training Loop
 
@@ -17,16 +18,15 @@ uv run python -m linnaeus.main \
   --opts EXPERIMENT.WANDB.ENABLED True
 ```
 
-Before you launch a real run, use the config preflight surface:
+For public source checkouts, inspect the training entrypoint directly:
 
 ```bash
-uv run linnaeus config render --cfg /abs/path/to/experiment.yaml
-uv run linnaeus config validate --cfg /abs/path/to/experiment.yaml
-uv run linnaeus config explain MODEL.TYPE --cfg /abs/path/to/experiment.yaml
+uv run python -m linnaeus.main --help
 ```
 
-That is the right way to inspect the resolved config stack. Do not guess from a
-single YAML file.
+For long operator runs, keep config preflight in the private-runtime workflow
+that owns the corresponding trial manifests and deployment assets. Do not guess
+from a single YAML file.
 
 ## What The Training Stack Covers
 
@@ -57,8 +57,8 @@ Three facts matter here:
    though the active experimentation line has moved to DINOv3.
 
 For DINOv3 runs, operators usually set `MODEL.TYPE: DINOv3MultiHead` and avoid
-inheriting mFormer arch files by accident. Use `linnaeus config render` or
-`linnaeus config explain MODEL.TYPE` to confirm what actually resolved.
+inheriting mFormer arch files by accident. Confirm the resolved config through
+the runtime or private preflight path before launching long jobs.
 
 ## Metrics That Drive Decisions
 
@@ -87,7 +87,7 @@ A lower loss does not rescue a run that regresses PCA.
 
 1. Prepare your dataset and taxonomy surfaces.
 2. Author or adapt an experiment config.
-3. Run `linnaeus config render|validate`.
+3. Confirm the resolved config through the runtime or private preflight path.
 4. Launch with `python -m linnaeus.main`.
 5. Watch PCA, DWPCA, per-rank accuracies, and schedule summaries.
 6. Use profiling or validation-only flows when you need operator-level receipts.

@@ -34,7 +34,7 @@ For profiling trials shorter than one epoch:
 Example:
 ```bash
 # Example shape only; fill in your own manifest/output paths.
-uv run linnaeus run --trial-params-file trials.jsonl --output-dir results --timeout 120
+uv run linnaeus-prof-run --trial-params-file trials.jsonl --output-dir results --timeout 120
 ```
 
 **Note**: This limitation affects both debug and production early exit mechanisms. Mid-epoch exit support requires refactoring the training loop architecture.
@@ -44,7 +44,7 @@ uv run linnaeus run --trial-params-file trials.jsonl --output-dir results --time
 ## Concurrent Profiling (Experimental)
 
 **Issue**: Running profiling trials concurrently (for example
-`uv run linnaeus run --max-concurrent 2`) can be sensitive to Docker Compose
+`uv run linnaeus-prof-run --max-concurrent 2`) can be sensitive to Docker Compose
 template details and may fail if templates introduce cross-trial collisions.
 
 **Common footguns**:
