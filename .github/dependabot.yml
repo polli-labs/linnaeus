@@ -1,0 +1,11 @@
+# Supply-chain posture (POL-1265 / POL-1277): keep GitHub Actions references
+# current -- including SHA-pinned third-party actions -- with the same 7-day
+# cooldown applied to package dependencies.
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    cooldown:
+      default-days: 7
